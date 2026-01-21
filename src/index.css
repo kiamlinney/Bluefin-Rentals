@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+@theme {
+    /* This is where you'd put custom theme colors in v4 if you wanted them */
+}
+
+/*@layer components {*/
+/*    .primary-button {*/
+/*        @apply bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors w-fit;*/
+/*    }*/
+/*}*/
