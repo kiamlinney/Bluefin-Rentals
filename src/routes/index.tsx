@@ -1,7 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import Navbar from "../components/Navbar.tsx";
 
 export const Route = createFileRoute('/')({
     component: Index,
@@ -24,7 +23,6 @@ function Index() {
 
     return (
         <main className="min-h-screen bg-[url('/images/BG.svg')] bg-cover bg-center">
-            <Navbar/>
 
             <section className="main-section container mx-auto px-4">
                 <div className="page-heading py-16 text-center">
@@ -35,7 +33,7 @@ function Index() {
 
                 <div className="flex flex-col items-center justify-center mt-10 gap-4">
                     <Link
-                        to="/cars"
+                        to="/fleet"
                         className="primary-button px-6 py-3 bg-gray-600 text-white rounded-lg text-xl font-semibold hover:bg-gray-800 transition"
                     >
                         Browse Fleet

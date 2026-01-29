@@ -9,12 +9,20 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as FleetRouteImport } from './routes/fleet'
+import { Route as ContactRouteImport } from './routes/contact'
+import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as FleetIndexRouteImport } from './routes/fleet/index'
+import { Route as FleetCarIdRouteImport } from './routes/fleet/$carId'
 
-const FleetRoute = FleetRouteImport.update({
-  id: '/fleet',
-  path: '/fleet',
+const ContactRoute = ContactRouteImport.update({
+  id: '/contact',
+  path: '/contact',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AboutRoute = AboutRouteImport.update({
+  id: '/about',
+  path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -22,40 +30,69 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FleetIndexRoute = FleetIndexRouteImport.update({
+  id: '/fleet/',
+  path: '/fleet/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FleetCarIdRoute = FleetCarIdRouteImport.update({
+  id: '/fleet/$carId',
+  path: '/fleet/$carId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/fleet': typeof FleetRoute
+  '/about': typeof AboutRoute
+  '/contact': typeof ContactRoute
+  '/fleet/$carId': typeof FleetCarIdRoute
+  '/fleet': typeof FleetIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/fleet': typeof FleetRoute
+  '/about': typeof AboutRoute
+  '/contact': typeof ContactRoute
+  '/fleet/$carId': typeof FleetCarIdRoute
+  '/fleet': typeof FleetIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/fleet': typeof FleetRoute
+  '/about': typeof AboutRoute
+  '/contact': typeof ContactRoute
+  '/fleet/$carId': typeof FleetCarIdRoute
+  '/fleet/': typeof FleetIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/fleet'
+  fullPaths: '/' | '/about' | '/contact' | '/fleet/$carId' | '/fleet'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/fleet'
-  id: '__root__' | '/' | '/fleet'
+  to: '/' | '/about' | '/contact' | '/fleet/$carId' | '/fleet'
+  id: '__root__' | '/' | '/about' | '/contact' | '/fleet/$carId' | '/fleet/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  FleetRoute: typeof FleetRoute
+  AboutRoute: typeof AboutRoute
+  ContactRoute: typeof ContactRoute
+  FleetCarIdRoute: typeof FleetCarIdRoute
+  FleetIndexRoute: typeof FleetIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/fleet': {
-      id: '/fleet'
-      path: '/fleet'
-      fullPath: '/fleet'
-      preLoaderRoute: typeof FleetRouteImport
+    '/contact': {
+      id: '/contact'
+      path: '/contact'
+      fullPath: '/contact'
+      preLoaderRoute: typeof ContactRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/about': {
+      id: '/about'
+      path: '/about'
+      fullPath: '/about'
+      preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -65,12 +102,29 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/fleet/': {
+      id: '/fleet/'
+      path: '/fleet'
+      fullPath: '/fleet'
+      preLoaderRoute: typeof FleetIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/fleet/$carId': {
+      id: '/fleet/$carId'
+      path: '/fleet/$carId'
+      fullPath: '/fleet/$carId'
+      preLoaderRoute: typeof FleetCarIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  FleetRoute: FleetRoute,
+  AboutRoute: AboutRoute,
+  ContactRoute: ContactRoute,
+  FleetCarIdRoute: FleetCarIdRoute,
+  FleetIndexRoute: FleetIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
