@@ -8,7 +8,7 @@ const Navbar = () => {
     ];
 
     return (
-        <nav className="flex items-center justify-between px-8 py-4 bg-white shadow-sm">
+        <nav className="flex items-center justify-between px-8 py-4 bg-gray-300 border-b-3 sticky top-0 z-50 shadow-sm">
             {/* Logo Section */}
             <Link to="/" className="hover:opacity-80 transition-opacity">
                 <p className="text-2xl text-gradient2">
@@ -22,15 +22,14 @@ const Navbar = () => {
                     <Link
                         key={link.to}
                         to={link.to}
-                        className="text-gray-600 hover:text-gray-800 font-medium transition-colors"
-                        // activeProps style will apply when you are on that specific page
-                        activeProps={{ className: "text-gray-600 font-bold" }}
+                        className="text-gray-900 hover:text-gray-800 font-medium transition-colors"
+                        //text-sm uppercase tracking-widest text-gray-900 hover:text-black font-semibold transition-colors
+                        activeProps={{ className: "border-b-2 border-gray-800" }}
                     >
                         {link.name}
                     </Link>
                 ))}
 
-                {/* Optional: Call to Action button stays separate or styled differently */}
                 <Link
                     to="/fleet"
                     className="primary-button bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-800"
