@@ -1,14 +1,16 @@
 import {createFileRoute} from '@tanstack/react-router'
 import { useState } from 'react'
-import { supabase } from '../../lib/supabase'
+import { getSupabaseServerClient } from '../../lib/supabase'
 
 export const Route = createFileRoute('/fleet/$carId')({
     loader: async ({params}) => {
+        const supabase = getSupabaseServerClient()
         const { data: car, error } = await supabase
             .from('cars')
             .select('*')
             .eq('id', params.carId)
             .single()
+
         if (error) throw new Error("Car not found")
             return { car }
     },

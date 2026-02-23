@@ -1,9 +1,10 @@
 import {createFileRoute, Link} from '@tanstack/react-router'
-import {supabase} from "../../lib/supabase.ts";
+import { getSupabaseServerClient } from "../../lib/supabase.ts";
 import CarCard from "../../components/CarCard.tsx";
 
 export const Route = createFileRoute('/fleet/')({
     loader: async () => {
+        const supabase = getSupabaseServerClient()
         const { data: cars, error } = await supabase
             .from('cars')
             .select('*')
