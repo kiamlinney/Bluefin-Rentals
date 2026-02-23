@@ -55,7 +55,7 @@ function CarDetails() {
                 <div className="hidden lg:block h-[196px] relative group cursor-pointer">
                     <img src={getImageUrl('bottom_right.PNG')} className="w-full h-full object-cover brightness-75" />
                     {/* The Expand Button - positioned at the bottom right */}
-                    <button className="absolute bottom-4 right-4 text-white bg-gray-600 px-4 py-2 rounded-lg text-sm shadow-md hover:scale-105 transition-transform">
+                    <button className="absolute bottom-4 right-4 text-white bg-gray-600 px-4 py-2 rounded-lg shadow-md hover:scale-105 transition-transform">
                         View all photos
                     </button>
                 </div>

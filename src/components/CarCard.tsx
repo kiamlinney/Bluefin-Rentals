@@ -14,7 +14,7 @@ const CarCard = ({ car }) => {
             </div>
 
             <div className="p-4">
-                <h3 className="text-xl font-bold">{car.make} {car.model}</h3>
+                <h3 className="text-xl font-bold">{car.make} {car.model} {car.year}</h3>
                 <p className="text-gray-500">${car.price_per_day} / day</p>
             </div>
         </Link>

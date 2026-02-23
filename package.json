@@ -4,21 +4,23 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
+    "dev": "vite dev",
+    "build": "vite build",
+    "start": "node .output/server/index.mjs"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.47.10",
     "@tailwindcss/vite": "^4.0.0-beta.8",
-    "@tanstack/react-router": "^1.95.1",
-    "@tanstack/router-devtools": "^1.150.0",
+    "@tanstack/react-router": "^1.162.4",
+    "@tanstack/react-router-devtools": "^1.162.4",
+    "@tanstack/react-start": "^1.162.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "srvx": "0.8.15",
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@tanstack/router-plugin": "^1.95.1",
     "@types/react": "^19.2.8",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
@@ -26,6 +28,7 @@
     "postcss": "^8.4.49",
     "tailwindcss": "^4.0.0-beta.8",
     "typescript": "^5.7.2",
-    "vite": "^6.0.7"
+    "vite": "^7.3.1",
+    "vite-tsconfig-paths": "^6.1.1"
   }
 }

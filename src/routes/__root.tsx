@@ -1,46 +1,47 @@
-import { createRootRoute, Link, Outlet } from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/router-devtools'
+import {
+    createRootRoute,
+    Outlet,
+    ScrollRestoration,
+    HeadContent, // This replaces <Meta />
+    Scripts      // This remains, but check its import source
+} from '@tanstack/react-router' // Note: These often come from react-router now
+import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import Navbar from "../components/Navbar.tsx";
+import type { ReactNode } from "react";
+import '../index.css'
 
 export const Route = createRootRoute({
-  component: RootComponent,
+    head: () => ({
+        meta: [
+            { charSet: 'utf-8' },
+            { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+            { title: 'Bluefin Rentals | Premium Car Sharing' },
+        ],
+    }),
+    component: RootComponent,
 })
 
 function RootComponent() {
     return (
-        <>
-            {/* Anything you put HERE (like a Navbar)
-             will stay on the screen as you change pages */}
+        <RootDocument>
             <Navbar />
-
             <Outlet />
-
-            {/* This tool helps you debug your routes.
-             It only shows up during development.*/}
             <TanStackRouterDevtools />
-        </>
+        </RootDocument>
     )
 }
 
-/*
-import { createRootRoute, Link, Outlet } from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
-
-const RootLayout = () => (
-  <>
-    <div className="p-2 flex gap-2">
-      <Link to="/" className="[&.active]:font-bold">
-        Home
-      </Link>{' '}
-      <Link to="/about" className="[&.active]:font-bold">
-        About
-      </Link>
-    </div>
-    <hr />
-    <Outlet />
-    <TanStackRouterDevtools />
-  </>
-)
-
-export const Route = createRootRoute({ component: RootLayout })
- */
+function RootDocument({ children }: { children: ReactNode }) {
+    return (
+        <html lang="en">
+        <head>
+            <HeadContent /> {/* Replaces Meta */}
+        </head>
+        <body>
+        {children}
+        <ScrollRestoration />
+        <Scripts />
+        </body>
+        </html>
+    )
+}

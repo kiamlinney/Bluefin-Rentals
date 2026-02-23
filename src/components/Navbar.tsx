@@ -8,7 +8,7 @@ const Navbar = () => {
     ];
 
     return (
-        <nav className="flex items-center justify-between px-8 py-4 bg-gray-300 border-b-3 sticky top-0 z-50 shadow-sm">
+        <nav className="top-0 w-full z-50 flex items-center justify-between px-8 py-4 bg-gray-300 border-b-3 sticky shadow-sm">
             {/* Logo Section */}
             <Link to="/" className="hover:opacity-60 transition-opacity">
                 <p className="text-4xl text-gradient2">
