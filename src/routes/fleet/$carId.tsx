@@ -1,18 +1,10 @@
 import {createFileRoute} from '@tanstack/react-router'
-import { useState } from 'react'
-import { getSupabaseServerClient } from '../../lib/supabase'
+import {getCarById} from "../../lib/db.ts";
 
 export const Route = createFileRoute('/fleet/$carId')({
-    loader: async ({params}) => {
-        const supabase = getSupabaseServerClient()
-        const { data: car, error } = await supabase
-            .from('cars')
-            .select('*')
-            .eq('id', params.carId)
-            .single()
-
-        if (error) throw new Error("Car not found")
-            return { car }
+    loader: async ({ params }) => {
+        const car = await getCarById({ data: params.carId })
+        return { car }
     },
     component: CarDetails,
 })
@@ -21,7 +13,6 @@ function CarDetails() {
     const { car } = Route.useLoaderData()
     const { carId } = Route.useParams()
 
-    // https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/car%20gallery/car_1/main.PNG
     const projectID = "fmueikfpthimanfrituz"
     const getImageUrl = (fileName: string) =>
         `https://${projectID}.supabase.co/storage/v1/object/public/car%20gallery/car_${carId}/${fileName}`

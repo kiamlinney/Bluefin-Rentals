@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 
-const Navbar = () => {
+const Navbar = ({ user }: { user: any | null }) => {
     const navLinks = [
         { name: "fleet", to: "/fleet" },
         { name: "about", to: "/about" },
@@ -30,9 +30,20 @@ const Navbar = () => {
                     </Link>
                 ))}
 
-                <Link to="/fleet" className="secondary-button text-xl w-fit font-semibold">
-                    Book Now
-                </Link>
+                {user?.id ? (
+                    <div className="flex items-center gap-4">
+                        <span className="text-gray-700 text-sm hidden md:block">
+                            {user.email}
+                        </span>
+                        <Link to="/fleet" className="secondary-button text-xl w-fit font-semibold">
+                            Profile
+                        </Link>
+                    </div>
+                ) : (
+                    <Link to="/fleet" className="secondary-button text-xl w-fit font-semibold">
+                        Login
+                    </Link>
+                )}
             </div>
         </nav>
     );

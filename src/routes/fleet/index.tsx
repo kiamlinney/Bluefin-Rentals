@@ -1,17 +1,11 @@
-import {createFileRoute, Link} from '@tanstack/react-router'
-import { getSupabaseServerClient } from "../../lib/supabase.ts";
+import {createFileRoute } from '@tanstack/react-router'
 import CarCard from "../../components/CarCard.tsx";
+import {getCars} from "../../lib/db.ts";
 
 export const Route = createFileRoute('/fleet/')({
     loader: async () => {
-        const supabase = getSupabaseServerClient()
-        const { data: cars, error } = await supabase
-            .from('cars')
-            .select('*')
-            .order('id', { ascending: true })
-
-        if (error) throw new Error("Failed to load fleet")
-            return { cars }
+        const cars = await getCars()
+        return { cars }
     },
     component: Fleet,
 })

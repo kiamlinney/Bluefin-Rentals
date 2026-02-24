@@ -1,16 +1,20 @@
 import {
-    createRootRoute,
+    createRootRouteWithContext,
     Outlet,
-    ScrollRestoration,
-    HeadContent, // This replaces <Meta />
-    Scripts      // This remains, but check its import source
-} from '@tanstack/react-router' // Note: These often come from react-router now
+    HeadContent,
+    Scripts
+} from '@tanstack/react-router'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import Navbar from "../components/Navbar.tsx";
 import type { ReactNode } from "react";
+import { getUser } from "../lib/auth.ts";
 import '../index.css'
 
-export const Route = createRootRoute({
+interface MyRouterContext {
+    user: any | null
+}
+
+export const Route = createRootRouteWithContext<MyRouterContext>()({
     head: () => ({
         meta: [
             { charSet: 'utf-8' },
@@ -18,13 +22,19 @@ export const Route = createRootRoute({
             { title: 'Bluefin Rentals' },
         ],
     }),
+    loader: async () => {
+        const user = await getUser();
+        return { user };
+    },
     component: RootComponent,
 })
 
 function RootComponent() {
+    const { user } = Route.useLoaderData();
+
     return (
         <RootDocument>
-            <Navbar />
+            <Navbar user={{user}}/>
             <Outlet />
             <TanStackRouterDevtools />
         </RootDocument>
@@ -34,12 +44,9 @@ function RootComponent() {
 function RootDocument({ children }: { children: ReactNode }) {
     return (
         <html lang="en">
-        <head>
-            <HeadContent /> {/* Replaces Meta */}
-        </head>
+        <head><HeadContent /></head>
         <body>
         {children}
-        <ScrollRestoration />
         <Scripts />
         </body>
         </html>

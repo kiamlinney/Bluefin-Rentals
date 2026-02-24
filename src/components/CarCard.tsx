@@ -1,14 +1,13 @@
 import { Link } from "@tanstack/react-router";
+import { Car } from "../types";
 
-// 1. Define the props (the car data)
-const CarCard = ({ car }) => {
+const CarCard = ({ car } : { car : Car}) => {
     return (
         <Link
             to="/fleet/$carId"
             params={{ carId: car.id.toString() }}
             className="group flex flex-col bg-white rounded-2xl shadow-sm border border-gray-800 overflow-hidden hover:shadow-lg transition-shadow"
         >
-            {/* The rest of the HTML/Tailwind logic goes here */}
             <div className="relative aspect-[16/10] w-full overflow-hidden bg-gray-200">
                 <img src={car.image_url} alt={car.make} className="w-full h-full object-cover" />
             </div>
