@@ -9,12 +9,20 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as AboutRouteImport } from './routes/about'
+import { Route as AuthedRouteImport } from './routes/_authed'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as FleetIndexRouteImport } from './routes/fleet/index'
 import { Route as FleetCarIdRouteImport } from './routes/fleet/$carId'
+import { Route as AuthedProfileRouteImport } from './routes/_authed.profile'
 
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ContactRoute = ContactRouteImport.update({
   id: '/contact',
   path: '/contact',
@@ -23,6 +31,10 @@ const ContactRoute = ContactRouteImport.update({
 const AboutRoute = AboutRouteImport.update({
   id: '/about',
   path: '/about',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthedRoute = AuthedRouteImport.update({
+  id: '/_authed',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -40,11 +52,18 @@ const FleetCarIdRoute = FleetCarIdRouteImport.update({
   path: '/fleet/$carId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthedProfileRoute = AuthedProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => AuthedRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/contact': typeof ContactRoute
+  '/login': typeof LoginRoute
+  '/profile': typeof AuthedProfileRoute
   '/fleet/$carId': typeof FleetCarIdRoute
   '/fleet/': typeof FleetIndexRoute
 }
@@ -52,35 +71,72 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/contact': typeof ContactRoute
+  '/login': typeof LoginRoute
+  '/profile': typeof AuthedProfileRoute
   '/fleet/$carId': typeof FleetCarIdRoute
   '/fleet': typeof FleetIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_authed': typeof AuthedRouteWithChildren
   '/about': typeof AboutRoute
   '/contact': typeof ContactRoute
+  '/login': typeof LoginRoute
+  '/_authed/profile': typeof AuthedProfileRoute
   '/fleet/$carId': typeof FleetCarIdRoute
   '/fleet/': typeof FleetIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/contact' | '/fleet/$carId' | '/fleet/'
+  fullPaths:
+    | '/'
+    | '/about'
+    | '/contact'
+    | '/login'
+    | '/profile'
+    | '/fleet/$carId'
+    | '/fleet/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/contact' | '/fleet/$carId' | '/fleet'
-  id: '__root__' | '/' | '/about' | '/contact' | '/fleet/$carId' | '/fleet/'
+  to:
+    | '/'
+    | '/about'
+    | '/contact'
+    | '/login'
+    | '/profile'
+    | '/fleet/$carId'
+    | '/fleet'
+  id:
+    | '__root__'
+    | '/'
+    | '/_authed'
+    | '/about'
+    | '/contact'
+    | '/login'
+    | '/_authed/profile'
+    | '/fleet/$carId'
+    | '/fleet/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthedRoute: typeof AuthedRouteWithChildren
   AboutRoute: typeof AboutRoute
   ContactRoute: typeof ContactRoute
+  LoginRoute: typeof LoginRoute
   FleetCarIdRoute: typeof FleetCarIdRoute
   FleetIndexRoute: typeof FleetIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/contact': {
       id: '/contact'
       path: '/contact'
@@ -93,6 +149,13 @@ declare module '@tanstack/react-router' {
       path: '/about'
       fullPath: '/about'
       preLoaderRoute: typeof AboutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authed': {
+      id: '/_authed'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -116,13 +179,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FleetCarIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authed/profile': {
+      id: '/_authed/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof AuthedProfileRouteImport
+      parentRoute: typeof AuthedRoute
+    }
   }
 }
 
+interface AuthedRouteChildren {
+  AuthedProfileRoute: typeof AuthedProfileRoute
+}
+
+const AuthedRouteChildren: AuthedRouteChildren = {
+  AuthedProfileRoute: AuthedProfileRoute,
+}
+
+const AuthedRouteWithChildren =
+  AuthedRoute._addFileChildren(AuthedRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthedRoute: AuthedRouteWithChildren,
   AboutRoute: AboutRoute,
   ContactRoute: ContactRoute,
+  LoginRoute: LoginRoute,
   FleetCarIdRoute: FleetCarIdRoute,
   FleetIndexRoute: FleetIndexRoute,
 }

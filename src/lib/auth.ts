@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getSupabaseServerClient } from "./supabase.server.ts";
+import z from "zod";
 
 export const getUser = createServerFn({ method: 'GET' })
     .handler(async() => {
@@ -12,4 +13,23 @@ export const getUser = createServerFn({ method: 'GET' })
         }
 
         return user;
+    });
+
+export const loginUser = createServerFn({ method: 'POST' })
+    .inputValidator(z.object({
+        email: z.string().email(),
+        password: z.string()
+    }))
+    .handler(async({ data: formInput }) => {
+        const supabase = getSupabaseServerClient()
+        const { data, error } = await supabase.auth.signInWithPassword({
+            email: formInput.email,
+            password: formInput.password,
+        });
+
+        if (error || !data.user) {
+            throw new Error(error?.message || "Login failed");
+        }
+
+        return data.user;
     });

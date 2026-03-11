@@ -9,16 +9,22 @@
     "start": "node .output/server/index.mjs"
   },
   "dependencies": {
+    "@radix-ui/react-label": "^2.1.8",
+    "@radix-ui/react-slot": "^1.2.4",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.47.10",
     "@tailwindcss/vite": "^4.0.0-beta.8",
     "@tanstack/react-router": "^1.162.4",
     "@tanstack/react-router-devtools": "^1.162.4",
     "@tanstack/react-start": "^1.162.4",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.575.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "srvx": "0.8.15",
-    "zod": "^3.24.1"
+    "tailwind-merge": "^3.5.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/react": "^19.2.8",

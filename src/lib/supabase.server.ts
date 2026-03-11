@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { getCookies, setCookie } from "@tanstack/react-start/server";
 
+console.log("SERVER CHECK - URL:", process.env.SUPABASE_URL)
+
 export function getSupabaseServerClient() {
     return createServerClient(
         import.meta.env.VITE_SUPABASE_URL!,

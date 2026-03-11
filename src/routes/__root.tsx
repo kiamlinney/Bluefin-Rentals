@@ -27,6 +27,20 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
         return { user };
     },
     component: RootComponent,
+    errorComponent: ({ error }: { error: Error }) => {
+        return (
+            <div className="p-10 border-red-500 border-2 bg-red-50">
+                <h1 className="text-red-700 font-bold">Something went wrong!</h1>
+                <pre className="text-xs mt-4 font-mono">{error.message}</pre>
+                <button
+                    className="mt-4 px-4 py-2 bg-red-600 text-white rounded"
+                    onClick={() => window.location.reload()}
+                >
+                    Retry
+                </button>
+            </div>
+        )
+    }
 })
 
 function RootComponent() {

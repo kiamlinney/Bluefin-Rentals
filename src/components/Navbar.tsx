@@ -40,7 +40,7 @@ const Navbar = ({ user }: { user: any | null }) => {
                         </Link>
                     </div>
                 ) : (
-                    <Link to="/fleet" className="secondary-button text-xl w-fit font-semibold">
+                    <Link to="/login" className="secondary-button text-xl w-fit font-semibold">
                         Login
                     </Link>
                 )}
