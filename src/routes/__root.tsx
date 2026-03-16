@@ -19,7 +19,8 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
         meta: [
             { charSet: 'utf-8' },
             { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-            { title: 'Bluefin Rentals' },
+            { title: 'Bluefin Rentals | Local Car Renting Saint Paul' },
+            { name: 'description', content: 'Rent premium vehicles in Minneapolis-Saint Paul with BlueFin Rentals. Avoid unnecessary fees.'}
         ],
     }),
     loader: async () => {
@@ -48,7 +49,7 @@ function RootComponent() {
 
     return (
         <RootDocument>
-            <Navbar user={{user}}/>
+            <Navbar user={user}/>
             <Outlet />
             <TanStackRouterDevtools />
         </RootDocument>
@@ -58,7 +59,9 @@ function RootComponent() {
 function RootDocument({ children }: { children: ReactNode }) {
     return (
         <html lang="en">
-        <head><HeadContent /></head>
+        <head>
+            <HeadContent />
+        </head>
         <body>
         {children}
         <Scripts />

@@ -1,11 +1,30 @@
 import {createFileRoute} from '@tanstack/react-router'
-import {getCarById} from "../../lib/db.ts";
+import {getCarById} from "@/lib/db.ts";
 
 export const Route = createFileRoute('/fleet/$carId')({
     loader: async ({ params }) => {
         const car = await getCarById({ data: params.carId })
         return { car }
     },
+
+    // Meta tag generation to optimize SEO
+    head: ({ loaderData }) => ({
+        meta: [
+            {
+                title: `${loaderData?.car.make} ${loaderData?.car.model} (${loaderData?.car.year}) | Bluefin Rentals`
+            },
+            {
+                name: 'description',
+                content: `Rent this ${loaderData?.car.year} ${loaderData?.car.make} ${loaderData?.car.model} in Saint Paul. Featuring ${loaderData?.car.num_seats} seats, ${loaderData?.car.mpg} MPG.`
+            },
+            { property: 'og:title', content: `${loaderData?.car.make} ${loaderData?.car.model} Rental - Bluefin` },
+            { property: 'og:type', content: 'website' },
+            {
+                property: 'og:image',
+                content: `https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/car%20gallery/car_${loaderData?.car.id}/$main.PNG`
+            },
+        ],
+    }),
     component: CarDetails,
 })
 

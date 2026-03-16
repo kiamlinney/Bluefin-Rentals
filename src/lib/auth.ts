@@ -33,3 +33,30 @@ export const loginUser = createServerFn({ method: 'POST' })
 
         return data.user;
     });
+
+export const signUpUser = createServerFn({ method: 'POST' })
+    .inputValidator(z.object({
+        email: z.string().email(),
+        password: z.string()
+    }))
+    .handler(async({ data: formInput }) => {
+        const supabase = getSupabaseServerClient()
+        const { data, error } = await supabase.auth.signUp({
+            email: formInput.email,
+            password: formInput.password,
+        });
+
+        if (error || !data.user) {
+            throw new Error(error?.message || "Sign Up failed");
+        }
+
+        return data.user;
+    });
+
+export const logoutUser = createServerFn({ method: 'POST' })
+    .handler(async () => {
+        const supabase = getSupabaseServerClient();
+        const { error } = await supabase.auth.signOut();
+
+        if (error) throw new Error(error.message);
+    });
