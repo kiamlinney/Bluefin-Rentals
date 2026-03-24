@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
+import { MoveUpRight } from "lucide-react"
 
 export const Route = createFileRoute('/')({
     component: Home,
@@ -20,22 +21,24 @@ function Home() {
             </video>
 
             {/* Dark Overlay */}
-            <div className="absolute inset-0 z-10 bg-gradient-to-r from-black/80 via-black/20 to-transparent"></div>
+            <div className="absolute inset-0 z-10 bg-gradient-to-r from-black/40 via-black/20 to-transparent"></div>
 
-            <div className="relative z-20 pb-50 px-16 md:px-40 text-white">
-                <h1 className="text-gray-300 md:text-6xl font-bold mb-4 tracking-tight">
-                    Less Hassle
+            <div className="z-20 pb-50 px-16 md:px-40 ">
+                <h1 className="text-white md:text-6xl mb-4 tracking-tight">
+                    Less Hassle,
                 </h1>
-                <h1 className="text-gray-300 md:text-6xl font-bold mb-4 tracking-tight">
+                <h1 className="text-white md:text-6xl mb-4 tracking-tight">
                     More Driving
                 </h1>
-                <p className="text-gray-300 md:text-3xl">
+                <p className="md:text-xl">
                     Rent from trusted locals in Minneapolis-St.Paul
                 </p>
 
-                <div className = "flex flex-col mt-10 gap-4">
-                    <Link to="/fleet" className="primary-button w-fit text-xl font-semibold">
-                        Book Now
+                <div className = "flex flex-col mt-8 gap-4">
+                    <Link to="/fleet"
+                          className="bg-white secondary-button font-semibold w-fit flex items-center gap-2"
+                    >
+                        Book Now <MoveUpRight size={14}/>
                     </Link>
                 </div>
 

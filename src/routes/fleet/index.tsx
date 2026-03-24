@@ -1,6 +1,6 @@
 import {createFileRoute } from '@tanstack/react-router'
 import CarCard from "../../components/CarCard.tsx";
-import {getCars} from "../../lib/db.ts";
+import { getCars } from "../../lib/db.ts";
 
 export const Route = createFileRoute('/fleet/')({
     loader: async () => {
@@ -17,16 +17,16 @@ function Fleet() {
         <div className="max-w-7xl mx-auto px-4 py-8">
             {/* Header Section */}
             <div className="mb-8">
-                <h1 className="text-5xl font-extrabold text-gray-900 mb-4">
+                <h1 className="text-5xl mt-12 mb-4">
                     Our Fleet ({cars.length})
                 </h1>
 
                 {/* Filter Buttons */}
                 <div className="flex gap-3">
-                    <button className="border border-gray-300 px-4 py-2 rounded-lg font-medium flex items-center gap-2 hover:bg-gray-50">
+                    <button className="border border-gray-300 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-50">
                         Start date - End date
                     </button>
-                    <button className="border border-gray-300 px-4 py-2 rounded-lg font-medium hover:bg-gray-50">
+                    <button className="border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50">
                         Airport pickup
                     </button>
                 </div>

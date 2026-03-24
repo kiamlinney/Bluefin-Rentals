@@ -62,7 +62,7 @@ export function LoginForm({switchToSignUp}: LoginFormProps) {
     };
 
     return (
-        <div className={cn("flex flex-col gap-6 max-w-xl mx-auto p-12")}>
+        <div className={cn("mt-12 flex flex-col gap-6 max-w-xl mx-auto p-12")}>
             <Card>
                 <CardHeader>
                     <CardTitle>

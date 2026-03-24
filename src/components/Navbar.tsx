@@ -1,6 +1,6 @@
 import { Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
-import {logoutUser} from "@/lib/auth.ts";
+import { logoutUser } from "@/lib/auth.ts";
 
 const Navbar = ({ user }: { user: any | null }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -25,11 +25,11 @@ const Navbar = ({ user }: { user: any | null }) => {
     }
 
     return (
-        <nav className="top-0 w-full z-50 flex items-center justify-between px-8 py-4 bg-gray-300 border-b-3 sticky shadow-sm">
+        <nav className="top-0 w-full z-50 flex items-center justify-between px-8 py-2 border-b-[0.5px] border-gray-400 absolute">
             {/* Logo Section */}
             <Link to="/" className="hover:opacity-60 transition-opacity">
                 <p className="text-3xl text-gradient2">
-                    <span className="font-bold">Bluefin </span>Rentals
+                    <span className="font-bold text-white">Bluefin </span>Rentals
                 </p>
             </Link>
 
@@ -39,8 +39,8 @@ const Navbar = ({ user }: { user: any | null }) => {
                     <Link
                         key={link.to}
                         to={link.to}
-                        className="text-gray-900 text-xl hover:scale-105 font-medium transition-colors"
-                        activeProps={{ className: "border-b-2 border-gray-800" }}
+                        className="text-xl hover:scale-105 font-medium transition-colors"
+                        activeProps={{ className: "border-b-2 border-gray-300" }}
                     >
                         {link.name}
                     </Link>
@@ -51,7 +51,7 @@ const Navbar = ({ user }: { user: any | null }) => {
                     <div className="relative">
                         <button
                             onClick={() => setIsOpen(!isOpen)}
-                            className="w-10 h-10 rounded-full bg-gray-800 text-white flex items-center justify-center font-bold hover:bg-gray-700 transition-colors"
+                            className="w-10 h-10 rounded-full bg-gray-300 text-white flex items-center justify-center font-bold hover:bg-gray-700 transition-colors"
                         >
                             {user.email?.[0].toUpperCase()}
                         </button>
@@ -90,7 +90,7 @@ const Navbar = ({ user }: { user: any | null }) => {
                         )}
                     </div>
                 ) : (
-                    <Link to="/login" className="secondary-button w-fit font-semibold">
+                    <Link to="/login" className="secondary-button bg-white w-fit font-semibold text-xs">
                         Sign Up
                     </Link>
                 )}
