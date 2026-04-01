@@ -4,6 +4,28 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@layer base {
+    .rdp-chevron {
+        width: 14px !important;
+        height: 14px !important;
+        pointer-events: none;
+    }
+
+    .rdp-chevron polygon {
+        fill: #a3c98a !important;
+    }
+
+    .rdp-button_previous:hover .rdp-chevron polygon,
+    .rdp-button_next:hover .rdp-chevron polygon {
+        fill: #d4e8c2 !important;
+    }
+
+    .rdp-button_previous,
+    .rdp-button_next {
+        cursor: pointer !important;
+    }
+}
+
 body {
     @apply bg-[#152110] text-gray-200; /* #0d150a */
 }

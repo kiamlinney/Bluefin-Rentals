@@ -16,7 +16,7 @@ export const getCars = createServerFn({ method: 'GET' })
 
 // Bridge for the Car Details Page
 export const getCarById = createServerFn({ method: 'GET' })
-    .inputValidator((carId: string) => carId) // Decision: Validate that we received an ID
+    .inputValidator((carId: string) => carId)
     .handler(async ({ data: carId }) => {
         const supabase = getSupabaseServerClient()
         const { data, error } = await supabase
@@ -28,3 +28,19 @@ export const getCarById = createServerFn({ method: 'GET' })
         if (error) throw new Error("Car not found")
         return data
     })
+
+export const getBookedDates = createServerFn({ method: 'GET' })
+    .inputValidator((carId: string) => carId)
+    .handler(async ({ data: carId }) => {
+        const supabase = getSupabaseServerClient();
+
+        const { data, error } = await supabase
+            .rpc('get_car_availability', { car_id_param: carId });
+
+        if (error) {
+            console.error("Error fetching booked dates:", error);
+            return [];
+        }
+
+        return data;
+    });
