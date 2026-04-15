@@ -19,9 +19,10 @@ import {useState} from "react";
 
 type SignUpFormProps = {
     switchToLogin: ()=> void
+    redirect?: string
 }
 
-export function SignUpForm({ switchToLogin }: SignUpFormProps) {
+export function SignUpForm({ switchToLogin, redirect }: SignUpFormProps) {
     const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
     const [errorMessage, setErrorMessage] = useState("");
     const navigate = useNavigate();
@@ -53,9 +54,10 @@ export function SignUpForm({ switchToLogin }: SignUpFormProps) {
 
             setStatus("success");
 
+            const safeRedirect = (r?: string) => (r && r.startsWith('/')) ? r : '/fleet'
             setTimeout(() => {
-                navigate({ to: "/fleet" });
-            }, 2000);
+                navigate({ to: safeRedirect(redirect) as any });
+            }, 200);
 
         } catch (err: any) {
             setStatus("error");

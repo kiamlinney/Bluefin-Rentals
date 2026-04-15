@@ -1,12 +1,14 @@
 import { createServerClient } from "@supabase/ssr";
 import { getCookies, setCookie } from "@tanstack/react-start/server";
 
-console.log("SERVER CHECK - URL:", process.env.SUPABASE_URL)
-
 export function getSupabaseServerClient() {
+    // Prefer server-only SUPABASE_URL if present; fall back to the public VITE_ var.
+    const supabaseUrl = process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL!;
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY!;
+
     return createServerClient(
-        import.meta.env.VITE_SUPABASE_URL!,
-        import.meta.env.VITE_SUPABASE_ANON_KEY!,
+        supabaseUrl,
+        supabaseAnonKey,
         {
             cookies: {
                 getAll() {

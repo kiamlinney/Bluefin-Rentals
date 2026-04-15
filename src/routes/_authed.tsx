@@ -1,6 +1,6 @@
 import { LoginOrSignUp } from "@/components/LoginOrSignUp";
 import { getUser } from "@/lib/auth";
-import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { createFileRoute, Outlet, useRouter } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_authed")({
     component: RouteComponent,
@@ -19,7 +19,9 @@ export const Route = createFileRoute("/_authed")({
 
 function RouteComponent() {
     const { isLoggedIn } = Route.useRouteContext();
-    if (!isLoggedIn) return <LoginOrSignUp />;
+    const router = useRouter();
+    const current = typeof window !== 'undefined' ? window.location.href : '/';
+    if (!isLoggedIn) return <LoginOrSignUp redirect={current} />;
 
     return <Outlet />;
 }

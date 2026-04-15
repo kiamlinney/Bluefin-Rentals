@@ -20,9 +20,10 @@ import {useState} from "react";
 
 type LoginFormProps = {
     switchToSignUp: ()=> void
+    redirect?: string
 }
 
-export function LoginForm({switchToSignUp}: LoginFormProps) {
+export function LoginForm({switchToSignUp, redirect}: LoginFormProps) {
     const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
     const [errorMessage, setErrorMessage] = useState("");
     const router = useRouter();
@@ -47,9 +48,10 @@ export function LoginForm({switchToSignUp}: LoginFormProps) {
 
             setStatus("success");
 
+            const safeRedirect = (r?: string) => (r && r.startsWith('/')) ? r : '/fleet'
             setTimeout(() => {
-                navigate({ to: "/fleet" });
-            }, 2000);
+                navigate({ to: safeRedirect(redirect) as any });
+            }, 200);
 
         } catch (err: any) {
             setStatus("error");

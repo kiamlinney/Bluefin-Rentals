@@ -11,12 +11,15 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ContactRouteImport } from './routes/contact'
+import { Route as BookingConfirmedRouteImport } from './routes/booking-confirmed'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AuthedRouteImport } from './routes/_authed'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as FleetIndexRouteImport } from './routes/fleet/index'
 import { Route as FleetCarIdRouteImport } from './routes/fleet/$carId'
+import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe-webhook'
 import { Route as AuthedProfileRouteImport } from './routes/_authed.profile'
+import { Route as AuthedCheckoutCarIdRouteImport } from './routes/_authed.checkout.$carId'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -26,6 +29,11 @@ const LoginRoute = LoginRouteImport.update({
 const ContactRoute = ContactRouteImport.update({
   id: '/contact',
   path: '/contact',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BookingConfirmedRoute = BookingConfirmedRouteImport.update({
+  id: '/booking-confirmed',
+  path: '/booking-confirmed',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AboutRoute = AboutRouteImport.update({
@@ -52,78 +60,108 @@ const FleetCarIdRoute = FleetCarIdRouteImport.update({
   path: '/fleet/$carId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
+  id: '/api/stripe-webhook',
+  path: '/api/stripe-webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthedProfileRoute = AuthedProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedCheckoutCarIdRoute = AuthedCheckoutCarIdRouteImport.update({
+  id: '/checkout/$carId',
+  path: '/checkout/$carId',
   getParentRoute: () => AuthedRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/booking-confirmed': typeof BookingConfirmedRoute
   '/contact': typeof ContactRoute
   '/login': typeof LoginRoute
   '/profile': typeof AuthedProfileRoute
+  '/api/stripe-webhook': typeof ApiStripeWebhookRoute
   '/fleet/$carId': typeof FleetCarIdRoute
   '/fleet/': typeof FleetIndexRoute
+  '/checkout/$carId': typeof AuthedCheckoutCarIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/booking-confirmed': typeof BookingConfirmedRoute
   '/contact': typeof ContactRoute
   '/login': typeof LoginRoute
   '/profile': typeof AuthedProfileRoute
+  '/api/stripe-webhook': typeof ApiStripeWebhookRoute
   '/fleet/$carId': typeof FleetCarIdRoute
   '/fleet': typeof FleetIndexRoute
+  '/checkout/$carId': typeof AuthedCheckoutCarIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authed': typeof AuthedRouteWithChildren
   '/about': typeof AboutRoute
+  '/booking-confirmed': typeof BookingConfirmedRoute
   '/contact': typeof ContactRoute
   '/login': typeof LoginRoute
   '/_authed/profile': typeof AuthedProfileRoute
+  '/api/stripe-webhook': typeof ApiStripeWebhookRoute
   '/fleet/$carId': typeof FleetCarIdRoute
   '/fleet/': typeof FleetIndexRoute
+  '/_authed/checkout/$carId': typeof AuthedCheckoutCarIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/about'
+    | '/booking-confirmed'
     | '/contact'
     | '/login'
     | '/profile'
+    | '/api/stripe-webhook'
     | '/fleet/$carId'
     | '/fleet/'
+    | '/checkout/$carId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/about'
+    | '/booking-confirmed'
     | '/contact'
     | '/login'
     | '/profile'
+    | '/api/stripe-webhook'
     | '/fleet/$carId'
     | '/fleet'
+    | '/checkout/$carId'
   id:
     | '__root__'
     | '/'
     | '/_authed'
     | '/about'
+    | '/booking-confirmed'
     | '/contact'
     | '/login'
     | '/_authed/profile'
+    | '/api/stripe-webhook'
     | '/fleet/$carId'
     | '/fleet/'
+    | '/_authed/checkout/$carId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthedRoute: typeof AuthedRouteWithChildren
   AboutRoute: typeof AboutRoute
+  BookingConfirmedRoute: typeof BookingConfirmedRoute
   ContactRoute: typeof ContactRoute
   LoginRoute: typeof LoginRoute
+  ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
   FleetCarIdRoute: typeof FleetCarIdRoute
   FleetIndexRoute: typeof FleetIndexRoute
 }
@@ -142,6 +180,13 @@ declare module '@tanstack/react-router' {
       path: '/contact'
       fullPath: '/contact'
       preLoaderRoute: typeof ContactRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/booking-confirmed': {
+      id: '/booking-confirmed'
+      path: '/booking-confirmed'
+      fullPath: '/booking-confirmed'
+      preLoaderRoute: typeof BookingConfirmedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/about': {
@@ -179,6 +224,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FleetCarIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/stripe-webhook': {
+      id: '/api/stripe-webhook'
+      path: '/api/stripe-webhook'
+      fullPath: '/api/stripe-webhook'
+      preLoaderRoute: typeof ApiStripeWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authed/profile': {
       id: '/_authed/profile'
       path: '/profile'
@@ -186,15 +238,24 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedProfileRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/checkout/$carId': {
+      id: '/_authed/checkout/$carId'
+      path: '/checkout/$carId'
+      fullPath: '/checkout/$carId'
+      preLoaderRoute: typeof AuthedCheckoutCarIdRouteImport
+      parentRoute: typeof AuthedRoute
+    }
   }
 }
 
 interface AuthedRouteChildren {
   AuthedProfileRoute: typeof AuthedProfileRoute
+  AuthedCheckoutCarIdRoute: typeof AuthedCheckoutCarIdRoute
 }
 
 const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedProfileRoute: AuthedProfileRoute,
+  AuthedCheckoutCarIdRoute: AuthedCheckoutCarIdRoute,
 }
 
 const AuthedRouteWithChildren =
@@ -204,8 +265,10 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthedRoute: AuthedRouteWithChildren,
   AboutRoute: AboutRoute,
+  BookingConfirmedRoute: BookingConfirmedRoute,
   ContactRoute: ContactRoute,
   LoginRoute: LoginRoute,
+  ApiStripeWebhookRoute: ApiStripeWebhookRoute,
   FleetCarIdRoute: FleetCarIdRoute,
   FleetIndexRoute: FleetIndexRoute,
 }

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router"
+import {createFileRoute, Link, useNavigate} from "@tanstack/react-router"
 import { getCarById } from "@/lib/db.ts";
 import { useEffect, useRef, useState } from "react";
 import { Users, Fuel, Gauge, Settings2, X } from "lucide-react";
@@ -6,11 +6,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DayPicker, DateRange } from "react-day-picker";
 import "react-day-picker/style.css";
 import { getBookedDates} from "@/lib/db.ts";
+import { getUser } from "@/lib/auth.ts";
 
 export const Route = createFileRoute("/fleet/$carId")({
     loader: async ({ params }) => {
         const car = await getCarById({ data: params.carId })
-        return { car }
+        const user = await getUser().catch(() => null)
+        return { car, user }
     },
 
     // Meta tag generation to optimize SEO
@@ -133,8 +135,9 @@ const bookedDayClassName =
     "[&>button]:line-through [&>button]:text-[#3d5c38] [&>button]:cursor-not-allowed [&>button]:hover:bg-transparent [&>button]:opacity-60"
 
 function CarDetails() {
-    const { car } = Route.useLoaderData()
+    const { car, user } = Route.useLoaderData()
     const { carId } = Route.useParams()
+    const navigate = useNavigate()
     const [showGallery, setShowGallery] = useState(false);
     const [isCalendarOpen, setIsCalendarOpen] = useState(false);
     const [startTime, setStartTime] = useState("10:00");
@@ -177,13 +180,15 @@ function CarDetails() {
         async function fetchAvailability() {
             const bookings = await getBookedDates({ data: carId });
 
-            const toCST = (dateStr: string) => {
-                return new Date(new Date(dateStr).toLocaleString("en-US", { timeZone: "America/Chicago" }));
-            };
+            // const toCST = (dateStr: string) => {
+            //     return new Date(new Date(dateStr).toLocaleString("en-US", { timeZone: "America/Chicago" }));
+            // };
 
             const formattedDates = bookings.map((booking: any) => {
-                const start = toCST(booking.start_time);
-                const end = toCST(booking.end_time);
+                // const start = toCST(booking.start_time);
+                // const end = toCST(booking.end_time);
+                const start = new Date(booking.start_time);
+                const end = new Date(booking.end_time);
 
                 return {
                     from: new Date(start.getFullYear(), start.getMonth(), start.getDate()),
@@ -194,8 +199,28 @@ function CarDetails() {
             console.log("Formatted for Calendar:", formattedDates);
             setDisabledDates(formattedDates);
         }
-        fetchAvailability();
+        void fetchAvailability();
     }, [carId]);
+
+    const handleContinue = () => {
+        if (!dateRange?.from || !dateRange?.to) {
+            alert('Please select your trip dates')
+            return
+        }
+        void navigate({
+            to: '/checkout/$carId',
+            params: { carId },
+            search: {
+                startDate: dateRange.from.toISOString(),
+                endDate: dateRange.to.toISOString(),
+                startTime,
+                endTime,
+                totalDays,
+                subtotal,
+                pickupLocation: airportPickup ? 'MSP Airport' : customPickup,
+            }
+        })
+    }
 
     const projectID = "fmueikfpthimanfrituz"
     const getImageUrl = (fileName: string) =>
@@ -351,125 +376,149 @@ function CarDetails() {
 
                     </div>
 
-                    {/* Booking Widget */}
+                    {/* -------------------------------- Booking Widget --------------------------------  */}
                     <div className="w-full lg:w-[400px] flex flex-col gap-8 lg:self-start">
-                        <Card className="top-24 shadow-xl bg-white text-black z-10">
-                            <CardContent className="p-6 relative">
-                                <div className="flex items-baseline gap-1">
-                                    <span className="text-2xl font-bold text-gray-900">${car.price_per_day}</span>
-                                    <span className="text-gray-600 font-medium">/ day</span>
-                                </div>
-
-                                {totalDays > 0 && (
-                                    <div className="mt-4 p-3 bg-gray-100 rounded-lg flex justify-between items-center text-gray-900 font-bold border border-gray-200">
-                                        <span>{totalDays} day trip</span>
-                                        <span>${subtotal} total</span>
-                                    </div>
-                                )}
-
-                                <p className="text-gray-600 text-sm font-medium mb-6 mt-2">Including tax and all fees</p>
-
-                                <div className="border border-gray-900 rounded-lg mb-3 bg-white divide-y divide-gray-900 overflow-hidden">
-                                    <div className="flex divide-x divide-gray-900">
-                                        <button
-                                            onClick={() => setIsCalendarOpen(!isCalendarOpen)}
-                                            className="flex-1 p-3 text-left hover:bg-gray-50 transition-colors cursor-pointer"
-                                        >
-                                            <label className="text-[14px] text-gray-900">Trip start</label>
-                                            <div className="text-gray-900 font-semibold">{dateRange?.from ? dateRange.from.toLocaleDateString() : "Select Date"}</div>
-                                        </button>
-                                        <div className="w-[120px] p-3">
-                                            <select
-                                                value={startTime}
-                                                onChange={(e) => setStartTime(e.target.value)}
-                                                className="w-full bg-transparent outline-none text-gray-900 font-semibold mt-4 text-sm cursor-pointer"
-                                            >
-                                                {timeOptions.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                                            </select>
-                                        </div>
+                        {user ? (
+                            <Card className="top-24 shadow-xl bg-white text-black z-10">
+                                <CardContent className="p-6 relative">
+                                    <div className="flex items-baseline gap-1">
+                                        <span className="text-2xl font-bold text-gray-900">${car.price_per_day}</span>
+                                        <span className="text-gray-600 font-medium">/ day</span>
                                     </div>
 
-                                    <div className="flex divide-x divide-gray-900">
-                                        <button
-                                            onClick={() => setIsCalendarOpen(!isCalendarOpen)}
-                                            className="flex-1 p-3 text-left hover:bg-gray-50 transition-colors cursor-pointer"
-                                        >
-                                            <label className="text-[14px] text-gray-900">Trip end</label>
-                                            <div className="text-gray-900 font-semibold">{dateRange?.to ? dateRange.to.toLocaleDateString() : "Select Date"}</div>
-                                        </button>
-                                        <div className="w-[120px] p-3">
-                                            <select
-                                                value={endTime}
-                                                onChange={(e) => setEndTime(e.target.value)}
-                                                className="w-full bg-transparent outline-none text-gray-900 font-semibold mt-4 text-sm cursor-pointer"
-                                            >
-                                                {timeOptions.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Calendar popup */}
-                                {isCalendarOpen && (
-                                    <div
-                                        ref={calendarRef}
-                                        className="absolute top-[220px] left-[-20px] z-[110] bg-[#152110] p-5 shadow-2xl rounded-2xl border border-[#2a4a1e]"
-                                    >
-                                        <DayPicker
-                                            mode="range"
-                                            selected={dateRange}
-                                            onSelect={(range) => {
-                                                setDateRange(range);
-                                                if (range?.from && range?.to) setIsCalendarOpen(false);
-                                            }}
-                                            disabled={[{ before: new Date() }, ...disabledDates]}
-                                            modifiers={{ booked: disabledDates }}
-                                            modifiersClassNames={{ booked: bookedDayClassName }}
-                                            classNames={calendarClassNames}
-                                        />
-                                    </div>
-                                )}
-
-                                <div className="border border-gray-900 rounded-lg mb-6 p-3">
-                                    <label className="text-[14px] font-semibold text-gray-900">Pickup & return location</label>
-                                    {/*<div className="text-gray-900 font-semibold">Saint Paul, MN</div>*/}
-
-                                    {/* Airport pickup checkbox */}
-                                    <div className="mt-3 flex items-center gap-2">
-                                        <label htmlFor="airportPickup" className="text-sm text-gray-700 cursor-pointer">
-                                            MSP Airport pickup
-                                        </label>
-                                        <input
-                                            type="checkbox"
-                                            id="airportPickup"
-                                            checked={airportPickup}
-                                            onChange={(e) => setAirportPickup(e.target.checked)}
-                                            className="w-3 h-3 accent-gray-800 cursor-pointer"
-                                        />
-                                    </div>
-
-                                    {/* Custom address — only shown when airport pickup is unchecked */}
-                                    {!airportPickup && (
-                                        <div className="mt-3">
-                                            <input
-                                                type="text"
-                                                placeholder="Enter pickup address"
-                                                value={customPickup}
-                                                onChange={(e) => setCustomPickup(e.target.value)}
-                                                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 outline-none focus:border-gray-600 transition-colors"
-                                            />
-                                            <p className="text-xs text-gray-500 mt-1">
-                                                Additional fees apply for custom pickup locations.
-                                            </p>
+                                    {totalDays > 0 && (
+                                        <div className="mt-4 p-3 bg-gray-100 rounded-lg flex justify-between items-center text-gray-900 font-bold border border-gray-200">
+                                            <span>{totalDays} day trip</span>
+                                            <span>${subtotal} total</span>
                                         </div>
                                     )}
-                                </div>
 
-                                <button className="secondary-button bg-white rounded-lg w-full text-lg py-6 shadow-lg transition-all">
-                                    Continue
-                                </button>
-                            </CardContent>
-                        </Card>
+                                    <p className="text-gray-600 text-sm font-medium mb-6 mt-2">Including tax and all fees</p>
+
+                                    <div className="border border-gray-900 rounded-lg mb-3 bg-white divide-y divide-gray-900 overflow-hidden">
+                                        <div className="flex divide-x divide-gray-900">
+                                            <button
+                                                onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+                                                className="flex-1 p-3 text-left hover:bg-gray-50 transition-colors cursor-pointer"
+                                            >
+                                                <label className="text-[14px] text-gray-900">Trip start</label>
+                                                <div className="text-gray-900 font-semibold">{dateRange?.from ? dateRange.from.toLocaleDateString() : "Select Date"}</div>
+                                            </button>
+                                            <div className="w-[120px] p-3">
+                                                <select
+                                                    value={startTime}
+                                                    onChange={(e) => setStartTime(e.target.value)}
+                                                    className="w-full bg-transparent outline-none text-gray-900 font-semibold mt-4 text-sm cursor-pointer"
+                                                >
+                                                    {timeOptions.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex divide-x divide-gray-900">
+                                            <button
+                                                onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+                                                className="flex-1 p-3 text-left hover:bg-gray-50 transition-colors cursor-pointer"
+                                            >
+                                                <label className="text-[14px] text-gray-900">Trip end</label>
+                                                <div className="text-gray-900 font-semibold">{dateRange?.to ? dateRange.to.toLocaleDateString() : "Select Date"}</div>
+                                            </button>
+                                            <div className="w-[120px] p-3">
+                                                <select
+                                                    value={endTime}
+                                                    onChange={(e) => setEndTime(e.target.value)}
+                                                    className="w-full bg-transparent outline-none text-gray-900 font-semibold mt-4 text-sm cursor-pointer"
+                                                >
+                                                    {timeOptions.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Calendar popup */}
+                                    {isCalendarOpen && (
+                                        <div
+                                            ref={calendarRef}
+                                            className="absolute top-[220px] left-[-20px] z-[110] bg-[#152110] p-5 shadow-2xl rounded-2xl border border-[#2a4a1e]"
+                                        >
+                                            <DayPicker
+                                                mode="range"
+                                                selected={dateRange}
+                                                onSelect={(range) => {
+                                                    setDateRange(range);
+                                                    if (range?.from && range?.to) setIsCalendarOpen(false);
+                                                }}
+                                                disabled={[{ before: new Date() }, ...disabledDates]}
+                                                modifiers={{ booked: disabledDates }}
+                                                modifiersClassNames={{ booked: bookedDayClassName }}
+                                                classNames={calendarClassNames}
+                                            />
+                                        </div>
+                                    )}
+
+                                    <div className="border border-gray-900 rounded-lg mb-6 p-3">
+                                        <label className="text-[14px] font-semibold text-gray-900">Pickup & return location</label>
+                                        {/*<div className="text-gray-900 font-semibold">Saint Paul, MN</div>*/}
+
+                                        {/* Airport pickup checkbox */}
+                                        <div className="mt-3 flex items-center gap-2">
+                                            <label htmlFor="airportPickup" className="text-sm text-gray-700 cursor-pointer">
+                                                MSP Airport pickup
+                                            </label>
+                                            <input
+                                                type="checkbox"
+                                                id="airportPickup"
+                                                checked={airportPickup}
+                                                onChange={(e) => setAirportPickup(e.target.checked)}
+                                                className="w-3 h-3 accent-gray-800 cursor-pointer"
+                                            />
+                                        </div>
+
+                                        {/* Custom address — only shown when airport pickup is unchecked */}
+                                        {!airportPickup && (
+                                            <div className="mt-3">
+                                                <input
+                                                    type="text"
+                                                    placeholder="Enter pickup address"
+                                                    value={customPickup}
+                                                    onChange={(e) => setCustomPickup(e.target.value)}
+                                                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 outline-none focus:border-gray-600 transition-colors"
+                                                />
+                                                <p className="text-xs text-gray-500 mt-1">
+                                                    Additional fees apply for custom pickup locations.
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <button
+                                        className="secondary-button bg-white rounded-lg w-full text-lg py-6 shadow-lg transition-all"
+                                        onClick={handleContinue}
+                                    >
+                                        Continue
+                                    </button>
+                                </CardContent>
+                            </Card>
+                        ) : (
+                            <Card className="top-24 shadow-xl bg-white text-black z-10">
+                                <CardContent className="p-6 text-center space-y-4">
+                                    <p className="text-gray-900 font-semibold text-lg">
+                                        Please login to book a vehicle
+                                    </p>
+                                    <p className="text-gray-500 text-sm">
+                                        Create an account or login to continue.
+                                    </p>
+                                    <Link
+                                        to="/login"
+                                        search={{ redirect: `/fleet/${carId}` }}
+                                        className="block w-full py-3 bg-gray-900 shadow-lg text-white rounded-full font-medium hover:scale-101 transition-colors"
+                                    >
+                                        Login or Sign Up
+                                    </Link>
+                                </CardContent>
+                            </Card>
+                        )}
+
 
                         <div className="mt-4 space-y-4 relative">
                             <p className="text-lg font-bold">Cancellation policy</p>

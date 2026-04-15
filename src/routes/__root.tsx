@@ -41,6 +41,20 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
                 </button>
             </div>
         )
+    },
+
+    notFoundComponent: () => {
+        return (
+            <div className="min-h-screen bg-[#152110] flex items-center justify-center text-white p-4">
+                <div className="text-center">
+                    <h1 className="text-4xl font-bold mb-4">Page Not Found</h1>
+                    <p className="text-[#a3c98a]">We couldn't find the page you're looking for.</p>
+                    <a href="/" className="mt-8 inline-block px-6 py-3 bg-[#3a7d2c] text-white rounded-xl">
+                        Return Home
+                    </a>
+                </div>
+            </div>
+        )
     }
 })
 

@@ -2,11 +2,11 @@ import { useState } from "react";
 import { LoginForm } from "./LoginForm";
 import { SignUpForm } from "./SignUpForm";
 
-export const LoginOrSignUp = () => {
+export const LoginOrSignUp = ({ redirect }: { redirect?: string }) => {
     const [isLogIn, setIsLogIn] = useState(false);
     return isLogIn ? (
-        <LoginForm switchToSignUp={() => setIsLogIn(false)} />
+        <LoginForm redirect={redirect} switchToSignUp={() => setIsLogIn(false)} />
     ) : (
-        <SignUpForm switchToLogin={() => setIsLogIn(true)} />
+        <SignUpForm redirect={redirect} switchToLogin={() => setIsLogIn(true)} />
     );
 };

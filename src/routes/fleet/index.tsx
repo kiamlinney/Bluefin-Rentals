@@ -26,9 +26,9 @@ function Fleet() {
                     <button className="border border-gray-300 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-50">
                         Start date - End date
                     </button>
-                    <button className="border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50">
-                        Airport pickup
-                    </button>
+                    {/*<button className="border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50">*/}
+                    {/*    Airport pickup*/}
+                    {/*</button>*/}
                 </div>
             </div>
 
