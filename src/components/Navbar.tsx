@@ -46,12 +46,12 @@ const Navbar = ({ user }: { user: any | null }) => {
                     </Link>
                 ))}
 
-
+                {/* Checking if user is logged in, if so, display their profile, if not, have sign up button */}
                 {user?.id ? (
                     <div className="relative">
                         <button
                             onClick={() => setIsOpen(!isOpen)}
-                            className="w-10 h-10 rounded-full bg-gray-300 text-white flex items-center justify-center font-bold hover:bg-gray-700 transition-colors"
+                            className="w-10 h-10 rounded-full bg-gray-300 text-white flex items-center justify-center font-bold hover:bg-gray-700 transition-colors cursor-pointer"
                         >
                             {user.email?.[0].toUpperCase()}
                         </button>
@@ -65,16 +65,16 @@ const Navbar = ({ user }: { user: any | null }) => {
                                 </div>
 
                                 <Link
-                                    to="/fleet"
+                                    to="/my-bookings"
                                     onClick={() => setIsOpen(false)}
-                                    className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                    className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
                                 >
                                     My Bookings
                                 </Link>
 
                                 <button
                                     onClick={handleLogout}
-                                    className="w-full text-left block px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                                    className="w-full text-left block px-4 py-2 text-sm text-red-600 hover:bg-red-50 cursor-pointer"
                                 >
                                     Log Out
                                 </button>

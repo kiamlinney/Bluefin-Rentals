@@ -2,7 +2,6 @@ import { createServerFn } from '@tanstack/react-start'
 import { getSupabaseServerClient } from './supabase.server'
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe'
-import {date} from "zod";
 
 // Bridge for the Fleet Page
 export const getCars = createServerFn({ method: 'GET' })
@@ -258,6 +257,24 @@ export const createIdentitySession = createServerFn({ method: 'POST' })
         const user = authResult.data.user
         if (!user) throw new Error('Not authenticated')
 
+        // Check if user already has an identity session
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('stripe_identity_session_id')
+            .eq('id', user.id)
+            .single()
+
+        if(profile?.stripe_identity_session_id) {
+            const existingSession = await stripe.identity.verificationSessions.retrieve(
+                profile.stripe_identity_session_id
+            )
+
+            // 'requires_input' meaning user has not finished yet, return them to the same identity session id
+            if (existingSession.status === 'requires_input' && existingSession.url) {
+                return { url: existingSession.url, sessionId: existingSession.id }
+            }
+        }
+
         // Create the verification session with Stripe
         // 'document' type means license/passport scan + selfie match
         const session = await stripe.identity.verificationSessions.create({
@@ -316,4 +333,23 @@ export const finalizeIdentitySession = createServerFn({ method: 'POST' })
         }
 
         return { verified: false, status: session.status }
+    })
+
+// Fetches all confirmed, canceled, or completed bookings for the logged-in user
+export const getUserBookings = createServerFn({ method: 'GET' })
+    .handler(async () => {
+        const supabase = getSupabaseServerClient()
+        const authResult = await supabase.auth.getUser()
+        const user = authResult.data.user
+        if (!user) throw new Error('Not authenticated')
+
+        const { data, error } = await supabase
+            .from('bookings')
+            .select('*, cars(*)') // Joins the cars table automatically!
+            .eq('user_id', user.id)
+            .neq('status', 'pending') // Hides abandoned checkouts
+            .order('start_time', { ascending: false }) // Newest first
+
+        if (error) throw new Error(error.message)
+        return data || []
     })

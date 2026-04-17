@@ -19,6 +19,7 @@ import { Route as FleetIndexRouteImport } from './routes/fleet/index'
 import { Route as FleetCarIdRouteImport } from './routes/fleet/$carId'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe-webhook'
 import { Route as AuthedProfileRouteImport } from './routes/_authed.profile'
+import { Route as AuthedMyBookingsRouteImport } from './routes/_authed.my-bookings'
 import { Route as AuthedCheckoutCarIdRouteImport } from './routes/_authed.checkout.$carId'
 
 const LoginRoute = LoginRouteImport.update({
@@ -70,6 +71,11 @@ const AuthedProfileRoute = AuthedProfileRouteImport.update({
   path: '/profile',
   getParentRoute: () => AuthedRoute,
 } as any)
+const AuthedMyBookingsRoute = AuthedMyBookingsRouteImport.update({
+  id: '/my-bookings',
+  path: '/my-bookings',
+  getParentRoute: () => AuthedRoute,
+} as any)
 const AuthedCheckoutCarIdRoute = AuthedCheckoutCarIdRouteImport.update({
   id: '/checkout/$carId',
   path: '/checkout/$carId',
@@ -82,6 +88,7 @@ export interface FileRoutesByFullPath {
   '/booking-confirmed': typeof BookingConfirmedRoute
   '/contact': typeof ContactRoute
   '/login': typeof LoginRoute
+  '/my-bookings': typeof AuthedMyBookingsRoute
   '/profile': typeof AuthedProfileRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
   '/fleet/$carId': typeof FleetCarIdRoute
@@ -94,6 +101,7 @@ export interface FileRoutesByTo {
   '/booking-confirmed': typeof BookingConfirmedRoute
   '/contact': typeof ContactRoute
   '/login': typeof LoginRoute
+  '/my-bookings': typeof AuthedMyBookingsRoute
   '/profile': typeof AuthedProfileRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
   '/fleet/$carId': typeof FleetCarIdRoute
@@ -108,6 +116,7 @@ export interface FileRoutesById {
   '/booking-confirmed': typeof BookingConfirmedRoute
   '/contact': typeof ContactRoute
   '/login': typeof LoginRoute
+  '/_authed/my-bookings': typeof AuthedMyBookingsRoute
   '/_authed/profile': typeof AuthedProfileRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
   '/fleet/$carId': typeof FleetCarIdRoute
@@ -122,6 +131,7 @@ export interface FileRouteTypes {
     | '/booking-confirmed'
     | '/contact'
     | '/login'
+    | '/my-bookings'
     | '/profile'
     | '/api/stripe-webhook'
     | '/fleet/$carId'
@@ -134,6 +144,7 @@ export interface FileRouteTypes {
     | '/booking-confirmed'
     | '/contact'
     | '/login'
+    | '/my-bookings'
     | '/profile'
     | '/api/stripe-webhook'
     | '/fleet/$carId'
@@ -147,6 +158,7 @@ export interface FileRouteTypes {
     | '/booking-confirmed'
     | '/contact'
     | '/login'
+    | '/_authed/my-bookings'
     | '/_authed/profile'
     | '/api/stripe-webhook'
     | '/fleet/$carId'
@@ -238,6 +250,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedProfileRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/my-bookings': {
+      id: '/_authed/my-bookings'
+      path: '/my-bookings'
+      fullPath: '/my-bookings'
+      preLoaderRoute: typeof AuthedMyBookingsRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/_authed/checkout/$carId': {
       id: '/_authed/checkout/$carId'
       path: '/checkout/$carId'
@@ -249,11 +268,13 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthedRouteChildren {
+  AuthedMyBookingsRoute: typeof AuthedMyBookingsRoute
   AuthedProfileRoute: typeof AuthedProfileRoute
   AuthedCheckoutCarIdRoute: typeof AuthedCheckoutCarIdRoute
 }
 
 const AuthedRouteChildren: AuthedRouteChildren = {
+  AuthedMyBookingsRoute: AuthedMyBookingsRoute,
   AuthedProfileRoute: AuthedProfileRoute,
   AuthedCheckoutCarIdRoute: AuthedCheckoutCarIdRoute,
 }
