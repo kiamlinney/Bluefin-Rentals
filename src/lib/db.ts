@@ -58,12 +58,28 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         endTime: string
         totalPrice: number
         pickupLocation: string
+        bookingId?: string // optional
     }) => input)
     .handler(async ({ data }) => {
         const supabase = getSupabaseServerClient()
         const authResult = await supabase.auth.getUser()
         const user = authResult.data.user
         if (!user) throw new Error('Not authenticated')
+
+        // If we have bookingId, use directly
+        if (data.bookingId) {
+            const { data: existing } = await supabase
+                .from('bookings')
+                .select('*')
+                .eq('id', data.bookingId)
+                .eq('status', 'pending')
+                .maybeSingle()
+
+            if (existing) {
+                const intent = await stripe.paymentIntents.retrieve(existing.stripe_payment_intent_id)
+                return { clientSecret: intent.client_secret, bookingId: existing.id }
+            }
+        }
 
         const carIdNum = Number.parseInt(data.carId, 10)
 
@@ -173,6 +189,51 @@ export const confirmBooking = createServerFn({ method: 'POST' })
         if (error) throw new Error(error.message)
         return booking
     })
+
+export const cancelBooking = createServerFn({ method: 'POST' })
+    .inputValidator((input: {
+        bookingId: string
+        paymentIntentId: string
+    }) => input)
+    .handler(async ({ data }) => {
+        const supabaseAdmin = createClient(
+            process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            { auth: { persistSession: false, autoRefreshToken: false } }
+        )
+
+        const { data: booking } = await supabaseAdmin
+            .from('bookings')
+            .select('status')
+            .eq('id', data.bookingId)
+            .single()
+
+        // Only refund if was actually paid for
+        if (booking?.status === 'confirmed') {
+            try {
+                await stripe.refunds.create({
+                    payment_intent: data.paymentIntentId,
+                });
+            } catch (err: any) {
+                console.error("Stripe refund failed:", err.message);
+                throw new Error("Could not process refund through Stripe.");
+            }
+        }
+
+        if (booking?.status === 'pending') {
+            await supabaseAdmin
+                .from('bookings')
+                .delete()
+                .eq('id', data.bookingId)
+        } else {
+            await supabaseAdmin
+                .from('bookings')
+                .update({ status: 'canceled' })
+                .eq('id', data.bookingId)
+        }
+
+        return { success: true }
+})
 
 export const getBookingById = createServerFn({ method: 'GET' })
     .inputValidator((bookingId: string) => bookingId)
@@ -343,11 +404,27 @@ export const getUserBookings = createServerFn({ method: 'GET' })
         const user = authResult.data.user
         if (!user) throw new Error('Not authenticated')
 
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+        const supabaseAdmin = createClient(
+            process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            { auth: { persistSession: false, autoRefreshToken: false } }
+        )
+
+        // Delete abandoned booking sessions older than an hour
+        await supabaseAdmin
+            .from('bookings')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('status', 'pending')
+            .lt('created_at', oneHourAgo)
+
+
         const { data, error } = await supabase
             .from('bookings')
-            .select('*, cars(*)') // Joins the cars table automatically!
+            .select('*, cars(*)') // Joins the cars table
             .eq('user_id', user.id)
-            .neq('status', 'pending') // Hides abandoned checkouts
             .order('start_time', { ascending: false }) // Newest first
 
         if (error) throw new Error(error.message)

@@ -117,10 +117,10 @@ function BookingConfirmed() {
                 </div>
 
                 <Link
-                    to="/fleet"
+                    to="/my-bookings"
                     className="block text-center text-[#6a9455] hover:text-[#a3c98a] text-sm transition-colors"
                 >
-                    ← Browse more cars
+                    View bookings →
                 </Link>
             </div>
         </div>

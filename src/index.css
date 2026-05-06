@@ -24,6 +24,18 @@
     .rdp-button_next {
         cursor: pointer !important;
     }
+
+
+    .time-dropdown-scroll::-webkit-scrollbar {
+        width: 4px;
+    }
+    .time-dropdown-scroll::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .time-dropdown-scroll::-webkit-scrollbar-thumb {
+        background: gray;
+        border-radius: 9999px;
+    }
 }
 
 body {

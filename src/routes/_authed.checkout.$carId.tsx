@@ -29,6 +29,7 @@ const checkoutSearchSchema = z.object({
     totalDays: z.number(),
     subtotal: z.number(),
     pickupLocation: z.string(),
+    bookingId: z.string().optional(),
 })
 
 export const Route = createFileRoute('/_authed/checkout/$carId')({
@@ -81,6 +82,7 @@ function CheckoutPage() {
 
     const [step, setStep] = useState<Step>(getInitialStep)
 
+    // Hard guard on payment step, never allow an unverified user to reach this step
     useEffect(() => {
         if (step === 'payment' && !currentProfile?.identity_verified) {
             setStep('identity')
@@ -93,8 +95,8 @@ function CheckoutPage() {
     const [paymentError, setPaymentError] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(false)
 
-    // Initialize Stripe payment intent when we reach the payment step.
-    // The ref prevents double-initialization from React Strict Mode.
+    // Initialize Stripe payment intent when we reach the payment step
+    // The ref prevents double-initialization from React Strict Mode
     const hasInitialized = useRef(false)
     useEffect(() => {
         if (step !== 'payment' || hasInitialized.current) return
@@ -110,6 +112,7 @@ function CheckoutPage() {
                         endTime: buildDateTime(search.endDate, search.endTime),
                         totalPrice: search.subtotal,
                         pickupLocation: search.pickupLocation,
+                        bookingId: search.bookingId,
                     }
                 })
                 setClientSecret(result.clientSecret)
@@ -165,7 +168,7 @@ function CheckoutPage() {
                         <div className="flex-1 min-w-0">
                             <p className="font-bold text-white">{car.year} {car.make} {car.model}</p>
                             <p className="text-[#a3c98a] text-sm mt-0.5">
-                                {startDate} → {endDate} · {search.totalDays} days · ${search.subtotal}
+                                {startDate}, {search.startTime} → {endDate}, {search.endTime} · Total: ${search.subtotal}
                             </p>
                             <p className="text-[#6a9455] text-xs mt-0.5">{search.pickupLocation}</p>
                         </div>
@@ -176,7 +179,11 @@ function CheckoutPage() {
                 {step === 'driver-info' && (
                     <DriverInfoStep
                         existingProfile={currentProfile}
-                        onComplete={() => setStep('identity')}
+                        onComplete={() => {
+                            // Tell local state we have a name so getInitialStep doesn't get confused
+                            setCurrentProfile((prev: any) => ({ ...prev, full_name: 'Saved' }))
+                            setStep('identity')
+                        }}
                     />
                 )}
 
@@ -184,7 +191,11 @@ function CheckoutPage() {
                     <IdentityStep
                         carId={carId}
                         search={search}
-                        onComplete={() => setStep('payment')}
+                        onComplete={() => {
+                            // Instantly update the local profile state so the hard guard lets us pass
+                            setCurrentProfile((prev: any) => ({ ...prev, identity_verified: true }))
+                            setStep('payment')
+                        }}
                     />
                 )}
 
@@ -630,10 +641,6 @@ function PaymentStep({
             >
                 {processing ? 'Processing payment...' : `Pay $${subtotal}`}
             </button>
-
-            <p className="text-center text-[#3d5c38] text-xs mt-3">
-                Secured by Stripe
-            </p>
         </form>
     )
 }
