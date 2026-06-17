@@ -438,7 +438,7 @@ function CarDetails() {
                 endTime,
                 totalDays,
                 subtotal,
-                pickupLocation: airportPickup ? 'MSP Airport' : customPickup,
+                pickupLocation: airportPickup ? 'MSP - Minneapolis, MN' : customPickup,
             }
         })
     }
@@ -695,7 +695,7 @@ function CarDetails() {
                                         {/* Airport pickup checkbox */}
                                         <div className="mt-3 flex items-center gap-2">
                                             <label htmlFor="airportPickup" className="text-sm text-gray-700 cursor-pointer">
-                                                MSP Airport
+                                                MSP - Minneapolis, MN
                                             </label>
                                             <input
                                                 type="checkbox"

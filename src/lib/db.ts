@@ -242,7 +242,7 @@ export const getBookingById = createServerFn({ method: 'GET' })
 
         const { data, error } = await supabase
             .from('bookings')
-            .select('*, cars(*)')
+            .select('*, cars(*), profiles(*)')
             .eq('id', bookingId)
             .single()
 
@@ -426,6 +426,58 @@ export const getUserBookings = createServerFn({ method: 'GET' })
             .select('*, cars(*)') // Joins the cars table
             .eq('user_id', user.id)
             .order('start_time', { ascending: false }) // Newest first
+
+        if (error) throw new Error(error.message)
+        return data || []
+    })
+
+// Fetches all confirmed bookings for every user
+export const getConfirmedBookings = createServerFn({ method: 'GET' })
+    .handler(async () => {
+        const supabase = getSupabaseServerClient()
+        const authResult = await supabase.auth.getUser()
+        const user = authResult.data.user
+        if (!user) throw new Error('Not authenticated')
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('is_admin')
+            .eq('id', user.id)
+            .single()
+
+        if (!profile?.is_admin) throw new Error('Not authorized')
+
+        const { data, error } = await supabase
+            .from('bookings')
+            .select('*, cars(*), profiles(full_name, email, id)')
+            .eq('status', 'confirmed')
+            .order('start_time', { ascending: true })
+
+        if (error) throw new Error(error.message)
+        return data || []
+    })
+
+// Fetches all past bookings for every user, bookings with the status completed or canceled
+export const getPastBookings = createServerFn({ method: 'GET' })
+    .handler(async () => {
+        const supabase = getSupabaseServerClient()
+        const authResult = await supabase.auth.getUser()
+        const user = authResult.data.user
+        if (!user) throw new Error('Not authenticated')
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('is_admin')
+            .eq('id', user.id)
+            .single()
+
+        if (!profile?.is_admin) throw new Error('Not authorized')
+
+        const { data, error } = await supabase
+            .from('bookings')
+            .select('*, cars(*), profiles(full_name, email, id)')
+            .in('status', ['completed', 'canceled'])
+            .order('start_time', { ascending: true })
 
         if (error) throw new Error(error.message)
         return data || []

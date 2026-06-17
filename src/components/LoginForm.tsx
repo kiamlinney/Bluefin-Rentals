@@ -14,7 +14,7 @@ import {
     FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { loginUser } from "@/lib/auth.ts";
+import {getUserWithProfile, loginUser} from "@/lib/auth.ts";
 import { useNavigate, useRouter } from "@tanstack/react-router"
 import {useState} from "react";
 
@@ -46,12 +46,24 @@ export function LoginForm({switchToSignUp, redirect}: LoginFormProps) {
 
             await router.invalidate();
 
-            setStatus("success");
+            const u = await getUserWithProfile()
+            //setStatus("success");
 
-            const safeRedirect = (r?: string) => (r && r.startsWith('/')) ? r : '/fleet'
-            setTimeout(() => {
-                navigate({ to: safeRedirect(redirect) as any });
-            }, 200);
+            const isAdminPath = (p?: string) => !!p && p.startsWith('/admin')
+            const next = u?.is_admin
+                ? (isAdminPath(redirect) ? redirect!
+                    : '/admin/trips/booked')
+                : (redirect && !isAdminPath(redirect) ? redirect
+                    : '/fleet')
+
+            setTimeout(() => navigate({ to: next as any }), 200)
+            //
+            // setStatus("success");
+            //
+            // const safeRedirect = (r?: string) => (r && r.startsWith('/')) ? r : '/fleet'
+            // setTimeout(() => {
+            //     navigate({ to: safeRedirect(redirect) as any });
+            // }, 200);
 
         } catch (err: any) {
             setStatus("error");

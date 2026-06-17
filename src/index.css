@@ -42,6 +42,10 @@ body {
     @apply bg-[#152110] text-gray-200; /* #0d150a */
 }
 
+.admin-shell {
+    @apply bg-white text-neutral-900;
+}
+
 @theme {
     --font-sans: "Mona Sans", ui-sans-serif, system-ui, sans-serif,
 }

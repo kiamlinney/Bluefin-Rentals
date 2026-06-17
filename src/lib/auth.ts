@@ -15,6 +15,30 @@ export const getUser = createServerFn({ method: 'GET' })
         return user;
     });
 
+export const getUserWithProfile = createServerFn({ method: 'GET' })
+    .handler(async () => {
+        const supabase = getSupabaseServerClient()
+        const { data: { user }, error: userErr } = await supabase.auth.getUser()
+        if (userErr || !user) return null
+
+        const { data: profile, error: profErr } = await supabase
+            .from('profiles')
+            .select('id, email, full_name, is_admin')
+            .eq('id', user.id)
+            .maybeSingle()
+
+        if (profErr) {
+            console.warn('profiles select warning', profErr)
+        }
+
+        return {
+            id: user.id,
+            email: profile?.email ?? user.email ?? null,
+            full_name: profile?.full_name ?? null,
+            is_admin: profile?.is_admin ?? false,
+        }
+    })
+
 export const loginUser = createServerFn({ method: 'POST' })
     .inputValidator(z.object({
         email: z.string().email(),

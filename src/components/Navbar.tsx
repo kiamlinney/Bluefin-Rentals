@@ -27,6 +27,7 @@ const Navbar = ({ user }: { user: any | null }) => {
     return (
         <nav className="top-0 w-full z-50 flex items-center justify-between px-8 py-2 border-b-[0.5px] border-gray-400 absolute">
             {/* Logo Section */}
+
             <Link to="/" className="hover:opacity-60 transition-opacity">
                 <p className="text-3xl text-gradient2">
                     <span className="font-bold text-white">Bluefin </span>Rentals
@@ -64,13 +65,24 @@ const Navbar = ({ user }: { user: any | null }) => {
                                     <p className="text-sm font-semibold truncate text-gray-900">{user.email}</p>
                                 </div>
 
-                                <Link
-                                    to="/my-bookings"
-                                    onClick={() => setIsOpen(false)}
-                                    className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
-                                >
-                                    My Bookings
-                                </Link>
+
+                                {user?.is_admin ? (
+                                    <Link
+                                        to="/admin"
+                                        onClick={() => setIsOpen(false)}
+                                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
+                                    >
+                                        Admin Page
+                                    </Link>
+                                ) : (
+                                    <Link
+                                        to="/my-bookings"
+                                        onClick={() => setIsOpen(false)}
+                                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
+                                    >
+                                        My Bookings
+                                    </Link>
+                                )}
 
                                 <button
                                     onClick={handleLogout}

@@ -2,12 +2,12 @@ import {
     createRootRouteWithContext,
     Outlet,
     HeadContent,
-    Scripts
+    Scripts,
+    useLocation
 } from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import Navbar from "../components/Navbar.tsx";
 import type { ReactNode } from "react";
-import { getUser } from "../lib/auth.ts";
+import { getUserWithProfile } from "../lib/auth.ts";
 import '../index.css'
 
 interface MyRouterContext {
@@ -24,7 +24,7 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
         ],
     }),
     loader: async () => {
-        const user = await getUser();
+        const user = await getUserWithProfile();
         return { user };
     },
     component: RootComponent,
@@ -60,12 +60,15 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 
 function RootComponent() {
     const { user } = Route.useLoaderData();
+    const { pathname } = useLocation();
+    const isAdminShell = pathname.startsWith("/admin");
 
     return (
         <RootDocument>
-            <Navbar user={user}/>
+            {!isAdminShell && <Navbar user={user}/>}
             <Outlet />
-            <TanStackRouterDevtools />
+            {/* Devtools disabled to prevent potential overlay intercepting clicks */}
+            {null}
         </RootDocument>
     )
 }
