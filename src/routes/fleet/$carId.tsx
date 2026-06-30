@@ -132,15 +132,15 @@ const calendarClassNames = {
     months: "flex flex-col",
     month: "space-y-3",
     month_caption: "flex justify-center items-center h-9 relative",
-    caption_label: "text-sm font-semibold text-[#d4e8c2] tracking-wide",
+    caption_label: "text-sm font-semibold text-gray-800 tracking-wide",
 
     nav: "w-full flex items-center justify-center relative h-5",
     button_previous: [
         "absolute left-2 top-0",
         "w-7 h-7 rounded-md",
-        "border border-[#2a4a1e]",
+        "border border-gray-800",
         "inline-flex items-center justify-center",
-        "bg-transparent hover:bg-[#1f3318] hover:border-[#4a7a3a]",
+        "bg-transparent hover:bg-gray-400",
         "transition-colors duration-150",
         "cursor-pointer",
     ].join(" "),
@@ -148,22 +148,22 @@ const calendarClassNames = {
     button_next: [
         "absolute right-2 top-0",
         "w-7 h-7 rounded-md",
-        "border border-[#2a4a1e]",
+        "border border-gray-800",
         "inline-flex items-center justify-center",
-        "bg-transparent hover:bg-[#1f3318] hover:border-[#4a7a3a]",
+        "bg-transparent hover:bg-gray-400",
         "transition-colors duration-150",
         "cursor-pointer",
     ].join(" "),
     month_grid: "w-full border-collapse",
     weekdays: "flex",
-    weekday: "w-9 text-center text-[10px] font-medium text-[#6a9455] uppercase tracking-widest pb-1",
+    weekday: "w-9 text-center text-[10px] font-medium text-black uppercase tracking-widest pb-1",
     week: "flex mt-1",
     day: "w-9 h-9 text-center text-sm p-0",
     // Default selectable day button
     day_button:
-        "w-9 h-9 rounded-full text-sm font-medium text-[#d4e8c2] hover:bg-[#2a4a1e] hover:text-white transition-colors focus:outline-none cursor-pointer",
+        "w-9 h-9 rounded-full text-sm font-medium text-black hover:bg-[#2a4a1e] hover:text-white transition-colors focus:outline-none cursor-pointer",
     // Today
-    today: "[&>button]:border [&>button]:border-[#6fcf4a] [&>button]:text-[#6fcf4a]",
+    today: "[&>button]:border [&>button]:border-[#2a4a1e] [&>button]:text-[#2a4a1e]",
     // Selected single day / range start / range end
     selected: [
         "[&>button]:bg-[#3a7d2c]",
@@ -172,38 +172,8 @@ const calendarClassNames = {
         "[&>button]:hover:bg-[#4a9e38]",
     ].join(" "),
 
-    // Range start: solid green circle + background strip extending RIGHT
-    // The strip is painted on the cell itself, behind the button (z-10)
-    range_start: [
-        "bg-gradient-to-r from-transparent from-50% to-[#1e3d18] to-50%",
-        "[&>button]:bg-[#3a7d2c]",
-        "[&>button]:text-white",
-        "[&>button]:rounded-full",
-        "[&>button]:hover:bg-[#4a9e38]",
-        "[&>button]:relative [&>button]:z-10",
-    ].join(" "),
-
-    // Range end: solid green circle + background strip extending LEFT
-    range_end: [
-        "bg-gradient-to-r from-[#1e3d18] from-50% to-transparent to-50%",
-        "[&>button]:bg-[#3a7d2c]",
-        "[&>button]:text-white",
-        "[&>button]:rounded-full",
-        "[&>button]:hover:bg-[#4a9e38]",
-        "[&>button]:relative [&>button]:z-10",
-    ].join(" "),
-
-    // Range middle: full background strip, no circle
-    range_middle: [
-        "bg-[#1e3d18]",
-        "[&>button]:bg-transparent",
-        "[&>button]:text-[#d4e8c2]",
-        "[&>button]:rounded-none",
-        "[&>button]:hover:bg-[#2a4a1e]",
-        "[&>button]:relative [&>button]:z-10",
-    ].join(" "),
     // Past / disabled days (before today)
-    disabled: "[&>button]:text-[#3a4f35] [&>button]:cursor-not-allowed [&>button]:hover:bg-transparent",
+    disabled: "[&>button]:text-gray-300 [&>button]:cursor-not-allowed [&>button]:hover:bg-transparent",
     // Days outside the current month
     outside: "[&>button]:text-[#2e4429] [&>button]:opacity-40",
     hidden: "invisible",
@@ -211,7 +181,7 @@ const calendarClassNames = {
 
 // Strikethrough + gray style applied to booked date cells
 const bookedDayClassName =
-    "[&>button]:line-through [&>button]:text-[#3d5c38] [&>button]:cursor-not-allowed [&>button]:hover:bg-transparent [&>button]:opacity-60"
+    "[&>button]:line-through [&>button]:text-gray-700 [&>button]:cursor-not-allowed [&>button]:hover:bg-transparent [&>button]:opacity-60"
 
 function CarDetails() {
     const { car, user } = Route.useLoaderData()
@@ -220,7 +190,8 @@ function CarDetails() {
     const [showGallery, setShowGallery] = useState(false);
     const [startTime, setStartTime] = useState("10:00");
     const [endTime, setEndTime] = useState("22:00");
-    const [airportPickup, setAirportPickup] = useState(true);
+    const [airportPickup, setAirportPickup] = useState(false);
+    const [nickAddress, setNickAddress] = useState(false);
     const [customPickup, setCustomPickup] = useState("");
 
     const [disabledDates, setDisabledDates] = useState<{from: Date; to: Date}[]>([]);
@@ -438,7 +409,11 @@ function CarDetails() {
                 endTime,
                 totalDays,
                 subtotal,
-                pickupLocation: airportPickup ? 'MSP - Minneapolis, MN' : customPickup,
+                pickupLocation: airportPickup
+                    ? 'MSP - Minneapolis, MN'
+                    : nickAddress
+                    ? '2033 Sargent Avenue, Saint Paul, MN 55105'
+                    : customPickup,
             }
         })
     }
@@ -479,10 +454,10 @@ function CarDetails() {
     }
 
     return (
-        <div className="container mx-auto p-4 md:p-8 bg-[#152110]">
+        <div className="container mx-auto p-4 md:p-8">
             {/* Info & Specs */}
             <div className="flex-1">
-                <h1 className="mt-12 text-4xl"> {car.year} {car.make} {car.model}</h1>
+                <h1 className="mt-12 text-4xl"> {car.make} {car.model} {car.year}</h1>
 
                 {/* Spec Badges */}
                 <div className="flex flex-wrap text-black gap-4 mt-6">
@@ -637,7 +612,7 @@ function CarDetails() {
 
                                                 {isStartCalendarOpen && (
                                                     <div ref={startCalendarRef}
-                                                         className="absolute top-full left-0 z-[110] bg-[#152110] p-5 shadow-2xl rounded-2xl border border-[#2a4a1e]">
+                                                         className="absolute top-full left-0 z-[110] bg-gray-100 p-5 shadow-2xl rounded-2xl border border-[#2a4a1e]">
                                                         <DayPicker
                                                             mode="single"
                                                             selected={startDate}
@@ -672,7 +647,7 @@ function CarDetails() {
 
                                                 {isEndCalendarOpen && (
                                                     <div ref={endCalendarRef}
-                                                         className="absolute top-full left-0 z-[110] bg-[#152110] p-5 shadow-2xl rounded-2xl border border-[#2a4a1e]">
+                                                         className="absolute top-full left-0 z-[110] bg-gray-100 p-5 shadow-2xl rounded-2xl border border-[#2a4a1e]">
                                                         <DayPicker
                                                             mode="single"
                                                             selected={endDate}
@@ -706,21 +681,33 @@ function CarDetails() {
                                             />
                                         </div>
 
-                                        {/* Custom address — only shown when airport pickup is unchecked */}
-                                        {!airportPickup && (
-                                            <div className="mt-3">
-                                                <input
-                                                    type="text"
-                                                    placeholder="Enter pickup address"
-                                                    value={customPickup}
-                                                    onChange={(e) => setCustomPickup(e.target.value)}
-                                                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 outline-none focus:border-gray-600 transition-colors"
-                                                />
-                                                <p className="text-xs text-gray-500 mt-1">
-                                                    Additional fees apply for custom pickup locations.
-                                                </p>
-                                            </div>
-                                        )}
+                                        <div className="mt-3 flex items-center gap-2">
+                                            <label htmlFor="nickAddress" className="text-sm text-gray-700 cursor-pointer">
+                                                2033 Sargent Avenue, Saint Paul, MN 55105
+                                            </label>
+                                            <input
+                                                type="checkbox"
+                                                id="nickAddress"
+                                                checked={nickAddress}
+                                                onChange={(e) => setNickAddress(e.target.checked)}
+                                                className="w-3 h-3 accent-gray-800 cursor-pointer"
+                                            />
+                                        </div>
+
+                                        {/* Custom address */}
+                                        <div className="mt-3">
+                                            <input
+                                                type="text"
+                                                placeholder="Enter pickup address"
+                                                value={customPickup}
+                                                onChange={(e) => setCustomPickup(e.target.value)}
+                                                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 outline-none focus:border-gray-600 transition-colors"
+                                            />
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                Additional fees apply for custom pickup locations.
+                                            </p>
+                                        </div>
+
                                     </div>
 
                                     {durationError && (

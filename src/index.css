@@ -12,12 +12,12 @@
     }
 
     .rdp-chevron polygon {
-        fill: #a3c98a !important;
+        fill: gray !important;
     }
 
     .rdp-button_previous:hover .rdp-chevron polygon,
     .rdp-button_next:hover .rdp-chevron polygon {
-        fill: #d4e8c2 !important;
+        fill: gray !important;
     }
 
     .rdp-button_previous,

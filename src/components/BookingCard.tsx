@@ -48,7 +48,7 @@ export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any,
             <div className="w-full rounded-lg md:w-48 h-32 flex-shrink-0">
                 <img
                     src={`https://${projectID}.supabase.co/storage/v1/object/public/car%20gallery/car_${car.id}/main.PNG`}
-                    alt={`${car.year} ${car.make} ${car.model}`}
+                    alt={`${car.make} ${car.model} ${car.year} `}
                     className="w-full h-full border border-black object-cover rounded-xl"
                 />
             </div>
@@ -57,7 +57,7 @@ export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any,
             <div className="flex-1 flex flex-col justify-between">
                 <div>
                     <div className="flex justify-between items-start mb-2">
-                        <h3 className="text-xl text-black font-bold">{car.year} {car.make} {car.model}</h3>
+                        <h3 className="text-xl text-black font-bold">{car.make} {car.model} {car.trim} {car.year}</h3>
 
                         {/* Status Badge */}
                         <span className={`text-xs font-bold px-3 py-1 rounded-full ${

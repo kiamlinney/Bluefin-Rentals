@@ -1,14 +1,5 @@
-export interface Car {
-    id: number;
-    make: string;
-    model: string;
-    year: number;
-    color: string;
-    price_per_day: number;
-    image_url: string;
-    is_available: boolean;
-    num_seats: number;
-    fuel_type: number;
-    mpg: number;
-    transmission: string;
-}
+import type { Database } from 'src/lib/database.types.ts'
+
+export type Car = Database['public']['Tables']['cars']['Row']
+export type Booking = Database['public']['Tables']['bookings']['Row']
+export type Profile = Database['public']['Tables']['profiles']['Row']

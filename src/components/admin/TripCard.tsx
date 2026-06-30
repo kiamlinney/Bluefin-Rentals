@@ -1,7 +1,8 @@
 import { Link } from "@tanstack/react-router";
+import {Car} from "@/types.ts";
 
 export function TripCard({ booking }: { booking: any }) {
-    const car = booking.cars
+    const car: Car = booking.cars
 
     const now = new Date()
     const startTime = new Date(booking.start_time)
@@ -71,7 +72,7 @@ export function TripCard({ booking }: { booking: any }) {
                 </span>
 
                 <h3 className="text-base font-bold text-black mt-1">
-                    {car.year} {car.make} {car.model}
+                    {car.make} {car.model} {car.trim} {car.year}
                 </h3>
 
                 <p className="flex gap-1 text-sm text-gray-500">

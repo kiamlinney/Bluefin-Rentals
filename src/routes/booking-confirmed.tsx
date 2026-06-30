@@ -52,19 +52,19 @@ function BookingConfirmed() {
 
                 {/* Success header */}
                 <div className="text-center mb-8">
-                    <div className="w-16 h-16 bg-[#2a4a1e] rounded-full flex items-center justify-center mx-auto mb-4">
-                        <svg className="w-8 h-8 text-[#6fcf4a]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg className="w-8 h-8 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                     </div>
                     <h1 className="text-3xl font-bold text-white">You're all set!</h1>
-                    <p className="text-[#6a9455] mt-2">
+                    <p className="text-gray-300 mt-2">
                         Confirmation details have been sent to your email.
                     </p>
                 </div>
 
                 {/* Booking details card */}
-                <div className="bg-[#1e3318] border border-[#2a4a1e] rounded-2xl p-6 mb-6">
+                <div className="bg-gray-200 border border-[#2a4a1e] rounded-2xl p-6 mb-6">
 
                     {/* Car summary */}
                     <div className="flex gap-4 items-center mb-5 pb-5 border-b border-[#2a4a1e]">
@@ -74,51 +74,51 @@ function BookingConfirmed() {
                             className="w-20 h-14 object-cover rounded-lg flex-shrink-0"
                         />
                         <div>
-                            <p className="font-bold text-white">{car.year} {car.make} {car.model}</p>
-                            <p className="text-[#a3c98a] text-sm">${car.price_per_day}/day</p>
+                            <p className="font-bold text-black">{car.year} {car.make} {car.model}</p>
+                            <p className="text-gray-700 text-sm">${car.price_per_day}/day</p>
                         </div>
                     </div>
 
                     {/* Trip details */}
                     <div className="space-y-3 text-sm">
                         <div className="flex justify-between">
-                            <span className="text-[#6a9455]">Pickup</span>
-                            <span className="text-[#d4e8c2] text-right">
+                            <span className="font-bold text-black">Pickup</span>
+                            <span className="text-black text-right">
                                 {startDate}<br />
-                                <span className="text-[#a3c98a]">{startTime} CST</span>
+                                <span className="text-gray-700">{startTime} CST</span>
                             </span>
                         </div>
                         <div className="flex justify-between">
-                            <span className="text-[#6a9455]">Return</span>
-                            <span className="text-[#d4e8c2] text-right">
+                            <span className="font-bold text-black">Return</span>
+                            <span className="text-black text-right">
                                 {endDate}<br />
-                                <span className="text-[#a3c98a]">{endTime} CST</span>
+                                <span className="text-gray-700">{endTime} CST</span>
                             </span>
                         </div>
                         <div className="flex justify-between">
-                            <span className="text-[#6a9455]">Location</span>
-                            <span className="text-[#d4e8c2]">{booking.pickup_location}</span>
+                            <span className="font-bold text-black">Location</span>
+                            <span className="text-black">{booking.pickup_location}</span>
                         </div>
                         <div className="flex justify-between">
-                            <span className="text-[#6a9455]">Booking ID</span>
+                            <span className="font-bold text-black">Booking ID</span>
                             {/* Truncate the UUID to first 8 chars for readability */}
-                            <span className="text-[#d4e8c2] font-mono text-xs">
+                            <span className="text-black font-mono text-xs">
                                 {booking.id.slice(0, 8).toUpperCase()}
                             </span>
                         </div>
 
                         <hr className="border-[#2a4a1e]" />
 
-                        <div className="flex justify-between font-bold text-base">
-                            <span className="text-[#a3c98a]">Total paid</span>
-                            <span className="text-white">${booking.total_price}</span>
+                        <div className="flex justify-between text-base">
+                            <span className="font-bold text-black">Total paid</span>
+                            <span className="text-black">${booking.total_price}</span>
                         </div>
                     </div>
                 </div>
 
                 <Link
                     to="/my-bookings"
-                    className="block text-center text-[#6a9455] hover:text-[#a3c98a] text-sm transition-colors"
+                    className="block text-center text-gray-200 hover:text-gray-400 text-sm transition-colors"
                 >
                     View bookings →
                 </Link>

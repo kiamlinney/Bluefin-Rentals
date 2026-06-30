@@ -124,7 +124,7 @@ function SidebarContent({
                                                 ? 'flex-col items-center justify-center gap-0.5 px-1 py-2'
                                                 : 'flex-row items-center gap-3 px-3 py-2',
                                         ].join(' ')}
-                                        activeProps={{ className: 'bg-neutral-100' }}
+                                        activeProps={{ className: 'text-emerald-700' }}
                                         inactiveProps={{}}
                                     >
                                         <span className={collapsed ? 'flex flex-col items-center gap-0.5' : 'flex items-center gap-3'}>
@@ -148,7 +148,7 @@ function SidebarContent({
                                         collapsed
                                             ? 'flex-col items-center justify-center gap-0.5 px-1 py-2'
                                             : 'flex-row items-center justify-between px-3 py-2',
-                                        sectionActive ? 'text-green-700' : 'hover:bg-neutral-50', // activeProps for trips/business
+                                        sectionActive ? 'text-emerald-700' : 'hover:bg-neutral-50', // activeProps for trips/business
                                     ].join(' ')}
                                     onClick={() => !collapsed && toggleSection(item.label)}
                                     aria-expanded={open}
@@ -174,7 +174,7 @@ function SidebarContent({
                                                     <Link
                                                         to={child.path}
                                                         className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm hover:bg-neutral-50"
-                                                        activeProps={{ className: 'bg-green-700/30 text-green-700' }} // For the children
+                                                        activeProps={{ className: 'bg-emerald-700/30 text-emerald-700' }} // For the children
                                                         inactiveProps={{}}
                                                     >
                                                         {CIcon ? <CIcon className="shrink-0" size={16} /> : null}

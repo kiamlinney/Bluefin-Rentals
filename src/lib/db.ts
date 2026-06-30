@@ -3,14 +3,17 @@ import { getSupabaseServerClient } from './supabase.server'
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe'
 
-// Bridge for the Fleet Page
+// Fetches all cars that are available
 export const getCars = createServerFn({ method: 'GET' })
     .handler(async () => {
         const supabase = getSupabaseServerClient()
         const { data, error } = await supabase
             .from('cars')
             .select('*')
-            .order('id', { ascending: true })
+            .eq('is_available', true)
+            .order('make', { ascending: true })
+            .order('model', { ascending: true })
+            .order('year', { ascending: true })
 
         if (error) throw new Error(error.message)
         return data
@@ -24,7 +27,7 @@ export const getCarById = createServerFn({ method: 'GET' })
         const { data, error } = await supabase
             .from('cars')
             .select('*')
-            .eq('id', carId)
+            .eq('id', parseInt(carId, 10))
             .single()
 
         if (error) throw new Error("Car not found")
@@ -37,7 +40,7 @@ export const getBookedDates = createServerFn({ method: 'GET' })
         const supabase = getSupabaseServerClient();
 
         const { data, error } = await supabase
-            .rpc('get_car_availability', { car_id_param: carId });
+            .rpc('get_car_availability', { car_id_param: parseInt(carId, 10) });
 
         if (error) {
             console.error("Error fetching booked dates:", error);
@@ -477,6 +480,32 @@ export const getPastBookings = createServerFn({ method: 'GET' })
             .from('bookings')
             .select('*, cars(*), profiles(full_name, email, id)')
             .in('status', ['completed', 'canceled'])
+            .order('start_time', { ascending: true })
+
+        if (error) throw new Error(error.message)
+        return data || []
+    })
+
+// Fetches all active (confirmed) bookings across entire fleet for rendering booking bars on the admin calendar grid.
+export const getCalendarBookings = createServerFn({ method: 'GET' })
+    .handler(async () => {
+        const supabase = getSupabaseServerClient()
+        const authResult = await supabase.auth.getUser()
+        const user = authResult.data.user
+        if (!user) throw new Error('Not authenticated')
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('is_admin')
+            .eq('id', user.id)
+            .single()
+
+        if (!profile?.is_admin) throw new Error('Not authorized')
+
+        const { data, error } = await supabase
+            .from('bookings')
+            .select('id, car_id, start_time, end_time, status')
+            .eq('status', 'confirmed')
             .order('start_time', { ascending: true })
 
         if (error) throw new Error(error.message)

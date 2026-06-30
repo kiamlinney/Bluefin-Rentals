@@ -33,10 +33,10 @@ function MyBookingsPage() {
                 <h1 className="text-3xl font-bold mb-8">My Bookings</h1>
 
                 {bookings.length === 0 ? (
-                    <div className="bg-[#1e3318] border border-[#2a4a1e] rounded-2xl p-12 text-center">
-                        <h2 className="text-xl font-bold mb-2">No bookings yet!</h2>
-                        <p className="text-[#6a9455] mb-6">When you book a car, all trips will appear here.</p>
-                        <Link to="/fleet" className="px-6 py-3 bg-[#3a7d2c] hover:bg-[#4a9e38] text-white font-semibold rounded-xl transition-colors">
+                    <div className="bg-gray-200 border border-gray-800 rounded-2xl p-12 text-center">
+                        <h2 className="text-xl text-gray-800 font-bold mb-2">No bookings yet!</h2>
+                        <p className="text-gray-600 mb-6">When you book a car, all trips will appear here.</p>
+                        <Link to="/fleet" className="primary-button px-6 py-3 border border-gray-800 text-gray-800 hover:bg-gray-300 font-semibold rounded-xl transition-colors">
                             Browse Cars
                         </Link>
                     </div>
