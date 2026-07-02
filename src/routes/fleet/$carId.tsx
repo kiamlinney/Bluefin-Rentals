@@ -549,7 +549,7 @@ function CarDetails() {
                                         <h3 className="font-bold text-lg mb-3">{category}</h3>
                                         <ul className="space-y-2">
                                             {list.map((feature: string) => (
-                                                <li key={feature} className="text-gray-400 font-medium">
+                                                <li key={feature} className="text-gray-300 font-medium">
                                                     {feature}
                                                 </li>
                                             ))}

@@ -487,27 +487,27 @@ export const getPastBookings = createServerFn({ method: 'GET' })
     })
 
 // Fetches all active (confirmed) bookings across entire fleet for rendering booking bars on the admin calendar grid.
-export const getCalendarBookings = createServerFn({ method: 'GET' })
-    .handler(async () => {
-        const supabase = getSupabaseServerClient()
-        const authResult = await supabase.auth.getUser()
-        const user = authResult.data.user
-        if (!user) throw new Error('Not authenticated')
-
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('is_admin')
-            .eq('id', user.id)
-            .single()
-
-        if (!profile?.is_admin) throw new Error('Not authorized')
-
-        const { data, error } = await supabase
-            .from('bookings')
-            .select('id, car_id, start_time, end_time, status')
-            .eq('status', 'confirmed')
-            .order('start_time', { ascending: true })
-
-        if (error) throw new Error(error.message)
-        return data || []
-    })
+// export const getCalendarBookings = createServerFn({ method: 'GET' })
+//     .handler(async () => {
+//         const supabase = getSupabaseServerClient()
+//         const authResult = await supabase.auth.getUser()
+//         const user = authResult.data.user
+//         if (!user) throw new Error('Not authenticated')
+//
+//         const { data: profile } = await supabase
+//             .from('profiles')
+//             .select('is_admin')
+//             .eq('id', user.id)
+//             .single()
+//
+//         if (!profile?.is_admin) throw new Error('Not authorized')
+//
+//         const { data, error } = await supabase
+//             .from('bookings')
+//             .select('id, car_id, start_time, end_time, pickup_location, status')
+//             .eq('status', 'confirmed')
+//             .order('start_time', { ascending: true })
+//
+//         if (error) throw new Error(error.message)
+//         return data || []
+//     })

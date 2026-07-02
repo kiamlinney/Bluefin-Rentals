@@ -111,7 +111,7 @@ function ReservationDetailsPage() {
                             <Link
                                 to="/fleet/$carId"
                                 params={{ carId: car.id.toString() }}
-                                className="text-s font-semibold text-green-700 hover:underline cursor-pointer">
+                                className="text-s font-semibold text-emerald-700 hover:underline cursor-pointer">
                                 View car details
                             </Link>
                         </div>
@@ -174,7 +174,7 @@ function ReservationDetailsPage() {
                         <section className="space-y-1">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-black">Total Earnings</h3>
                             <p className="text-lg text-gray-500">${booking.total_price}</p>
-                            <button className="text-sm font-semibold text-green-700 hover:underline cursor-pointer block pt-1">
+                            <button className="text-sm font-semibold text-emerald-700 hover:underline cursor-pointer block pt-1">
                                 View detailed receipt
                             </button>
                         </section>
@@ -292,8 +292,8 @@ function ReservationDetailsPage() {
                                     {profile.identity_verified ? (
                                         <div className="flex items-center gap-2">
                                             <span className="text-gray-600">Driver's license verified</span>
-                                            <span className="text-green-700 font-bold"><Check size={16}/></span>
-                                            <button className="justify-end text-green-700 font-bold cursor-pointer">
+                                            <span className="text-emerald-700 font-bold"><Check size={16}/></span>
+                                            <button className="justify-end text-emerald-700 font-bold cursor-pointer">
                                                 View
                                             </button >
                                         </div>
@@ -306,13 +306,13 @@ function ReservationDetailsPage() {
                                 <hr className="border-gray-100" />
                                 <div className="flex justify-between items-center text-sm">
                                     <span className="text-gray-600">Phone number</span>
-                                    <span className="text-green-700 cursor-pointer hover:underline">
+                                    <span className="text-emerald-700 cursor-pointer hover:underline">
                                         {profile.phone ? `+ 1 ${numberFormatted}` : 'Not provided'}
                                     </span>
                                 </div>
                                 <div className="flex justify-between items-center text-sm">
                                     <span className="text-gray-600">Email address</span>
-                                    <span className="text-green-700 cursor-pointer hover:underline">
+                                    <span className="text-emerald-700 cursor-pointer hover:underline">
                                         {profile.email ? profile.email : 'Not provided'}
                                     </span>
                                 </div>

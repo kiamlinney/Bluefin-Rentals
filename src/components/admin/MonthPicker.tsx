@@ -38,7 +38,7 @@ const miniCalendarClassNames = {
     day_button:
         "w-9 h-9 rounded-full text-sm font-medium text-gray-800 hover:bg-gray-100 transition-colors focus:outline-none cursor-pointer",
     today: "[&>button]:border [&>button]:border-gray-900",
-    selected: "[&>button]:bg-green-700 [&>button]:text-white [&>button]:hover:bg-green-800",
+    selected: "[&>button]:bg-emerald-700 [&>button]:text-white [&>button]:hover:bg-emerald-800",
     disabled: "[&>button]:text-gray-300 [&>button]:cursor-not-allowed [&>button]:hover:bg-transparent",
     outside: "[&>button]:text-gray-300 [&>button]:opacity-60",
     hidden: "invisible",

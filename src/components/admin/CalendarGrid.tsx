@@ -1,8 +1,8 @@
 import {useRef, useMemo, useState, useEffect, useCallback} from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { Booking, Car } from "src/types.ts";
-import {CalendarCarCard} from "@/components/admin/CalendarCarCard.tsx";
-import {MonthPicker} from "@/components/admin/MonthPicker.tsx";
+import { MonthPicker } from "@/components/admin/MonthPicker.tsx";
+import { SelectionPanel } from "@/components/admin/SelectionPanel.tsx";
 
 const column_width = 64 // pixels - width of one day column
 const row_height = 80 // pixels - height of one car's price row
@@ -118,12 +118,12 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
     // day-difference math instead of looping with findIndex per booking
     const todayMidnight = dateRange[0] ?? new Date(0)
 
-    const dateToIndex = (isoString: string): number => {
+    const dateToIndex = useCallback((isoString: string): number => {
         const d = new Date(isoString)
         d.setHours(0, 0, 0, 0)
         const diffMs = d.getTime() - todayMidnight.getTime()
         return Math.round(diffMs / (1000 * 60 * 60 * 24))
-    }
+    }, [todayMidnight])
 
     // Groups bookings bt car_id once, so each row does a cheap Map lookup instead of filtering
     // he whole bookings array per row. useMemo avoids recomputing this one every render
@@ -137,6 +137,23 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
         }
         return map
     }, [bookings])
+
+    const sharedBoundaryIndices = useMemo(() => {
+        const perCarShared = new Map<number, Set<number>>()
+
+        for (const car of cars) {
+            const carBookings = bookingsByCarId.get(car.id) ?? []
+            const startDates = new Set(carBookings.map(b => dateToIndex(b.start_time)))
+            const endDates = new Set(carBookings.map(b => dateToIndex(b.end_time)))
+            const shared = new Set<number>()
+            for (const endIdx of endDates) {
+                if (startDates.has(endIdx)) shared.add(endIdx)
+            }
+            perCarShared.set(car.id, shared)
+        }
+
+        return perCarShared
+    }, [bookingsByCarId, cars, dateToIndex])
 
     // Selection state
 
@@ -235,7 +252,7 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
                 // next.clear() only have this if each time a new cell is selected, clears the previous
                 next.add(key)
                 setPanelOpen(true)
-                setActiveTab('prices')
+                //setActiveTab('prices') // Only have this to set active tab to prices after every close or change
             }
 
             return next
@@ -285,7 +302,7 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
             for (const key of columnKeys) next.add(key)
             setSelectedCells(next)
             setPanelOpen(true)
-            setActiveTab('prices')
+            // setActiveTab('prices')
             if (cars.length > 0) {
                 setAnchorCell(makeCellKey(cars[0]!.id, dateIndex))
             }
@@ -314,8 +331,14 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
         }
     }, [selectedCells])
 
+    const handleClosePanel = useCallback(() => {
+        setSelectedCells(new Set())
+        setAnchorCell(null)
+        setPanelOpen(false)
+    }, [])
+
     return (
-        <div className="border border-gray-200 overflow-hidden bg-white">
+        <div className="border border-gray-200 bg-white">
             {/*
                 The single scroll container. overflow-auto enables BOTH horizontal
                 and vertical scrolling within this one element. Everything sticky
@@ -376,7 +399,7 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
                                             'absolute top-0 h-full flex flex-col items-center justify-center text-xs',
                                             'cursor-pointer select-none',
                                             isColumnSelected
-                                                ? 'bg-emerald-600/30'
+                                                ? 'bg-[#b2e0d1]'
                                                 : isWeekend
                                                     ? 'bg-gray-100 hover:bg-gray-200'
                                                     : 'hover:bg-gray-50'
@@ -386,7 +409,7 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
                                             width: virtualColumn.size,
                                         }}
                                     >
-                                        <span className={isColumnSelected ? 'text-emerald-500' : 'text-gray-400'}>
+                                        <span className={isColumnSelected ? 'text-emerald-700' : 'text-gray-400'}>
                                             {weekday}
                                         </span>
                                         <span
@@ -395,7 +418,7 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
                                                 isToday
                                                     ? "w-6 h-6 rounded-full bg-emerald-700 text-white flex items-center justify-center"
                                                     : isColumnSelected
-                                                        ? 'text-emerald-600 font-semibold'
+                                                        ? 'text-emerald-700 font-semibold'
                                                         : "text-gray-800"
                                             ].join(' ')}
                                         >
@@ -416,36 +439,41 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
                             key => parseCellKey(key).carId === car.id
                         )
 
-                        const sharedBoundaryIndices = useMemo(() => {
-                            const perCarShared = new Map<number, Set<number>>()
-
-                            for (const car of cars) {
-                                const carBookings = bookingsByCarId.get(car.id) ?? []
-                                const startDates = new Set(carBookings.map(b => dateToIndex(b.start_time)))
-                                const endDates = new Set(carBookings.map(b => dateToIndex(b.end_time)))
-                                const shared = new Set<number>()
-                                for (const endIdx of endDates) {
-                                    if (startDates.has(endIdx)) shared.add(endIdx)
-                                }
-                                perCarShared.set(car.id, shared)
-                            }
-
-                            return perCarShared
-                        }, [bookingsByCarId, cars, dateToIndex])
+                        const carSharedBoundaries = sharedBoundaryIndices.get(car.id) ?? new Set<number>()
 
                         return (
                             <div key={car.id} className="relative flex border-b border-gray-100" style={{height: row_height}}>
                                 {/* Sticky left column - car info, fixed horizontally */}
                                 <div
                                     className={[
-                                        'sticky left-0 z-20 border-r border-gray-200 flex items-center px-4 text-xs',
+                                        'sticky left-0 z-10 border-r border-gray-200 flex items-center px-4 text-xs',
                                         isCarRowSelected
-                                            ? 'bg-emerald-600/30 text-gray-800'
+                                            ? 'bg-[#b2e0d1] text-gray-800' // #b2e0d1 is the same as emerald-600/30
                                             : 'bg-white text-gray-800',
                                     ].join(' ')}
                                     style={{width: car_column_width, flexShrink: 0}}
                                 >
-                                    <CalendarCarCard car={car}/>
+                                    <div className="flex flex-row gap-4 items-center justify-center">
+                                        <div className="w-full rounded-md md:w-12 h-8 flex-shrink-0">
+                                            <img
+                                                src={`https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/car%20gallery/car_${car.id}/main.PNG`}
+                                                alt={`${car.year} ${car.make} ${car.model}`}
+                                                className="w-12 h-8 object-cover rounded-sm flex-shrink-0"
+                                            />
+                                        </div>
+
+                                        <div className="flex flex-col text-left">
+                                            <p className="text-xs text-black mt-1">
+                                                {car.make} {car.model} {car.year}
+                                            </p>
+
+                                            <p className="text-xs text-gray-600">
+                                                {car.license_plate}
+                                            </p>
+                                        </div>
+
+                                    </div>
+
                                 </div>
 
                                 {/* Shared layer wrapper for price cells and booking bars */}
@@ -467,7 +495,7 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
                                                 onClick={(e) => handleCellClick(car.id, virtualColumn.index, e)}
                                                 className={[
                                                     'absolute top-0 h-full',
-                                                    'flex items-end justify-center pb-3',
+                                                    'flex items-end justify-center pb-1',
                                                     'text-sm border-r border-gray-200',
                                                     // select-none prevents the browser from highlighting
                                                     // text content during shift-click drag operations
@@ -476,7 +504,7 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
                                                     // Unselected weekends keep their gray tint.
                                                     // Unselected weekdays get a subtle hover state.
                                                     isSelected
-                                                        ? 'bg-emerald-600/30 text-emerald-700'
+                                                        ? 'bg-[#b2e0d1] text-emerald-800'
                                                         : isWeekend
                                                             ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                                             : 'text-gray-700 hover:bg-gray-50',
@@ -503,17 +531,26 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
 
                                         if (rawEnd < 0 || rawStart > dateRange.length - 1) return null
 
-                                        const left = startIndex * column_width + column_width / 2
-                                        const width = (endIndex - startIndex) * column_width
+                                        const isClampedAtStart = rawStart < 0
+                                        const isClampedAtEnd = rawEnd > dateRange.length - 1
 
-                                        const carSharedBoundaries = sharedBoundaryIndices.get(car.id) ?? new Set<number>()
+                                        const left = isClampedAtStart
+                                            ? 0
+                                            : startIndex * column_width + column_width / 2
+
+                                        const rightEdge = isClampedAtEnd
+                                            ? dateRange.length * column_width
+                                            : endIndex * column_width + column_width / 2
+
+                                        const width = rightEdge - left
+
                                         const startIsShared = carSharedBoundaries.has(rawStart)
                                         const endIsShared = carSharedBoundaries.has(rawEnd)
 
                                         return (
                                             <div
                                                 key={booking.id}
-                                                className="absolute pointer-events-none z-10"
+                                                className="absolute pointer-events-none z-5"
                                                 style={{
                                                     left,
                                                     width,
@@ -523,16 +560,22 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
                                             >
                                                 {/* The line itself */}
                                                 <div className="absolute inset-0 bg-black rounded-full"/>
-                                                {/* Start dot */}
-                                                <div
-                                                    className="absolute -left-0.5 -top-[3px] w-2 h-2 rounded-full bg-black"
-                                                    style={{ left: startIsShared ? 0.1 : -2 }}
-                                                />
-                                                {/* End dot */}
-                                                <div
-                                                    className="absolute -right-0.5 -top-[3px] w-2 h-2 rounded-full bg-black"
-                                                    style={{ right: endIsShared ? 0.1 : -2 }}
-                                                />
+
+                                                {!isClampedAtStart && (
+                                                    // Start dot
+                                                    <div
+                                                        className="absolute -left-0.5 -top-[3px] w-2 h-2 rounded-full bg-black"
+                                                        style={{ left: startIsShared ? 0.1 : -2 }}
+                                                    />
+                                                )}
+
+                                                {!isClampedAtEnd && (
+                                                    <div
+                                                        // End dot
+                                                        className="absolute -top-[3px] w-2 h-2 rounded-full bg-black"
+                                                        style={{ right: endIsShared ? 0.1 : -2 }}
+                                                    />
+                                                )}
                                             </div>
                                         )
                                     })}
@@ -544,13 +587,17 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
 
             </div>
             {panelOpen && (
-                <div className="fixed bottom-6 right-6 z-50 bg-gray-900 text-white text-xs px-4 py-3 rounded-xl shadow-xl pointer-events-none">
-                    <p className="font-bold mb-1">Phase 1 Selection Debug</p>
-                    <p>{selectionInfo.totalCells} cells selected</p>
-                    <p>{selectionInfo.uniqueDates} dates · {selectionInfo.uniqueCars} cars</p>
-                    <p className="mt-1 text-gray-400">Active tab: {activeTab}</p>
-                    <p className="text-gray-400">Press Escape to clear</p>
-                </div>
+                <SelectionPanel
+                    selectionInfo={selectionInfo}
+                    activeTab={activeTab}
+                    setActiveTab={setActiveTab}
+                    onClose={handleClosePanel}
+                    selectedCells={selectedCells}
+                    bookings={bookings}
+                    cars={cars}
+                    dateRange={dateRange}
+                    dateToIndex={dateToIndex}
+                />
             )}
         </div>
     )

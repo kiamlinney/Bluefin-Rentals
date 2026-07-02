@@ -767,7 +767,7 @@ function PaymentStep({
             <button
                 type="submit"
                 disabled={!stripe || processing}
-                className="w-full py-4 bg-gray-800 hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed text-gray-100 font-bold rounded-xl text-lg transition-colors cursor-pointer"
+                className="w-full py-4 bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed text-gray-800 font-bold rounded-xl text-lg transition-colors cursor-pointer"
             >
                 {processing ? 'Processing payment...' : `Pay $${subtotal}`}
             </button>

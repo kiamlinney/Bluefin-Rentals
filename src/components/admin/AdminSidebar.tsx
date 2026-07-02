@@ -173,8 +173,8 @@ function SidebarContent({
                                                 <li key={child.path}>
                                                     <Link
                                                         to={child.path}
-                                                        className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm hover:bg-neutral-50"
-                                                        activeProps={{ className: 'bg-emerald-700/30 text-emerald-700' }} // For the children
+                                                        className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm hover:bg-emerald-600/40"
+                                                        activeProps={{ className: 'bg-[#b2e0d1] text-emerald-800' }} // For the children
                                                         inactiveProps={{}}
                                                     >
                                                         {CIcon ? <CIcon className="shrink-0" size={16} /> : null}
