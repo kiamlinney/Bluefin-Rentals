@@ -1,11 +1,15 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { MoveUpRight } from "lucide-react"
+import { SearchBar } from '@/components/SearchBar'
+import {useState} from "react";
 
 export const Route = createFileRoute('/')({
     component: Home,
 })
 
 function Home() {
+    const [showBar, setShowBar] = useState(false)
+
     return (
         <main className="relative min-h-screen w-full flex items-center justify-start overflow-hidden">
             {/* Video Background */}
@@ -23,7 +27,7 @@ function Home() {
             {/* Dark Overlay */}
             <div className="absolute inset-0 z-10 bg-gradient-to-r from-black/40 via-black/20 to-transparent"></div>
 
-            <div className="z-20 pb-50 px-16 md:px-40 ">
+            <div className="z-20 pb-50 px-16 md:px-30 ">
                 <h1 className="text-white md:text-6xl mb-4 tracking-tight">
                     Less Hassle,
                 </h1>
@@ -35,11 +39,16 @@ function Home() {
                 </p>
 
                 <div className = "flex flex-col mt-8 gap-4">
-                    <Link to="/fleet"
-                          className="bg-white secondary-button font-semibold w-fit flex items-center gap-2"
-                    >
-                        Book Now <MoveUpRight size={14}/>
-                    </Link>
+                    {!showBar ? (
+                        <button
+                            onClick={() => setShowBar(true)}
+                            className="bg-white secondary-button font-semibold w-fit flex items-center gap-2"
+                        >
+                            Book Now <MoveUpRight size={14}/>
+                        </button>
+                    ) : (
+                        <SearchBar />
+                    )}
                 </div>
 
             </div>

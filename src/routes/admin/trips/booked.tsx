@@ -1,6 +1,7 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { getConfirmedBookings } from '@/lib/db'
+import {createFileRoute, useRouter} from '@tanstack/react-router'
+import {getConfirmedBookings, inspectTuroEmail, syncTuroBookings} from '@/lib/db'
 import { TripCard } from 'src/components/admin/TripCard.tsx'
+import { useState } from "react";
 
 type Booking = {
     id: string
@@ -29,6 +30,128 @@ export const Route = createFileRoute('/admin/trips/booked')({
     },
     component: BookedPage,
 })
+
+function InspectTuroEmailPanel() {
+    const [result, setResult] = useState<null | {
+        subject: string
+        snippet: string
+        plainText: string | null
+        htmlSnippet: string | null
+        mimeType: string
+    }>(null)
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+
+    async function handleClick() {
+        const defaultId = '19fa8aa569d3a5dc'
+        const answer = window.prompt('Enter a Gmail message id to inspect', defaultId)
+        if (typeof answer !== 'string' || !answer.trim()) return
+
+        setLoading(true)
+        setError(null)
+        setResult(null)
+
+        try {
+            const messageId = answer.trim()
+            // If you changed server to POST + string:
+            const res = await inspectTuroEmail({data: messageId})
+            // If you kept GET + object shape:
+            // const res = await inspectTuroEmail({ id: messageId })
+
+            setResult(res)
+            // Optional: still log to console
+            console.log('inspect result', res)
+            console.log('plainText length', res.plainText?.length ?? 0)
+        } catch (e: any) {
+            console.error(e)
+            setError(e?.message || 'Inspect failed — see server logs')
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    return (
+        <div className="space-y-3">
+            <button onClick={handleClick} className="px-3 py-2 border rounded">
+                {loading ? 'Inspecting…' : 'Inspect Turo Email'}
+            </button>
+
+            {error && (
+                <div className="text-red-600 text-sm">{error}</div>
+            )}
+
+            {result && (
+                <div className="border rounded p-3 bg-white text-sm space-y-2">
+                    <div><strong>Subject:</strong> {result.subject}</div>
+                    <div><strong>Snippet:</strong> {result.snippet}</div>
+                    <div><strong>MIME:</strong> {result.mimeType}</div>
+
+                    {result.plainText && (
+                        <div>
+                            <div className="font-semibold mb-1">Plain text</div>
+                            <textarea
+                                readOnly
+                                className="w-full h-64 border rounded p-2 font-mono text-xs"
+                                value={result.plainText}
+                            />
+                        </div>
+                    )}
+
+                    {result.htmlSnippet && (
+                        <div>
+                            <div className="font-semibold mb-1">HTML snippet</div>
+                            <textarea
+                                readOnly
+                                className="w-full h-64 border rounded p-2 font-mono text-xs"
+                                value={result.htmlSnippet}
+                            />
+                        </div>
+                    )}
+
+                    <pre className="bg-gray-50 border rounded p-2 overflow-auto">
+            {JSON.stringify(result, null, 2)}
+          </pre>
+                </div>
+            )}
+        </div>
+    )
+}
+
+function SyncTuroBookingsButton() {
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+    const router = useRouter()
+
+    async function handleClick() {
+        setLoading(true)
+        setError(null)
+        try {
+            const result = await syncTuroBookings() // no args
+            console.log('sync result', result)
+
+            // Optionally show a quick toast/alert
+            alert(`Sync complete.\n` + JSON.stringify(result, null, 2))
+            console.log(result)
+
+            // Refresh this page’s loader data so the new bookings show up
+            await router.invalidate()
+        } catch (e: any) {
+            console.error(e)
+            setError(e?.message || 'Sync failed — see server logs')
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    return (
+        <div className="space-y-2">
+            <button onClick={handleClick} className="px-3 py-2 border rounded">
+                {loading ? 'Syncing…' : 'Sync Turo Bookings'}
+            </button>
+            {error && <div className="text-red-600 text-sm">{error}</div>}
+        </div>
+    )
+}
 
 function groupBookingsByDate(bookings: Booking[]): DateGroup[] {
     const now = new Date();
@@ -107,7 +230,8 @@ function BookedPage() {
         <div className="min-h-screen py-16 px-4 md:px-8">
             <div className="max-w-2xl mx-auto">
                 <h1 className="mb-8 text-3xl text-black font-bold">Booked</h1>
-
+                < SyncTuroBookingsButton />
+                < InspectTuroEmailPanel />
                 {bookings.length === 0 ? (
                     <div className="">
                         <h2 className="text-xl font-bold mb-2">No bookings yet!</h2>

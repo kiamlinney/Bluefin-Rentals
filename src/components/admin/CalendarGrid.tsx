@@ -15,6 +15,7 @@ const days_to_show = 365 // full year
 // Example: "3:7" is car with id 3, the column 7 days from today
 // Using a string key means O(1) lookup
 type CellKey = string
+type BlockedDate = { id: string; car_id: number; start_date: string; end_date: string; reason: string | null }
 
 function makeCellKey(carId: number, dateIndex: number): CellKey {
     return `${carId}:${dateIndex}`
@@ -49,7 +50,17 @@ function formatDayLabel(date: Date) {
     }
 }
 
-export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking[] }) {
+export function CalendarGrid({
+     cars,
+     bookings,
+     priceOverrides,
+     blockedDates,
+}: {
+    cars: Car[]
+    bookings: Booking[]
+    priceOverrides: { car_id: number; date: string; price: number }[]
+    blockedDates: BlockedDate[]
+}) {
     const dateRange = buildDateRange(days_to_show)
 
     // This ref points at the ONE scrollable element that handles both
@@ -125,6 +136,13 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
         return Math.round(diffMs / (1000 * 60 * 60 * 24))
     }, [todayMidnight])
 
+    // Converts "YYYY-MM-DD" date string to index, so parsed as local midnight, not UTC midnight
+    const dateStringToIndex = useCallback((dateStr: string): number => {
+        const d = new Date(`${dateStr}T00:00:00`)
+        d.setHours(0, 0, 0, 0)
+        return Math.round((d.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24))
+    }, [todayMidnight])
+
     // Groups bookings bt car_id once, so each row does a cheap Map lookup instead of filtering
     // he whole bookings array per row. useMemo avoids recomputing this one every render
     // only recalculates when bookings itself changes like after a fresh loader fetch
@@ -137,6 +155,22 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
         }
         return map
     }, [bookings])
+
+    // --- Blocked dates ------------
+    const [localBlockedState, setLocalBlockedState] = useState<BlockedDate[]>([])
+    const allBlockedDates = useMemo(() => [...blockedDates, ...localBlockedState], [blockedDates, localBlockedState])
+    const blockedDatesByCarId = useMemo(() => {
+        const map = new Map<number, BlockedDate[]>()
+        for (const b of allBlockedDates) { const e = map.get(b.car_id) ?? []; e.push(b); map.set(b.car_id, e) }
+        return map
+    }, [allBlockedDates])
+
+    const handleBlocksCreated = useCallback((newBlocks: BlockedDate[]) => {
+        setLocalBlockedState(prev => [...prev, ...newBlocks])
+    }, [])
+    const handleBlockDeleted = useCallback((blockId: string) => {
+        setLocalBlockedState(prev => prev.filter(b => b.id !== blockId))
+    }, [])
 
     const sharedBoundaryIndices = useMemo(() => {
         const perCarShared = new Map<number, Set<number>>()
@@ -154,6 +188,51 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
 
         return perCarShared
     }, [bookingsByCarId, cars, dateToIndex])
+
+    // priceOverrideMap
+    const [localOverridesState, setLocalOverridesState] = useState<Map<string, number>>(new Map())
+
+    const priceOverrideMap = useMemo(() => {
+        const map = new Map<string, number>()
+        for (const o of priceOverrides) {
+            map.set(`${o.car_id}:${o.date}`, o.price)
+        }
+        for (const [key, price] of localOverridesState) {
+            map.set(key, price)
+        }
+        return map
+    }, [priceOverrides, localOverridesState])
+
+    // getPriceForCell
+    // Resolves the displayed price for one cell: override ?? car base price
+    // Called during render of every visible cell, must be fast
+    const getPriceForCell = (carId: number, basePrice: number, date: Date): number => {
+        const dateStr = date.toLocaleDateString("en-CA")
+        return priceOverrideMap.get(`${carId}:${dateStr}`) ?? basePrice
+    }
+
+    // Return true if this cell has a manually set override price
+    // Used to visually distinguish overridden prices
+    const hasOverride = (carId: number, date: Date): boolean => {
+        const dateStr = date.toLocaleDateString("en-CA")
+        return priceOverrideMap.has(`${carId}:${dateStr}`)
+    }
+
+    // onPricesUpdated
+    // Called by selectionpanel's prices tab after a successful upsert
+    // Merges the newly saved overrides into localOverridesState
+    // so the grid re-renders with the new prices immediately
+    const handlePricesUpdated = useCallback((
+        updates: { carId: number; date: string; price: number }[]
+    )=> {
+        setLocalOverridesState(prev => {
+            const next = new Map(prev)
+            for (const u of updates) {
+                next.set(`${u.carId}:${u.date}`, u.price)
+            }
+            return next
+        })
+    }, [])
 
     // Selection state
 
@@ -434,11 +513,10 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
                     {/* ── CAR ROWS ─────────────────────────────────────────────── */}
                     {cars.map((car) => {
                         const carBookings = bookingsByCarId.get(car.id) ?? []
-
+                        const carBlocked = blockedDatesByCarId.get(car.id) ?? []
                         const isCarRowSelected = [...selectedCells].some(
                             key => parseCellKey(key).carId === car.id
                         )
-
                         const carSharedBoundaries = sharedBoundaryIndices.get(car.id) ?? new Set<number>()
 
                         return (
@@ -461,33 +539,26 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
                                                 className="w-12 h-8 object-cover rounded-sm flex-shrink-0"
                                             />
                                         </div>
-
                                         <div className="flex flex-col text-left">
-                                            <p className="text-xs text-black mt-1">
-                                                {car.make} {car.model} {car.year}
-                                            </p>
-
-                                            <p className="text-xs text-gray-600">
-                                                {car.license_plate}
-                                            </p>
+                                            <p className="text-xs text-black mt-1">{car.make} {car.model} {car.year}</p>
+                                            <p className="text-xs text-gray-600">{car.license_plate}</p>
                                         </div>
-
                                     </div>
-
                                 </div>
 
-                                {/* Shared layer wrapper for price cells and booking bars */}
                                 <div className="relative" style={{width: totalGridWidth}}>
 
                                     {/* ---- Layer 1: Price cells ----------------- */}
                                     {virtualColumns.map((virtualColumn) => {
                                         const date = dateRange[virtualColumn.index]
                                         const isWeekend = date?.getDay() === 0 || date?.getDay() === 6
-
                                         // Is this cell selected?
                                         const isSelected = selectedCells.has(
                                             makeCellKey(car.id, virtualColumn.index)
                                         )
+
+                                        const resolvedPrice = date ? getPriceForCell(car.id, car.price_per_day, date) : car.price_per_day
+                                        const isOverridden = date ? hasOverride(car.id, date) : false
 
                                         return (
                                             <div
@@ -497,8 +568,7 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
                                                     'absolute top-0 h-full',
                                                     'flex items-end justify-center pb-1',
                                                     'text-sm border-r border-gray-200',
-                                                    // select-none prevents the browser from highlighting
-                                                    // text content during shift-click drag operations
+                                                    // select-none prevents the browser from highlighting text content during shift-click drag operations
                                                     'cursor-pointer select-none',
                                                     // Selection state drives background and text color.
                                                     // Unselected weekends keep their gray tint.
@@ -514,9 +584,9 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
                                                     width: virtualColumn.size,
                                                 }}
                                             >
-
-                                                {/* will be car_price_overrides ?? car.price_per_day*/}
-                                                ${car.price_per_day}
+                                                <span className={isOverridden && !isSelected ? 'text-amber-600' : ''}>
+                                                    ${Math.floor(resolvedPrice)}
+                                                </span>
                                             </div>
                                         )
                                     })}
@@ -534,14 +604,8 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
                                         const isClampedAtStart = rawStart < 0
                                         const isClampedAtEnd = rawEnd > dateRange.length - 1
 
-                                        const left = isClampedAtStart
-                                            ? 0
-                                            : startIndex * column_width + column_width / 2
-
-                                        const rightEdge = isClampedAtEnd
-                                            ? dateRange.length * column_width
-                                            : endIndex * column_width + column_width / 2
-
+                                        const left = isClampedAtStart ? 0 : startIndex * column_width + column_width / 2
+                                        const rightEdge = isClampedAtEnd ? dateRange.length * column_width : endIndex * column_width + column_width / 2
                                         const width = rightEdge - left
 
                                         const startIsShared = carSharedBoundaries.has(rawStart)
@@ -579,6 +643,26 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
                                             </div>
                                         )
                                     })}
+
+                                    {/* Layer 3: Blocked date bars – gray and positioned above booking bars */}
+                                    {carBlocked.map((block) => {
+                                        const rawStart = dateStringToIndex(block.start_date)
+                                        const rawEnd = dateStringToIndex(block.end_date)
+                                        const si = Math.max(0, rawStart), ei = Math.min(dateRange.length - 1, rawEnd)
+                                        if (rawEnd < 0 || rawStart > dateRange.length - 1) return null
+                                        const clampStart = rawStart < 0, clampEnd = rawEnd > dateRange.length - 1
+                                        const left = clampStart ? 0 : si * column_width + column_width / 2
+                                        const rightEdge = clampEnd ? dateRange.length * column_width : ei * column_width + column_width / 2
+                                        const width = rightEdge - left
+                                        return (
+                                            <div key={block.id} className="absolute pointer-events-none z-7"
+                                                 style={{ left, width, top: row_height / 2 - 8, height: 2 }}>
+                                                <div className="absolute inset-0 bg-gray-400 rounded-full" />
+                                                {!clampStart && <div className="absolute -top-[3px] w-2 h-2 rounded-full bg-gray-400" style={{ left: -2 }} />}
+                                                {!clampEnd && <div className="absolute -top-[3px] w-2 h-2 rounded-full bg-gray-400" style={{ right: -2 }} />}
+                                            </div>
+                                        )
+                                    })}
                                 </div>
                             </div>
                         )
@@ -597,6 +681,11 @@ export function CalendarGrid({ cars, bookings }: {cars: Car[]; bookings: Booking
                     cars={cars}
                     dateRange={dateRange}
                     dateToIndex={dateToIndex}
+                    priceOverrideMap={priceOverrideMap}
+                    onPricesUpdated={handlePricesUpdated}
+                    blockedDates={allBlockedDates}
+                    onBlocksCreated={handleBlocksCreated}
+                    onBlockDeleted={handleBlockDeleted}
                 />
             )}
         </div>
