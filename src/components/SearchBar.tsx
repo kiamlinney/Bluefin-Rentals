@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { DayPicker } from 'react-day-picker'
-import 'react-day-picker/style.css'
-import { Search, ChevronDown, MapPin } from 'lucide-react'
+import { Search, MapPin } from 'lucide-react'
+import { TripCalendar } from '@/components/TripCalendar.tsx'
+import { dateKeyToLocalDate, toDateKey } from '@/lib/pricing.ts'
 
 export type LocationCode = 'MSP' | 'stpaul-mpls'
 
@@ -12,51 +12,33 @@ export type SearchBarValue = {
     end?: Date | null
 }
 
+// What a caller may hand us as a starting value. Dates arrive from the URL as
+// 'YYYY-MM-DD' keys, so strings are accepted alongside real Dates.
+export type SearchBarInitial = {
+    location?: LocationCode
+    start?: Date | string | null
+    end?: Date | string | null
+}
+
 const LOCATIONS: { value: LocationCode; label: string; section: 'Airports' | 'Cities' }[] = [
     { value: 'MSP', label: 'MSP – Minneapolis–Saint Paul International Airport', section: 'Airports' },
     { value: 'stpaul-mpls', label: 'Minneapolis–St Paul (metro)', section: 'Cities' },
 ]
 
-const calendarClassNames = {
-    root: 'p-0 font-sans',
-    months: 'flex flex-col',
-    month: 'space-y-3',
-    month_caption: 'flex justify-center items-center h-9 relative',
-    caption_label: 'text-sm font-semibold text-gray-800 tracking-wide',
-    nav: 'w-full flex items-center justify-center relative h-5',
-    button_previous: 'absolute left-2 top-0 w-7 h-7 rounded-md border border-gray-800 inline-flex items-center justify-center bg-transparent hover:bg-gray-100 transition-colors cursor-pointer',
-    button_next: 'absolute right-2 top-0 w-7 h-7 rounded-md border border-gray-800 inline-flex items-center justify-center bg-transparent hover:bg-gray-100 transition-colors cursor-pointer',
-    month_grid: 'w-full border-collapse',
-    weekdays: 'flex',
-    weekday: 'w-9 text-center text-[10px] font-medium text-black uppercase tracking-widest pb-1',
-    week: 'flex mt-1',
-    day: 'w-9 h-9 text-center text-sm p-0',
-
-    day_button: 'w-9 h-9 text-sm font-medium text-black hover:bg-gray-200 hover:rounded-full transition-colors focus:outline-none cursor-pointer rounded-none',
-
-    today:'[&>button]:underline',
-
-    selected: '[&>button]:bg-emerald-800 [&>button]:text-white',
-
-    // Range styling for a seamless pill
-    range_start: '[&>button]:rounded-l-full [&>button]:bg-emerald-800 [&>button]:text-white',
-    range_middle: '[&>button]:rounded-none  [&>button]:bg-emerald-700/90 [&>button]:text-white',
-    range_end:   '[&>button]:rounded-r-full [&>button]:bg-emerald-800 [&>button]:text-white',
-
-    disabled: '[&>button]:text-gray-300 [&>button]:cursor-not-allowed [&>button]:hover:bg-transparent',
-    outside: '[&>button]:text-gray-400 [&>button]:opacity-50',
-    hidden: 'invisible',
-}
-
-function toIso(d: Date) {
-    return new Date(d).toISOString()
-}
-
 function coerceDate(v: Date | string | null | undefined): Date | null {
     if (!v) return null
     if (v instanceof Date) return isNaN(v.getTime()) ? null : v
-    const d = new Date(v)
-    return isNaN(d.getTime()) ? null : d
+    // Strings are 'YYYY-MM-DD' keys from the URL. Anything else is rejected
+    // rather than guessed at — `new Date(str)` on a full ISO instant would
+    // parse as UTC and land on the previous day west of Greenwich.
+    return dateKeyToLocalDate(v)
+}
+
+// Pinned locale: the fleet page feeds `initial` during SSR, so an unpinned
+// toLocaleDateString would format with Node's default locale on the server and
+// the browser's on the client — a React hydration mismatch.
+function formatTriggerDate(d: Date) {
+    return d.toLocaleDateString('en-US')
 }
 
 export function SearchBar({
@@ -64,7 +46,7 @@ export function SearchBar({
                               onSubmit,
                               className = '',
                           }: {
-    initial?: Partial<SearchBarValue>
+    initial?: SearchBarInitial
     onSubmit?: (v: Required<SearchBarValue>) => void
     className?: string
 }) {
@@ -83,20 +65,17 @@ export function SearchBar({
 
     const canSearch = useMemo(() => !!start && !!end, [start, end])
 
-    // Close popovers on outside click or Escape
+    // Close the location popover on outside click or Escape. The calendar
+    // popover handles its own dismissal inside TripCalendar.
     const locRef = useRef<HTMLDivElement>(null)
-    const calRef = useRef<HTMLDivElement>(null)
+    const calTriggerRef = useRef<HTMLButtonElement>(null)
     useEffect(() => {
         function onDocClick(e: MouseEvent) {
             const t = e.target as Node
             if (openLocation && locRef.current && !locRef.current.contains(t)) setOpenLocation(false)
-            if (openCalendar && calRef.current && !calRef.current.contains(t)) setOpenCalendar(false)
         }
         function onKey(e: KeyboardEvent) {
-            if (e.key === 'Escape') {
-                setOpenLocation(false)
-                setOpenCalendar(false)
-            }
+            if (e.key === 'Escape') setOpenLocation(false)
         }
         document.addEventListener('mousedown', onDocClick)
         document.addEventListener('keydown', onKey)
@@ -104,7 +83,10 @@ export function SearchBar({
             document.removeEventListener('mousedown', onDocClick)
             document.removeEventListener('keydown', onKey)
         }
-    }, [openLocation, openCalendar])
+    }, [openLocation])
+
+    // Stable so TripCalendar's listener effect doesn't resubscribe each render.
+    const closeCalendar = useCallback(() => setOpenCalendar(false), [])
 
     function handleSearch() {
         if (!start || !end) return
@@ -113,13 +95,16 @@ export function SearchBar({
             start,
             end,
         }
-        // Navigate with URL as the source of truth
+        // Navigate with URL as the source of truth. Bare 'YYYY-MM-DD' keys
+        // rather than toISOString(): a full UTC instant shifts the calendar day
+        // by one for anyone west of Greenwich, and the car page has to read
+        // these back as the days the customer actually clicked.
         navigate({
             to: '/fleet',
             search: () => ({
                 location,
-                start: toIso(start),
-                end: toIso(end),
+                start: toDateKey(start),
+                end: toDateKey(end),
             }),
         })
         onSubmit?.(payload)
@@ -129,10 +114,6 @@ export function SearchBar({
         () => LOCATIONS.find((l) => l.value === location)?.label ?? 'Select location',
         [location],
     )
-
-    const today = new Date()
-    // Strip time for disabling logic (disable before today at 00:00 local)
-    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate())
 
     return (
         <div
@@ -195,8 +176,9 @@ export function SearchBar({
             </div>
 
             {/* Dates (range) */}
-            <div ref={calRef} className="relative flex-[1.4] h-full">
+            <div className="relative flex-[1.4] h-full">
                 <button
+                    ref={calTriggerRef}
                     type="button"
                     aria-haspopup="dialog"
                     aria-expanded={openCalendar}
@@ -208,24 +190,22 @@ export function SearchBar({
           </span>
                     <span className="text-[15px] text-gray-700 truncate pr-4">
             {start && end
-                ? `${start.toLocaleDateString()} – ${end.toLocaleDateString()}`
+                ? `${formatTriggerDate(start)} – ${formatTriggerDate(end)}`
                 : 'Add dates'}
           </span>
                 </button>
 
-                {openCalendar && (
-                    <div className="absolute top-full left-0 mt-3 bg-white p-5 shadow-2xl rounded-2xl border border-gray-100 z-50">
-                        <DayPicker
-                            mode="range"
-                            numberOfMonths={1}
-                            selected={{ from: start ?? undefined, to: end ?? undefined }}
-                            onSelect={(range) => { setStart(range?.from ?? null); setEnd(range?.to ?? null); }}
-                            disabled={{ before: todayStart }}
-                            defaultMonth={start ?? todayStart}
-                            classNames={calendarClassNames}
-                            captionLayout="buttons"
-                        />
-                        <div className="flex justify-end gap-2 pt-3">
+                <TripCalendar
+                    mode="range"
+                    open={openCalendar}
+                    onClose={closeCalendar}
+                    triggerRef={calTriggerRef}
+                    startDate={start ?? undefined}
+                    endDate={end ?? undefined}
+                    onSelectRange={(range) => { setStart(range.start ?? null); setEnd(range.end ?? null) }}
+                    className="mt-3 z-50"
+                    footer={
+                        <>
                             <button
                                 type="button"
                                 className="text-sm px-3 py-1 rounded-lg text-gray-700 hover:text-gray-800 cursor-pointer"
@@ -239,13 +219,13 @@ export function SearchBar({
                             <button
                                 type="button"
                                 className="text-sm px-3 py-1 rounded-lg bg-emerald-800 text-white hover:bg-emerald-900 cursor-pointer"
-                                onClick={() => setOpenCalendar(false)}
+                                onClick={closeCalendar}
                             >
                                 Save
                             </button>
-                        </div>
-                    </div>
-                )}
+                        </>
+                    }
+                />
             </div>
 
             {/* Search */}

@@ -1,14 +1,34 @@
 import {createFileRoute, Link, useNavigate} from "@tanstack/react-router"
 import { getCarById } from "@/lib/db.ts";
-import { useEffect, useRef, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useMemo, useState } from "react";
+import { z } from "zod";
 import { Users, Fuel, Gauge, Settings2, X, ChevronDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { DayPicker } from "react-day-picker";
-import "react-day-picker/style.css";
-import { getBookedDates} from "@/lib/db.ts";
+import { getBookedDates, getCarPriceOverrides } from "@/lib/db.ts";
 import { getUser } from "@/lib/auth.ts";
+import {
+    buildOverrideMap,
+    calculateTripPrice,
+    dateKeyToLocalDate,
+    getTripDurationMinutes,
+    timeToMinutes,
+    toDateKey,
+    type PriceOverrides,
+} from "@/lib/pricing.ts";
+import { findUnavailableDays, spansToDateKeys } from "@/lib/availability.ts";
+import { TripCalendar } from "@/components/TripCalendar.tsx";
+import { PriceBreakdown } from "@/components/PriceBreakdown.tsx";
+
+// Optional because most visitors arrive without dates. `.catch(undefined)` so a
+// hand-mangled URL renders an empty picker instead of an error boundary.
+const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/
+const carSearchSchema = z.object({
+    start: z.string().regex(DATE_KEY).optional().catch(undefined),
+    end: z.string().regex(DATE_KEY).optional().catch(undefined),
+})
 
 export const Route = createFileRoute("/fleet/$carId")({
+    validateSearch: carSearchSchema,
     loader: async ({ params }) => {
         const car = await getCarById({ data: params.carId })
         const user = await getUser().catch(() => null)
@@ -127,65 +147,36 @@ function TimeDropdown({ value, onChange, options }: {
     );
 }
 
-const calendarClassNames = {
-    root: "p-0 font-sans",
-    months: "flex flex-col",
-    month: "space-y-3",
-    month_caption: "flex justify-center items-center h-9 relative",
-    caption_label: "text-sm font-semibold text-gray-800 tracking-wide",
+// Built from parts rather than `new Date(key)`: a 'YYYY-MM-DD' string parses as
+// UTC midnight and renders as the previous day west of Greenwich.
+const formatDayKey = (key: string) => {
+    const [year, month, day] = key.split("-").map(Number);
+    return new Date(year ?? 1970, (month ?? 1) - 1, day ?? 1)
+        .toLocaleDateString("en-US", { month: "short", day: "numeric" });
+};
 
-    nav: "w-full flex items-center justify-center relative h-5",
-    button_previous: [
-        "absolute left-2 top-0",
-        "w-7 h-7 rounded-md",
-        "border border-gray-800",
-        "inline-flex items-center justify-center",
-        "bg-transparent hover:bg-gray-400",
-        "transition-colors duration-150",
-        "cursor-pointer",
-    ].join(" "),
+// "Aug 12, Aug 13 and 2 more days" — name the days that actually collide so the
+// customer can see which end of their range to move, without listing thirty.
+const unavailableMessage = (keys: string[]) => {
+    const shown = keys.slice(0, 3).map(formatDayKey);
+    const rest = keys.length - shown.length;
+    const list =
+        rest > 0
+            ? `${shown.join(", ")} and ${rest} more day${rest > 1 ? "s" : ""}`
+            : shown.length > 1
+                ? `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}`
+                : shown[0];
+    return `This car is already booked on ${list}. Please choose different dates.`;
+};
 
-    button_next: [
-        "absolute right-2 top-0",
-        "w-7 h-7 rounded-md",
-        "border border-gray-800",
-        "inline-flex items-center justify-center",
-        "bg-transparent hover:bg-gray-400",
-        "transition-colors duration-150",
-        "cursor-pointer",
-    ].join(" "),
-    month_grid: "w-full border-collapse",
-    weekdays: "flex",
-    weekday: "w-9 text-center text-[10px] font-medium text-black uppercase tracking-widest pb-1",
-    week: "flex mt-1",
-    day: "w-9 h-9 text-center text-sm p-0",
-    // Default selectable day button
-    day_button:
-        "w-9 h-9 rounded-full text-sm font-medium text-black hover:bg-[#2a4a1e] hover:text-white transition-colors focus:outline-none cursor-pointer",
-    // Today
-    today: "[&>button]:border [&>button]:border-[#2a4a1e] [&>button]:text-[#2a4a1e]",
-    // Selected single day / range start / range end
-    selected: [
-        "[&>button]:bg-[#3a7d2c]",
-        "[&>button]:text-white",
-        "[&>button]:rounded-full",
-        "[&>button]:hover:bg-[#4a9e38]",
-    ].join(" "),
-
-    // Past / disabled days (before today)
-    disabled: "[&>button]:text-gray-300 [&>button]:cursor-not-allowed [&>button]:hover:bg-transparent",
-    // Days outside the current month
-    outside: "[&>button]:text-[#2e4429] [&>button]:opacity-40",
-    hidden: "invisible",
-}
-
-// Strikethrough + gray style applied to booked date cells
-const bookedDayClassName =
-    "[&>button]:line-through [&>button]:text-gray-700 [&>button]:cursor-not-allowed [&>button]:hover:bg-transparent [&>button]:opacity-60"
+// Pinned locale: with dates prefilled from the URL these labels now render on
+// the server too, and Node's default locale needn't match the browser's.
+const formatTriggerDate = (d: Date) => d.toLocaleDateString("en-US");
 
 function CarDetails() {
     const { car, user } = Route.useLoaderData()
     const { carId } = Route.useParams()
+    const search = Route.useSearch()
     const navigate = useNavigate()
     const [showGallery, setShowGallery] = useState(false);
     const [startTime, setStartTime] = useState("10:00");
@@ -195,46 +186,27 @@ function CarDetails() {
     const [customPickup, setCustomPickup] = useState("");
 
     const [disabledDates, setDisabledDates] = useState<{from: Date; to: Date}[]>([]);
+    const [availabilityLoaded, setAvailabilityLoaded] = useState(false);
+    const [priceOverrides, setPriceOverrides] = useState<PriceOverrides>({});
+    const [showPriceDetails, setShowPriceDetails] = useState(false);
 
-    const [startDate, setStartDate] = useState<Date | undefined>(undefined);
-    const [endDate, setEndDate] = useState<Date | undefined>(undefined);
+    // Seeded from the search bar's dates via the URL. Lazy initialisers, not a
+    // binding: once the widget is mounted the customer's own edits win, since
+    // these are the very fields they're editing.
+    const [startDate, setStartDate] = useState<Date | undefined>(
+        () => dateKeyToLocalDate(search.start) ?? undefined,
+    );
+    const [endDate, setEndDate] = useState<Date | undefined>(
+        () => dateKeyToLocalDate(search.end) ?? undefined,
+    );
     const [isStartCalendarOpen, setIsStartCalendarOpen] = useState(false);
     const [isEndCalendarOpen, setIsEndCalendarOpen] = useState(false);
-    const startCalendarRef = useRef<HTMLDivElement>(null);
-    const endCalendarRef = useRef<HTMLDivElement>(null);
     const startTriggerRef = useRef<HTMLButtonElement>(null);
     const endTriggerRef = useRef<HTMLButtonElement>(null);
 
     // Calendar Functionality -------------------------------------------------------------------------------------------
-    // Clicking outside closes the calendar
-    useEffect(() => {
-        if (!isStartCalendarOpen) return;
-        function handleClick(e: MouseEvent) {
-            if (startCalendarRef.current && !startCalendarRef.current.contains(e.target as Node) &&
-                startTriggerRef.current && !startTriggerRef.current.contains(e.target as Node))
-            {
-                setIsStartCalendarOpen(false);
-            }
-
-        }
-        document.addEventListener("mousedown", handleClick);
-        return () => document.removeEventListener("mousedown", handleClick);
-    }, [isStartCalendarOpen]);
-
-    useEffect(() => {
-        if (!isEndCalendarOpen) return;
-        function handleClick(e: MouseEvent) {
-            if (endCalendarRef.current && !endCalendarRef.current.contains(e.target as Node) &&
-                endTriggerRef.current && !endTriggerRef.current.contains(e.target as Node))
-            {
-                setIsStartCalendarOpen(false);
-            }
-        }
-        document.addEventListener("mousedown", handleClick);
-        return () => document.removeEventListener("mousedown", handleClick);
-    }, [isEndCalendarOpen]);
-
-    // So both calendars cannot be open at the same time
+    // Outside-click and Escape live inside TripCalendar, which is why there are
+    // no listeners here. These only keep the two popovers mutually exclusive.
     const toggleStartCalendar = () => {
         setIsStartCalendarOpen(o => !o);
         setIsEndCalendarOpen(false);
@@ -244,47 +216,25 @@ function CarDetails() {
         setIsStartCalendarOpen(false);
     };
 
-    const handleStartSelect = (date: Date | undefined) => {
-        setStartDate(date);
-        // If new start is after existing end, clear end — trip can't end before it starts
-        if (date && endDate && date > endDate) setEndDate(undefined);
-        setIsStartCalendarOpen(false);
-    };
+    const closeStartCalendar = useCallback(() => setIsStartCalendarOpen(false), []);
+    const closeEndCalendar = useCallback(() => setIsEndCalendarOpen(false), []);
 
-    const handleEndSelect = (date: Date | undefined) => {
+    const handleStartSelect = useCallback((date: Date) => {
+        setStartDate(date);
+        // A start after the current end invalidates that end, so it's cleared —
+        // and a cleared or absent end is exactly the case where the customer
+        // still owes us an end date, so we open that calendar for them. Merely
+        // nudging the start of an already-valid range leaves it closed.
+        const needsEnd = !endDate || date > endDate;
+        if (endDate && date > endDate) setEndDate(undefined);
+        setIsStartCalendarOpen(false);
+        setIsEndCalendarOpen(needsEnd);
+    }, [endDate]);
+
+    const handleEndSelect = useCallback((date: Date) => {
         setEndDate(date);
         setIsEndCalendarOpen(false);
-    };
-
-    const rangeModifiers = useMemo(() => {
-        if (!startDate || !endDate) return {};
-        return {
-            rangeStart: startDate,
-            rangeEnd: endDate,
-            // Function modifier — RDP calls this for every visible day.
-            // Returns true if the date falls strictly between start and end.
-            rangeMiddle: (date: Date) => date > startDate && date < endDate,
-        };
-    }, [startDate, endDate]);
-
-    const rangeModifierClassNames = {
-        rangeStart: [
-            "bg-gradient-to-r from-transparent from-50% to-[#1e3d18] to-50%",
-            "[&>button]:bg-[#3a7d2c] [&>button]:text-white",
-            "[&>button]:rounded-full [&>button]:relative [&>button]:z-10",
-        ].join(" "),
-        rangeEnd: [
-            "bg-gradient-to-r from-[#1e3d18] from-50% to-transparent to-50%",
-            "[&>button]:bg-[#3a7d2c] [&>button]:text-white",
-            "[&>button]:rounded-full [&>button]:relative [&>button]:z-10",
-        ].join(" "),
-        rangeMiddle: [
-            "bg-[#1e3d18]",
-            "[&>button]:bg-transparent [&>button]:text-[#d4e8c2]",
-            "[&>button]:rounded-none [&>button]:relative [&>button]:z-10",
-            "[&>button]:hover:bg-[#2a4a1e]",
-        ].join(" "),
-    };
+    }, []);
 
     // ------------------------------------------------------------------------------------------------------------------------
 
@@ -307,11 +257,6 @@ function CarDetails() {
             };
         });
     }, []);
-
-    const timeToMinutes = (time: string): number => {
-        const parts = time.split(':');
-        return Number(parts[0] ?? 0) * 60 + Number(parts[1] ?? 0);
-    };
 
     const isSameDay = useMemo(() => {
         if (!startDate || !endDate) return false;
@@ -344,41 +289,68 @@ function CarDetails() {
         }));
     }, [isSameDay, startTime, baseTimeOptions]);
 
-    const combineDateTime = (date: Date, timeStr: string) => {
-        const parts = timeStr.split(':');
-        const hours = Number(parts[0] ?? 0);
-        const minutes = Number(parts[1] ?? 0);
-        const d = new Date(date);
-        d.setHours(hours, minutes, 0, 0);
-        return d;
-    };
-
-    const calculateTotalDays = () => {
+    // Duration comes from the pricing module rather than local Date math so the
+    // 24-hour minimum enforced here is measured exactly the way billing measures
+    // it — no chance of the button enabling a trip the server then rejects.
+    const totalDurationDays = useMemo(() => {
         if (!startDate || !endDate) return 0;
+        return getTripDurationMinutes(
+            toDateKey(startDate), startTime, toDateKey(endDate), endTime,
+        ) / (60 * 24);
+    }, [startDate, endDate, startTime, endTime]);
 
-        const startWithTime = combineDateTime(startDate, startTime);
-        const endWithTime = combineDateTime(endDate, endTime);
+    // The trip's price, resolved per day against the admin's price overrides and
+    // then discounted by duration. calculateTripPrice is the same function the
+    // server runs in createCheckoutSession, so what's quoted here is what gets
+    // charged — see src/lib/pricing.ts.
+    const quote = useMemo(() => calculateTripPrice({
+        startDate: startDate ? toDateKey(startDate) : "",
+        startTime,
+        endDate: endDate ? toDateKey(endDate) : "",
+        endTime,
+        // Postgres `numeric` can arrive as a string depending on how PostgREST
+        // serializes it — Number() keeps the arithmetic from concatenating.
+        basePricePerDay: Number(car.price_per_day),
+        overrides: priceOverrides,
+    }), [startDate, endDate, startTime, endTime, car.price_per_day, priceOverrides]);
 
-        const diffInMs = endWithTime.getTime() - startWithTime.getTime();
+    const totalDays = quote.billableDays;
+    const subtotal = quote.total;
 
-        return diffInMs / (1000 * 60 * 60 * 24);
-    };
+    const blockedDayKeys = useMemo(() => spansToDateKeys(disabledDates), [disabledDates]);
 
-    const totalDurationDays = calculateTotalDays();
-    const totalDays = Math.ceil(totalDurationDays);
-    const subtotal = totalDays * car.price_per_day;
+    // Both pickers already refuse a booked day as an *endpoint*, but nothing
+    // stopped a start before a booked block and an end after it — the whole
+    // block sat inside the range and the trip only failed at the Stripe payment
+    // step, after driver info and identity verification.
+    const unavailableDays = useMemo(() => {
+        if (!startDate || !endDate) return [];
+        return findUnavailableDays(toDateKey(startDate), toDateKey(endDate), blockedDayKeys);
+    }, [startDate, endDate, blockedDayKeys]);
 
-    const durationError = useMemo(() => {
+    // One message at a time, duration first: a sub-24h range is fixable by
+    // nudging a time, and its conflicting-days list would be a confusing single
+    // day. An unavailable range always needs different dates, so it comes last.
+    const validationError = useMemo(() => {
         if (!startDate || !endDate) return null;
         if (totalDurationDays < 1) return "Minimum trip duration is 24 hours. Please adjust your dates or times.";
+        if (unavailableDays.length > 0) return unavailableMessage(unavailableDays);
         return null;
-    }, [startDate, endDate, totalDurationDays]);
+    }, [startDate, endDate, totalDurationDays, unavailableDays]);
 
-    const isButtonDisabled = !startDate || !endDate || totalDurationDays < 1;
+    // availabilityLoaded closes the window where a range prefilled from the
+    // search bar could reach checkout before we know what's booked.
+    const isButtonDisabled =
+        !startDate || !endDate || !availabilityLoaded || validationError !== null;
 
     useEffect(() => {
         async function fetchAvailability() {
-            const bookings = await getBookedDates({ data: carId });
+            const [bookings, overrides] = await Promise.all([
+                getBookedDates({ data: carId }),
+                getCarPriceOverrides({ data: carId }),
+            ]);
+
+            setPriceOverrides(buildOverrideMap(overrides));
 
             const formattedDates = bookings.map((booking: any) => {
                 const start = new Date(booking.start_time);
@@ -390,14 +362,15 @@ function CarDetails() {
                 };
             });
 
-            console.log("Formatted for Calendar:", formattedDates);
             setDisabledDates(formattedDates);
         }
-        void fetchAvailability();
+        void fetchAvailability().finally(() => setAvailabilityLoaded(true));
     }, [carId]);
 
     const handleContinue = () => {
-        if (!startDate || !endDate || totalDurationDays < 1) return; // safety guard
+        // Same condition the button uses; the date checks are repeated only so
+        // TypeScript narrows them for the search params below.
+        if (isButtonDisabled || !startDate || !endDate) return;
 
         void navigate({
             to: '/checkout/$carId',
@@ -583,13 +556,31 @@ function CarDetails() {
                                     </div>
 
                                     {totalDays > 0 && (
-                                        <div className="mt-4 p-3 bg-gray-100 rounded-lg flex justify-between items-center text-gray-900 font-bold border border-gray-200">
-                                            <span>{totalDays} day trip</span>
-                                            <span>${subtotal} total</span>
-                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPriceDetails(true)}
+                                            className="mt-4 w-full p-3 bg-gray-100 rounded-lg flex justify-between items-center text-gray-900 font-bold border border-gray-200 hover:bg-gray-200 transition-colors cursor-pointer"
+                                        >
+                                            <span className="flex items-center gap-1.5">
+                                                {totalDays} day trip
+                                                <ChevronDown size={14} className="text-gray-500" />
+                                            </span>
+                                            <span className="flex items-baseline gap-2">
+                                                {/* Show what the trip would have cost without the
+                                                    duration discounts, so the saving is visible. */}
+                                                {quote.discountAmount + quote.extraDiscountAmount > 0 && (
+                                                    <span className="text-gray-500 font-medium line-through">
+                                                        ${quote.subtotal.toFixed(2)}
+                                                    </span>
+                                                )}
+                                                ${subtotal.toFixed(2)} total
+                                            </span>
+                                        </button>
                                     )}
 
-                                    <p className="text-gray-600 text-sm font-medium mb-6 mt-2">Including tax and all fees</p>
+                                    <p className="text-gray-600 text-sm font-medium mb-6 mt-2">
+                                        {totalDays > 0 ? "Tap for price details" : "Including tax and all fees"}
+                                    </p>
 
                                     <div className="border border-gray-900 rounded-lg mb-3 bg-white divide-y divide-gray-900">
 
@@ -604,27 +595,22 @@ function CarDetails() {
                                                 >
                                                     <label className="text-[14px] text-gray-900">Trip start</label>
                                                     <div className="text-gray-900 font-semibold">
-                                                        {startDate ? startDate.toLocaleDateString() : "Select Date"}
+                                                        {startDate ? formatTriggerDate(startDate) : "Select Date"}
                                                     </div>
                                                 </button>
                                                 <TimeDropdown value={startTime} onChange={setStartTime} options={startTimeOptions} />
                                             </div>
 
-                                                {isStartCalendarOpen && (
-                                                    <div ref={startCalendarRef}
-                                                         className="absolute top-full left-0 z-[110] bg-gray-100 p-5 shadow-2xl rounded-2xl border border-[#2a4a1e]">
-                                                        <DayPicker
-                                                            mode="single"
-                                                            selected={startDate}
-                                                            onSelect={handleStartSelect}
-                                                            defaultMonth={startDate ?? new Date()}
-                                                            disabled={[{ before: new Date() }, ...disabledDates]}
-                                                            modifiers={{ ...rangeModifiers, booked: disabledDates }}
-                                                            modifiersClassNames={{ ...rangeModifierClassNames, booked: bookedDayClassName }}
-                                                            classNames={calendarClassNames}
-                                                        />
-                                                    </div>
-                                                )}
+                                                <TripCalendar
+                                                    mode="start"
+                                                    open={isStartCalendarOpen}
+                                                    onClose={closeStartCalendar}
+                                                    triggerRef={startTriggerRef}
+                                                    startDate={startDate}
+                                                    endDate={endDate}
+                                                    onSelectStart={handleStartSelect}
+                                                    unavailableRanges={disabledDates}
+                                                />
                                         </div>
 
 
@@ -639,27 +625,24 @@ function CarDetails() {
                                                 >
                                                     <label className="text-[14px] text-gray-900">Trip end</label>
                                                     <div className="text-gray-900 font-semibold">
-                                                        {endDate ? endDate.toLocaleDateString() : "Select Date"}
+                                                        {endDate ? formatTriggerDate(endDate) : "Select Date"}
                                                     </div>
                                                 </button>
                                                 <TimeDropdown value={endTime} onChange={setEndTime} options={endTimeOptions} />
                                             </div>
 
-                                                {isEndCalendarOpen && (
-                                                    <div ref={endCalendarRef}
-                                                         className="absolute top-full left-0 z-[110] bg-gray-100 p-5 shadow-2xl rounded-2xl border border-[#2a4a1e]">
-                                                        <DayPicker
-                                                            mode="single"
-                                                            selected={endDate}
-                                                            onSelect={handleEndSelect}
-                                                            defaultMonth={endDate ?? startDate ?? new Date()}
-                                                            disabled={[{ before: startDate ?? new Date() }, ...disabledDates]}
-                                                            modifiers={{ ...rangeModifiers, booked: disabledDates }}
-                                                            modifiersClassNames={{ ...rangeModifierClassNames, booked: bookedDayClassName }}
-                                                            classNames={calendarClassNames}
-                                                        />
-                                                    </div>
-                                                )}
+                                                {/* Gets startDate too, so the chosen start shows as the head of
+                                                    the range here rather than the grid looking untouched. */}
+                                                <TripCalendar
+                                                    mode="end"
+                                                    open={isEndCalendarOpen}
+                                                    onClose={closeEndCalendar}
+                                                    triggerRef={endTriggerRef}
+                                                    startDate={startDate}
+                                                    endDate={endDate}
+                                                    onSelectEnd={handleEndSelect}
+                                                    unavailableRanges={disabledDates}
+                                                />
                                         </div>
 
                                     </div>
@@ -710,10 +693,10 @@ function CarDetails() {
 
                                     </div>
 
-                                    {durationError && (
+                                    {validationError && (
                                         <div className="flex items-start gap-2 text-red-500 text-sm mb-3">
                                             <span className="mt-0.5 flex-shrink-0">⚠</span>
-                                            <span>{durationError}</span>
+                                            <span>{validationError}</span>
                                         </div>
                                     )}
 
@@ -740,7 +723,14 @@ function CarDetails() {
                                     </p>
                                     <Link
                                         to="/login"
-                                        search={{ redirect: `/fleet/${carId}` }}
+                                        // Carry the dates through the round trip: the booking widget
+                                        // only renders when logged in, so without this a customer who
+                                        // arrives from the search bar comes back to empty calendars.
+                                        search={{
+                                            redirect: search.start && search.end
+                                                ? `/fleet/${carId}?start=${search.start}&end=${search.end}`
+                                                : `/fleet/${carId}`,
+                                        }}
                                         className="block w-full py-3 bg-gray-900 shadow-lg text-white rounded-full font-medium hover:scale-101 transition-colors"
                                     >
                                         Login or Sign Up
@@ -758,6 +748,16 @@ function CarDetails() {
                     </div>
                 </div>
             </div>
+
+            {/* Rendered outside the booking card so its backdrop covers the page
+                rather than sitting inside the card's stacking context. */}
+            {showPriceDetails && totalDays > 0 && (
+                <PriceBreakdown
+                    quote={quote}
+                    title={`${car.year} ${car.make} ${car.model}`}
+                    onClose={() => setShowPriceDetails(false)}
+                />
+            )}
         </div>
     )
 }

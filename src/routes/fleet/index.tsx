@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import CarCard from "@/components/CarCard.tsx";
 import { getCars, getAvailableCars } from "@/lib/db.ts";
 import { SearchBar } from "@/components/SearchBar";
+import { addDays, wallClockToUtcIso } from "@/lib/pricing.ts";
 import { Car } from "@/types.ts";
 
 type FleetSearch = {
@@ -10,23 +11,45 @@ type FleetSearch = {
     end?: string
 }
 
+const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/
+
+// Only bare 'YYYY-MM-DD' keys get through. A stale bookmark carrying the old
+// full-ISO format would otherwise reach wallClockToUtcIso, which splits on '-',
+// gets NaN for the day, and throws — inside a loader, on the server. Rejecting
+// here degrades those URLs to "show every car" instead.
+const asDateKey = (v: unknown): string | undefined =>
+    typeof v === 'string' && DATE_KEY.test(v) ? v : undefined
+
 export const Route = createFileRoute('/fleet/')({
-    validateSearch: (search: any): FleetSearch => {
+    validateSearch: (search: Record<string, unknown>): FleetSearch => {
         return {
             location: search?.location === 'stpaul-mpls' ? 'stpaul-mpls' : 'MSP',
-            start: typeof search?.start === 'string' ? search.start : undefined,
-            end: typeof search?.end === 'string' ? search.end : undefined,
+            start: asDateKey(search?.start),
+            end: asDateKey(search?.end),
         }
     },
+    // Without this the loader's `deps` is {} and the date filter never runs, so
+    // /fleet has always listed every car regardless of the search bar.
+    loaderDeps: ({ search }) => ({ start: search.start, end: search.end }),
     loader: async ({ deps }) => {
-        const { start, end } = (deps.search ?? {}) as FleetSearch
+        const { start, end } = deps
 
         if (!start || !end) {
             const cars = await getCars()
             return { cars }
         }
 
-        const cars = await getAvailableCars({ start, end})
+        // Whole-day bounds in the business's timezone, exclusive at the far
+        // end: get_available_cars compares half-open ranges, so passing the day
+        // *after* the return date is what makes the return day itself count.
+        // The calendar blocks a day if a booking touches it at all, and this
+        // filter has to agree or /fleet will list cars the car page rejects.
+        const cars = await getAvailableCars({
+            data: {
+                start: wallClockToUtcIso(start, '0:00'),
+                end: wallClockToUtcIso(addDays(end, 1), '0:00'),
+            },
+        })
         return { cars }
     },
     component: Fleet,
@@ -50,13 +73,13 @@ function Fleet() {
                     className="max-w-[880px] rounded-xl"
                     initial={{
                         location: search.location ?? 'MSP',
-                        start: search.start ? new Date(search.start) : undefined,
-                        end: search.end ? new Date(search.end) : undefined,
+                        start: search.start,
+                        end: search.end,
                     }}
                 />
                 <button
                     onClick={clearAll}
-                    className="h-10 px-4 rounded-lg border border-gray-300 text-sm hover:bg-gray-50 cursor-pointer"
+                    className="h-10 px-4 rounded-lg border border-gray-300 text-sm hover:bg-gray-800 cursor-pointer"
                 >
                     Clear
                 </button>
@@ -74,7 +97,7 @@ function Fleet() {
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {cars.map((car) => (
-                        <CarCard key={car.id} car={car} />
+                        <CarCard key={car.id} car={car} search={search} />
                     ))}
                 </div>
             )}

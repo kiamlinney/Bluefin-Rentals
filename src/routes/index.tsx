@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { MoveUpRight } from "lucide-react"
 import { SearchBar } from '@/components/SearchBar'
 import {useState} from "react";
@@ -11,18 +11,19 @@ function Home() {
     const [showBar, setShowBar] = useState(false)
 
     return (
-        <main className="relative min-h-screen w-full flex items-center justify-start overflow-hidden">
-            {/* Video Background */}
-            <video
-                autoPlay
-                muted
-                loop
-                playsInline
-                className="absolute z-0 w-auto min-w-full min-h-full max-w-none scale-x-[-1]"
-            >
-                <source src="/background.mp4" type="video/mp4" />
-                Your browser does not support the video tag.
-            </video>
+        <main className="relative min-h-screen w-full flex items-center justify-start">
+            <div className="absolute inset-0 z-0 overflow-hidden">
+                <video
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    className="absolute w-auto min-w-full min-h-full max-w-none scale-x-[-1]"
+                >
+                    <source src="/background.mp4" type="video/mp4" />
+                    Your browser does not support the video tag.
+                </video>
+            </div>
 
             {/* Dark Overlay */}
             <div className="absolute inset-0 z-10 bg-gradient-to-r from-black/40 via-black/20 to-transparent"></div>
@@ -38,7 +39,7 @@ function Home() {
                     Rent from trusted locals in Minneapolis-St.Paul
                 </p>
 
-                <div className = "flex flex-col mt-8 gap-4">
+                <div className="flex flex-col mt-8 gap-4 h-16 justify-center">
                     {!showBar ? (
                         <button
                             onClick={() => setShowBar(true)}

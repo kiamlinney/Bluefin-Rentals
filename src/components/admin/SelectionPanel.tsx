@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { X, CalendarOff, CarFront} from 'lucide-react'
+import { X, CarFront} from 'lucide-react'
 import { Link } from "@tanstack/react-router";
 import { Booking, Car } from 'src/types.ts'
 import { upsertPriceOverrides, createBlockedDates, deleteBlockedDate } from "@/lib/db.ts";
@@ -333,15 +333,6 @@ function PricesTab({
                 >
                     {saving ? 'Saving...' : `Update ${selectionInfo.uniqueDates} ${selectionInfo.uniqueDates === 1 ? 'date' : 'dates'}`}
                 </button>
-
-                {/*<div className="h-10 rounded-lg bg-gray-100 animate-pulse" />*/}
-                {/*<button*/}
-                {/*    type="button"*/}
-                {/*    disabled*/}
-                {/*    className="mt-3 w-full py-2.5 rounded-lg bg-gray-100 text-gray-400 text-sm font-medium cursor-not-allowed"*/}
-                {/*>*/}
-                {/*    Update {selectionInfo.uniqueDates} {selectionInfo.uniqueDates === 1 ? 'date' : 'dates'}*/}
-                {/*</button>*/}
             </div>
 
             <hr className="border-gray-100" />

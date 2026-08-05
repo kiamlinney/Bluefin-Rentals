@@ -3,6 +3,14 @@ import { getSupabaseServerClient } from './supabase.server'
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe'
 import { google } from 'googleapis'
+import {
+    buildOverrideMap,
+    calculateTripPrice,
+    daysBetween,
+    timeToMinutes,
+    todayInBusinessTz,
+    type TripQuote,
+} from './pricing'
 
 // Fetches all cars that are available
 export const getCars = createServerFn({ method: 'GET' })
@@ -39,27 +47,211 @@ export const getBookedDates = createServerFn({ method: 'GET' })
     .inputValidator((carId: string) => carId)
     .handler(async ({ data: carId }) => {
         const supabase = getSupabaseServerClient();
+        const carIdNum = parseInt(carId, 10)
 
         const { data, error } = await supabase
-            .rpc('get_car_availability', { car_id_param: parseInt(carId, 10) });
+            .rpc('get_car_unavailability', { car_id_param: carIdNum });
 
         if (error) {
             console.error("Error fetching booked dates:", error);
             return [];
         }
 
-        return data;
+        // This endpoint is public (no auth check), so car_blocked_dates and
+        // turo_bookings — both admin-only tables under RLS — are read with the
+        // service-role client. Only start/end are selected, never renter_name.
+        const supabaseAdmin = createClient(
+            process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            { auth: { persistSession: false, autoRefreshToken: false } }
+        )
+
+        const [{ data: blocked }, { data: turo }] = await Promise.all([
+            supabaseAdmin
+                .from('car_blocked_dates')
+                .select('start_date, end_date')
+                .eq('car_id', carIdNum),
+            supabaseAdmin
+                .from('turo_bookings')
+                .select('start_time, end_time')
+                .eq('car_id', carIdNum),
+        ])
+
+        const blockedRanges = (blocked ?? []).map(b => ({
+            start_time: `${b.start_date}T00:00:00`,
+            end_time: `${b.end_date}T00:00:00`,
+        }))
+
+        return [...(data ?? []), ...blockedRanges, ...(turo ?? [])];
+    });
+
+// Per-day price overrides for one car, used by the booking widget to quote a
+// trip. Like getBookedDates this endpoint is public, and car_price_overrides is
+// admin-only under RLS, so it's read with the service-role client. Scoped to a
+// single car and to today forward — past overrides can't affect a new booking.
+export const getCarPriceOverrides = createServerFn({ method: 'GET' })
+    .inputValidator((carId: string) => carId)
+    .handler(async ({ data: carId }) => {
+        const carIdNum = parseInt(carId, 10)
+        if (!Number.isFinite(carIdNum)) return []
+
+        const supabaseAdmin = createClient(
+            process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            { auth: { persistSession: false, autoRefreshToken: false } }
+        )
+
+        const { data, error } = await supabaseAdmin
+            .from('car_price_overrides')
+            .select('date, price')
+            .eq('car_id', carIdNum)
+            .gte('date', todayInBusinessTz())
+            .order('date', { ascending: true })
+
+        if (error) {
+            console.error('Error fetching price overrides:', error)
+            return []
+        }
+
+        return (data ?? []) as { date: string; price: number }[]
     });
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
     apiVersion: '2023-10-16' as Stripe.StripeConfig['apiVersion'],
 })
 
+// Authoritative server-side conflict check for a car/date-range, checked before
+// a new booking is created. Uses the service-role client because a regular
+// customer's RLS-scoped client can't see other users' bookings, or
+// car_blocked_dates/turo_bookings at all (those are admin-only tables).
+async function assertCarIsAvailable(carId: number, startTime: string, endTime: string) {
+    const supabaseAdmin = createClient(
+        process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { persistSession: false, autoRefreshToken: false } }
+    )
+
+    // Other site bookings: confirmed always blocks; pending only blocks while
+    // still "live" (mirrors the 1-hour stale-pending cleanup in getUserBookings)
+    const holdCutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const { data: conflictingBookings, error: bErr } = await supabaseAdmin
+        .from('bookings')
+        .select('id')
+        .eq('car_id', carId)
+        .in('status', ['pending', 'confirmed'])
+        .lt('start_time', endTime)
+        .gt('end_time', startTime)
+        .or(`status.eq.confirmed,created_at.gte.${holdCutoff}`)
+    if (bErr) throw new Error(bErr.message)
+    if (conflictingBookings?.length) throw new Error('This car is no longer available for the selected dates')
+
+    const startDate = startTime.slice(0, 10)
+    const endDate = endTime.slice(0, 10)
+    const { data: conflictingBlocks, error: blErr } = await supabaseAdmin
+        .from('car_blocked_dates')
+        .select('id')
+        .eq('car_id', carId)
+        .lte('start_date', endDate)
+        .gte('end_date', startDate)
+    if (blErr) throw new Error(blErr.message)
+    if (conflictingBlocks?.length) throw new Error('This car is not available for the selected dates')
+
+    const { data: conflictingTuro, error: tErr } = await supabaseAdmin
+        .from('turo_bookings')
+        .select('id')
+        .eq('car_id', carId)
+        .lt('start_time', endTime)
+        .gt('end_time', startTime)
+    if (tErr) throw new Error(tErr.message)
+    if (conflictingTuro?.length) throw new Error('This car is not available for the selected dates')
+}
+
+const MS_PER_HOUR = 60 * 60 * 1000
+
+// Recomputes what a trip costs from data only the server can vouch for: the
+// car's base rate and its price overrides, both read with the service-role
+// client (car_price_overrides is admin-only under RLS). The client sends a
+// price too, but it arrives via URL search params and is never trusted — this
+// is what actually gets charged.
+//
+// The wall-clock strings (startDate/startTime) are what pricing needs, because
+// overrides are keyed by calendar date and an ISO instant's calendar date
+// depends on the reader's timezone. They're cross-checked against the ISO
+// interval below so a caller can't quote a cheap two-day range while reserving
+// three weeks.
+async function quoteTripOnServer(input: {
+    carId: number
+    startDateLocal: string
+    startTimeLocal: string
+    endDateLocal: string
+    endTimeLocal: string
+    startTimeIso: string
+    endTimeIso: string
+}): Promise<TripQuote> {
+    const isoDurationMs = new Date(input.endTimeIso).getTime() - new Date(input.startTimeIso).getTime()
+
+    const supabaseAdmin = createClient(
+        process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { persistSession: false, autoRefreshToken: false } }
+    )
+
+    const [{ data: car, error: carErr }, { data: overrideRows, error: ovErr }] = await Promise.all([
+        supabaseAdmin
+            .from('cars')
+            .select('price_per_day')
+            .eq('id', input.carId)
+            .single(),
+        supabaseAdmin
+            .from('car_price_overrides')
+            .select('date, price')
+            .eq('car_id', input.carId)
+            .gte('date', input.startDateLocal)
+            .lte('date', input.endDateLocal),
+    ])
+
+    if (carErr || !car) throw new Error('Car not found')
+    if (ovErr) throw new Error(ovErr.message)
+
+    const quote = calculateTripPrice({
+        startDate: input.startDateLocal,
+        startTime: input.startTimeLocal,
+        endDate: input.endDateLocal,
+        endTime: input.endTimeLocal,
+        basePricePerDay: Number(car.price_per_day),
+        overrides: buildOverrideMap(overrideRows ?? []),
+    })
+
+    if (quote.billableDays < 1) throw new Error('Minimum trip duration is 24 hours')
+
+    // The wall-clock range and the ISO range must describe the same trip. Their
+    // durations are compared rather than their absolute instants because we
+    // don't know the customer's UTC offset — but an offset cancels out of a
+    // duration. The 2-hour tolerance absorbs a DST transition inside the trip;
+    // anything larger means the two ranges genuinely disagree, which is how a
+    // tampered request would look: a cheap two-day quote reserving three weeks.
+    const localDurationMs =
+        (daysBetween(input.startDateLocal, input.endDateLocal) * 24 * 60 +
+            timeToMinutes(input.endTimeLocal) - timeToMinutes(input.startTimeLocal)) * 60 * 1000
+
+    if (Math.abs(isoDurationMs - localDurationMs) > 2 * MS_PER_HOUR) {
+        throw new Error('Trip dates are inconsistent. Please reselect your dates.')
+    }
+
+    return quote
+}
+
 export const createCheckoutSession = createServerFn({ method: 'POST' })
     .inputValidator((input: {
         carId: string
         startTime: string
         endTime: string
+        // Wall-clock trip range as the customer picked it, used for pricing.
+        // Separate from startTime/endTime above, which are UTC ISO instants.
+        startDateLocal: string
+        startTimeLocal: string
+        endDateLocal: string
+        endTimeLocal: string
         totalPrice: number
         pickupLocation: string
         bookingId?: string // optional
@@ -80,8 +272,15 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
                 .maybeSingle()
 
             if (existing) {
+                // No re-pricing here: this booking's total was computed server-side
+                // when it was created, and its PaymentIntent is already locked to
+                // that amount.
                 const intent = await stripe.paymentIntents.retrieve(existing.stripe_payment_intent_id)
-                return { clientSecret: intent.client_secret, bookingId: existing.id }
+                return {
+                    clientSecret: intent.client_secret,
+                    bookingId: existing.id,
+                    totalPrice: Number(existing.total_price),
+                }
             }
         }
 
@@ -104,6 +303,7 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
             return {
                 clientSecret: intent.client_secret,
                 bookingId: existingBooking.id,
+                totalPrice: Number(existingBooking.total_price),
             }
         }
 
@@ -116,15 +316,37 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         if (end <= start) {
             throw new Error('End time must be after start time')
         }
-        if (data.totalPrice < 0) {
-            throw new Error('Total price must be non-negative')
-        }
         if (!Number.isFinite(carIdNum)) {
             throw new Error('Invalid car id')
         }
 
+        await assertCarIsAvailable(carIdNum, data.startTime, data.endTime)
+
+        // The price is recomputed here rather than taken from data.totalPrice.
+        // That value reaches us through URL search params the customer can edit,
+        // so it's treated as a display hint only — quote.total is what Stripe
+        // charges and what the booking row records.
+        const quote = await quoteTripOnServer({
+            carId: carIdNum,
+            startDateLocal: data.startDateLocal,
+            startTimeLocal: data.startTimeLocal,
+            endDateLocal: data.endDateLocal,
+            endTimeLocal: data.endTimeLocal,
+            startTimeIso: data.startTime,
+            endTimeIso: data.endTime,
+        })
+
+        // A mismatch is either tampering or genuine drift between the widget's
+        // quote and the server's — both are worth seeing in the logs.
+        if (Math.abs(quote.total - data.totalPrice) > 0.01) {
+            console.warn(
+                `[pricing] client/server total mismatch — charging server price. ` +
+                `car=${carIdNum} user=${user.id} client=${data.totalPrice} server=${quote.total}`
+            )
+        }
+
         const paymentIntent = await stripe.paymentIntents.create({
-            amount: Math.round(data.totalPrice * 100),
+            amount: Math.round(quote.total * 100),
             currency: 'usd',
             metadata: {
                 carId: data.carId,
@@ -148,7 +370,7 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
                 user_id: user.id,
                 start_time: data.startTime,
                 end_time: data.endTime,
-                total_price: data.totalPrice,
+                total_price: quote.total,
                 pickup_location: data.pickupLocation,
                 stripe_payment_intent_id: paymentIntent.id,
                 status: 'pending',
@@ -161,6 +383,7 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         return {
             clientSecret: paymentIntent.client_secret,
             bookingId: booking!.id,
+            totalPrice: quote.total,
         }
     })
 
@@ -461,6 +684,33 @@ export const getConfirmedBookings = createServerFn({ method: 'GET' })
         return data || []
     })
 
+export const getTuroBookings = createServerFn({ method: 'GET' })
+    .inputValidator((input: { startDate: string; endDate: string }) => input)
+    .handler(async ({ data: range }) => {
+        const supabase = getSupabaseServerClient()
+        const authResult = await supabase.auth.getUser()
+        const user = authResult.data.user
+        if (!user) throw new Error('Not authenticated')
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('is_admin')
+            .eq('id', user.id)
+            .single()
+
+        if (!profile?.is_admin) throw new Error('Not authorized')
+
+        const { data, error } = await supabase
+            .from('turo_bookings')
+            .select('*')
+            .lte('start_time', range.endDate)
+            .gte('end_time', range.startDate)
+            .order('start_time', { ascending: true })
+
+        if (error) throw new Error(error.message)
+        return data || []
+    })
+
 // Fetches all past bookings for every user, bookings with the status completed or canceled
 export const getPastBookings = createServerFn({ method: 'GET' })
     .handler(async () => {
@@ -668,25 +918,48 @@ export const syncTuroBookings = createServerFn({ method: 'POST' })
             .select('gmail_message_id')
         const alreadySynced = new Set(existing?.map(r => r.gmail_message_id) ?? [])
 
-        // Search for Turo booking confirmation emails.
-        // newer_than:365d ensures we only look at the past year.
-        // The subject filter matches Turo's "X's trip is booked" format.
-        const listRes = await gmail.users.messages.list({
-            userId: 'me',
-            q: 'from:@turo.com subject:"trip with your" "Cha-ching" newer_than:30d',
-            maxResults: 50,
-        })
-
-        const messageIds = listRes.data.messages?.map(m => m.id).filter(Boolean) ?? []
+        // Search for Turo booking + cancellation emails from the past ~13 months.
+        // "trip with your" matches both "X's trip with your Y is booked!" and
+        // "X has cancelled their trip with your Y" — which type each message
+        // actually is gets decided below via its Notification-Name header.
+        // (Previously also required "Cha-ching" in the body, which matched
+        // booking emails only and silently excluded every cancellation.)
+        // Paginated via pageToken since a single list() call only returns one
+        // page — without this, any matches past the first page were silently
+        // dropped. alreadySynced (above) keeps this cheap: we only ever fetch
+        // and parse the bodies of messages we haven't stored yet.
+        const messageIds: string[] = []
+        let pageToken: string | undefined = undefined
+        do {
+            // Typed loosely (matches findPlainText/payload below) — the googleapis
+            // Gmail client's overloads otherwise fight TS across this loop.
+            const listRes: any = await gmail.users.messages.list({
+                userId: 'me',
+                q: 'from:@turo.com subject:"trip with your" newer_than:400d',
+                pageToken,
+            })
+            const ids: string[] = (listRes.data.messages ?? [])
+                .map((m: { id?: string }) => m.id)
+                .filter((id: string | undefined): id is string => !!id)
+            messageIds.push(...ids)
+            pageToken = listRes.data.nextPageToken ?? undefined
+        } while (pageToken)
 
         // Filter out already-synced messages before fetching their content
         const newIds = messageIds.filter(id => !alreadySynced.has(id!)) as string[]
 
         if (newIds.length === 0) {
-            return { synced: 0, skipped: messageIds.length, errors: [] }
+            return { synced: 0, skipped: messageIds.length, canceled: 0, errors: [] }
         }
 
-        const results = { synced: 0, skipped: messageIds.length - newIds.length, errors: [] as string[] }
+        const results = { synced: 0, skipped: messageIds.length - newIds.length, canceled: 0, errors: [] as string[] }
+
+        // Reservation IDs seen as canceled during this run. Deletions are applied
+        // in one batch AFTER the loop below (not inline as each cancellation email
+        // is seen) so that a booking and its cancellation landing in the same sync
+        // run — e.g. on a big catch-up run — can't race: the cancellation always
+        // wins regardless of which of the two messages Gmail happens to return first.
+        const canceledTripIds: string[] = []
 
         // ── Convert parsed date parts to UTC ISO string ───────────────
         // Input: month, day, 2-digit year, hour, minute, am/pm
@@ -732,6 +1005,38 @@ export const syncTuroBookings = createServerFn({ method: 'POST' })
                     format: 'full',
                 })
 
+                const headers = message.data.payload?.headers ?? []
+                const headerValue = (name: string) => headers.find((h: any) => h.name === name)?.value ?? null
+
+                // Turo tags every trip-related email with this header — it's how we
+                // tell a booking confirmation apart from a cancellation notice
+                // without depending on subject-line wording.
+                const notificationName = headerValue('Notification-Name')
+
+                if (notificationName === 'CancelledReservationOwner') {
+                    // Cancellations carry the same Reservation-ID header as the
+                    // original booking email, which is what ties the two together
+                    // (they're otherwise unrelated Gmail messages with different IDs).
+                    let turoTripId = headerValue('Reservation-ID')
+
+                    // Some cancellation emails don't carry that header — fall back
+                    // to the same "Reservation ID #12345" body text the booking
+                    // path already parses, rather than silently dropping the
+                    // cancellation and leaving a stale booking on the calendar.
+                    if (!turoTripId) {
+                        const body = findPlainText(message.data.payload)
+                        const reservationMatch = body?.match(/Reservation ID #(\d+)/)
+                        turoTripId = reservationMatch?.[1] ?? null
+                    }
+
+                    if (!turoTripId) {
+                        results.errors.push(`${messageId}: cancellation missing Reservation-ID (header + body)`)
+                        continue
+                    }
+                    canceledTripIds.push(turoTripId)
+                    continue
+                }
+
                 const body = findPlainText(message.data.payload)
                 if (!body) {
                     results.errors.push(`${messageId}: no plain text body found`)
@@ -761,6 +1066,15 @@ export const syncTuroBookings = createServerFn({ method: 'POST' })
 
                 const startTime = toISO(startMatch[1]!, startMatch[2]!, startMatch[3]!, startMatch[4]!, startMatch[5]!, startMatch[6]!)
                 const endTime = toISO(endMatch[1]!, endMatch[2]!, endMatch[3]!, endMatch[4]!, endMatch[5]!, endMatch[6]!)
+
+                // Trip already over — nothing left to block on the calendar, and
+                // widening the search window (400d) means most results are now
+                // old completed trips, so skip storing them rather than let
+                // turo_bookings accumulate rows nothing ever reads again.
+                if (new Date(endTime).getTime() < Date.now()) {
+                    results.skipped++
+                    continue
+                }
 
                 // ── Parse car name ────────────────────────────────────────────
                 // Matches a line like "Toyota Prius 2014" — make model year
@@ -827,5 +1141,83 @@ export const syncTuroBookings = createServerFn({ method: 'POST' })
             }
         }
 
+        // Remove any booking whose reservation was canceled — applied once, after
+        // the loop above, so cancellations always win over a same-run insert.
+        if (canceledTripIds.length > 0) {
+            const { data: removed, error: cancelErr } = await supabase
+                .from('turo_bookings')
+                .delete()
+                .in('turo_trip_id', canceledTripIds)
+                .select('id')
+
+            if (cancelErr) {
+                results.errors.push(`Failed to remove canceled bookings: ${cancelErr.message}`)
+            } else {
+                results.canceled = removed?.length ?? 0
+            }
+        }
+
         return results
+    })
+
+export const inspectTuroEmail = createServerFn({ method: 'GET' })
+    .inputValidator((messageId: string) => messageId)
+    .handler(async ({ data: messageId }) => {
+        const { GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN } = process.env
+        if (!GMAIL_CLIENT_ID || !GMAIL_CLIENT_SECRET || !GMAIL_REFRESH_TOKEN) {
+            throw new Error(
+                'Missing Gmail envs: ' +
+                (!GMAIL_CLIENT_ID ? 'GMAIL_CLIENT_ID ' : '') +
+                (!GMAIL_CLIENT_SECRET ? 'GMAIL_CLIENT_SECRET ' : '') +
+                (!GMAIL_REFRESH_TOKEN ? 'GMAIL_REFRESH_TOKEN ' : '')
+            )
+        }
+
+        const oauth2Client = new google.auth.OAuth2(GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET)
+        oauth2Client.setCredentials({ refresh_token: GMAIL_REFRESH_TOKEN })
+        const gmail = google.gmail({ version: 'v1', auth: oauth2Client })
+
+        try {
+            const message = await gmail.users.messages.get({ userId: 'me', id: messageId, format: 'full' })
+
+            function decodeBody(data?: string | null): string | null {
+                if (!data) return null
+                // Gmail uses base64url. Normalize to base64 for Node.
+                const normalized = data.replace(/-/g, '+').replace(/_/g, '/')
+                try {
+                    return Buffer.from(normalized, 'base64').toString('utf-8')
+                } catch (e) {
+                    console.warn('Failed to decode body for message', messageId, e)
+                    return null
+                }
+            }
+
+            function findPlainText(payload: any): string | null {
+                if (!payload) return null
+                if (payload.mimeType === 'text/plain' && payload.body?.data) {
+                    return decodeBody(payload.body.data)
+                }
+                if (payload.parts) {
+                    for (const part of payload.parts) {
+                        const result = findPlainText(part)
+                        if (result) return result
+                    }
+                }
+                return null
+            }
+
+            const subject = message.data.payload?.headers?.find(h => h.name === 'Subject')?.value
+            const plainText = findPlainText(message.data.payload)
+
+            return {
+                subject,
+                snippet: message.data.snippet,
+                plainText: plainText?.slice(0, 3000) ?? null,
+            }
+        } catch (e: any) {
+            console.error('inspectTuroEmail error:', e?.response?.data || e?.message || e)
+            const err = e?.response?.data?.error || e?.message || 'Unknown Gmail error'
+            const desc = e?.response?.data?.error_description
+            throw new Error(desc ? `${err}: ${desc}` : err)
+        }
     })

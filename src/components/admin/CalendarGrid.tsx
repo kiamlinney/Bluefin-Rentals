@@ -16,6 +16,7 @@ const days_to_show = 365 // full year
 // Using a string key means O(1) lookup
 type CellKey = string
 type BlockedDate = { id: string; car_id: number; start_date: string; end_date: string; reason: string | null }
+type TuroBooking = { id: string; car_id: number; start_time: string; end_time: string; renter_name: string | null }
 
 function makeCellKey(carId: number, dateIndex: number): CellKey {
     return `${carId}:${dateIndex}`
@@ -53,11 +54,13 @@ function formatDayLabel(date: Date) {
 export function CalendarGrid({
      cars,
      bookings,
+     turoBookings,
      priceOverrides,
      blockedDates,
 }: {
     cars: Car[]
     bookings: Booking[]
+    turoBookings: TuroBooking[]
     priceOverrides: { car_id: number; date: string; price: number }[]
     blockedDates: BlockedDate[]
 }) {
@@ -144,7 +147,7 @@ export function CalendarGrid({
     }, [todayMidnight])
 
     // Groups bookings bt car_id once, so each row does a cheap Map lookup instead of filtering
-    // he whole bookings array per row. useMemo avoids recomputing this one every render
+    // the whole bookings array per row. useMemo avoids recomputing this one every render
     // only recalculates when bookings itself changes like after a fresh loader fetch
     const bookingsByCarId = useMemo(() => {
         const map = new Map<number, Booking[]>()
@@ -155,6 +158,19 @@ export function CalendarGrid({
         }
         return map
     }, [bookings])
+
+    // Groups Turo trips by car_id, same pattern as bookingsByCarId — kept as its
+    // own map/layer since turo_bookings is a separate table/shape (no status,
+    // no profiles join, has renter_name/turo_trip_id instead)
+    const turoBookingsByCarId = useMemo(() => {
+        const map = new Map<number, TuroBooking[]>()
+        for (const t of turoBookings) {
+            const existing = map.get(t.car_id) ?? []
+            existing.push(t)
+            map.set(t.car_id, existing)
+        }
+        return map
+    }, [turoBookings])
 
     // --- Blocked dates ------------
     const [localBlockedState, setLocalBlockedState] = useState<BlockedDate[]>([])
@@ -219,7 +235,7 @@ export function CalendarGrid({
     }
 
     // onPricesUpdated
-    // Called by selectionpanel's prices tab after a successful upsert
+    // Called by selection panel's prices tab after a successful upsert
     // Merges the newly saved overrides into localOverridesState
     // so the grid re-renders with the new prices immediately
     const handlePricesUpdated = useCallback((
@@ -514,6 +530,7 @@ export function CalendarGrid({
                     {cars.map((car) => {
                         const carBookings = bookingsByCarId.get(car.id) ?? []
                         const carBlocked = blockedDatesByCarId.get(car.id) ?? []
+                        const carTuro = turoBookingsByCarId.get(car.id) ?? []
                         const isCarRowSelected = [...selectedCells].some(
                             key => parseCellKey(key).carId === car.id
                         )
@@ -660,6 +677,29 @@ export function CalendarGrid({
                                                 <div className="absolute inset-0 bg-gray-400 rounded-full" />
                                                 {!clampStart && <div className="absolute -top-[3px] w-2 h-2 rounded-full bg-gray-400" style={{ left: -2 }} />}
                                                 {!clampEnd && <div className="absolute -top-[3px] w-2 h-2 rounded-full bg-gray-400" style={{ right: -2 }} />}
+                                            </div>
+                                        )
+                                    })}
+
+                                    {/* Layer 4: Turo booking bars – violet, own track below the booking line */}
+                                    {carTuro.map((trip) => {
+                                        const rawStart = dateToIndex(trip.start_time)
+                                        const rawEnd = dateToIndex(trip.end_time)
+                                        const startIndex = Math.max(0, rawStart)
+                                        const endIndex = Math.min(dateRange.length - 1, rawEnd)
+                                        if (rawEnd < 0 || rawStart > dateRange.length - 1) return null
+                                        const isClampedAtStart = rawStart < 0
+                                        const isClampedAtEnd = rawEnd > dateRange.length - 1
+                                        const left = isClampedAtStart ? 0 : startIndex * column_width + column_width / 2
+                                        const rightEdge = isClampedAtEnd ? dateRange.length * column_width : endIndex * column_width + column_width / 2
+                                        const width = rightEdge - left
+
+                                        return (
+                                            <div key={trip.id} className="absolute pointer-events-none z-6"
+                                                 style={{ left, width, top: row_height / 2 + 6, height: 2 }}>
+                                                <div className="absolute inset-0 bg-violet-500 rounded-full" />
+                                                {!isClampedAtStart && <div className="absolute -top-[3px] w-2 h-2 rounded-full bg-violet-500" style={{ left: -2 }} />}
+                                                {!isClampedAtEnd && <div className="absolute -top-[3px] w-2 h-2 rounded-full bg-violet-500" style={{ right: -2 }} />}
                                             </div>
                                         )
                                     })}

@@ -17,6 +17,7 @@ import {
     confirmBooking,
     finalizeIdentitySession,
 } from '@/lib/db'
+import { wallClockToUtcIso } from '@/lib/pricing'
 
 // loadStripe is called once at module level — NOT inside a component.
 // If it were inside a component, a new Stripe instance would be created
@@ -63,17 +64,14 @@ export const Route = createFileRoute('/_authed/checkout/$carId')({
 // Combines a date string (YYYY-MM-DD or full ISO) with an HH:mm time string
 // into a UTC ISO string. Defined outside the component so it's created once
 // at module load time, not re-created on every render.
+//
+// The time is resolved in the business's timezone, not the browser's. A pickup
+// slot of "10:00" means 10am at the lot in Saint Paul — booking from California
+// used to store that as 10am Pacific, i.e. noon Central, silently shifting the
+// reservation two hours and (on late-evening slots) onto the wrong day.
 
-const buildDateTime = (dateInput: string, time: string): string => {
-    const yyyyMmDd = dateInput.slice(0, 10)
-    const parts = time.split(':')
-    const hourStr = String(Number(parts[0] ?? 0)).padStart(2, '0')
-    const minuteStr = String(Number(parts[1] ?? 0)).padStart(2, '0')
-    const localIso = `${yyyyMmDd}T${hourStr}:${minuteStr}:00`
-    const d = new Date(localIso)
-    if (isNaN(d.getTime())) throw new Error(`Invalid date/time: ${localIso}`)
-    return d.toISOString()
-}
+const buildDateTime = (dateInput: string, time: string): string =>
+    wallClockToUtcIso(dateInput.slice(0, 10), time)
 
 // The three sequential checkout steps
 type Step = 'driver-info' | 'identity' | 'payment'
@@ -117,6 +115,13 @@ function CheckoutPage() {
     const [paymentError, setPaymentError] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(false)
 
+    // The price the server actually charged. search.subtotal is only a display
+    // hint — it travels in the URL, so it's whatever the customer's address bar
+    // says. createCheckoutSession recomputes the real total and returns it, and
+    // that's the number shown everywhere below once it arrives.
+    const [serverTotal, setServerTotal] = useState<number | null>(null)
+    const displayTotal = serverTotal ?? search.subtotal
+
     // hasInitialized prevents double-invocation from React Strict Mode.
     // In development, React deliberately calls effects twice to surface bugs.
     // Without this ref, two PaymentIntents and two pending booking rows would
@@ -135,6 +140,14 @@ function CheckoutPage() {
                         carId,
                         startTime: buildDateTime(search.startDate, search.startTime),
                         endTime: buildDateTime(search.endDate, search.endTime),
+                        // The wall-clock range is sent alongside the ISO instants
+                        // because pricing is keyed by calendar date — an instant's
+                        // date depends on whose timezone reads it, and the server's
+                        // may not be the customer's.
+                        startDateLocal: search.startDate.slice(0, 10),
+                        startTimeLocal: search.startTime,
+                        endDateLocal: search.endDate.slice(0, 10),
+                        endTimeLocal: search.endTime,
                         totalPrice: search.subtotal,
                         pickupLocation: search.pickupLocation,
                         bookingId: search.bookingId,
@@ -142,6 +155,7 @@ function CheckoutPage() {
                 })
                 setClientSecret(result.clientSecret)
                 setBookingId(result.bookingId)
+                setServerTotal(result.totalPrice)
             } catch (e: unknown) {
                 const message = e instanceof Error ? e.message : 'Failed to initialize payment'
                 setPaymentError(message)
@@ -202,7 +216,7 @@ function CheckoutPage() {
                             <p className="text-gray-600 text-xs mt-0.5">{search.pickupLocation}</p>
                         </div>
                         <div className="text-right flex-shrink-0">
-                            <p className="font-bold text-gray-900 text-lg">${search.subtotal}</p>
+                            <p className="font-bold text-gray-900 text-lg">${displayTotal.toFixed(2)}</p>
                             <p className="text-gray-500 text-xs">total</p>
                         </div>
                     </div>
@@ -291,7 +305,7 @@ function CheckoutPage() {
                             >
                                 <PaymentStep
                                     bookingId={bookingId}
-                                    subtotal={search.subtotal}
+                                    subtotal={displayTotal}
                                     carId={carId}
                                 />
                             </Elements>
@@ -769,7 +783,7 @@ function PaymentStep({
                 disabled={!stripe || processing}
                 className="w-full py-4 bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed text-gray-800 font-bold rounded-xl text-lg transition-colors cursor-pointer"
             >
-                {processing ? 'Processing payment...' : `Pay $${subtotal}`}
+                {processing ? 'Processing payment...' : `Pay $${subtotal.toFixed(2)}`}
             </button>
 
             <p className="text-center text-gray-500 text-xs mt-3">
