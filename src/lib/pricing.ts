@@ -46,6 +46,12 @@ export const LONG_DURATION_DISCOUNT = {
 // Applied when the trip starts on today's date (in the business's timezone).
 export const SAME_DAY_SURCHARGE = { percent: 0.05, label: 'Same-day booking' }
 
+// Note on the pickup fee, which is the fourth adjustment this module applies:
+// unlike the three above it isn't configured here. It arrives as a plain number
+// on TripQuoteInput because *what* it costs is a property of the location the
+// customer chose, and that table lives in src/lib/pickup.ts. This module only
+// knows where in the arithmetic it belongs — see calculateTripPrice.
+
 // ── Date helpers ─────────────────────────────────────────────────────────────
 
 // Today's date key in the business's timezone. Returns the same answer whether
@@ -222,6 +228,9 @@ export type TripQuote = {
     surchargePercent: number
     surchargeLabel: string | null
     surchargeAmount: number
+    // A flat amount for delivering the car, added last and never discounted.
+    pickupFee: number
+    pickupFeeLabel: string | null
     total: number
 }
 
@@ -233,6 +242,11 @@ export type TripQuoteInput = {
     basePricePerDay: number
     overrides?: PriceOverrides
     today?: string      // defaults to today in the business's timezone
+    // Comes from resolvePickup() in src/lib/pickup.ts. Optional so every existing
+    // caller — and every future one quoting a plain home-base pickup — keeps
+    // working untouched, defaulting to the free case.
+    pickupFee?: number
+    pickupFeeLabel?: string | null
 }
 
 const EMPTY_QUOTE: TripQuote = {
@@ -248,6 +262,11 @@ const EMPTY_QUOTE: TripQuote = {
     surchargePercent: 0,
     surchargeLabel: null,
     surchargeAmount: 0,
+    // Zero rather than the caller's pickupFee on purpose: EMPTY_QUOTE is returned
+    // when there's no trip yet (no dates, or a non-positive duration), and a
+    // $140 delivery line under a $0 total would be a price for nothing.
+    pickupFee: 0,
+    pickupFeeLabel: null,
     total: 0,
 }
 
@@ -279,6 +298,8 @@ export function calculateTripPrice(input: TripQuoteInput): TripQuote {
         basePricePerDay,
         overrides = {},
         today = todayInBusinessTz(),
+        pickupFee: rawPickupFee = 0,
+        pickupFeeLabel = null,
     } = input
 
     if (!startDate || !endDate) return EMPTY_QUOTE
@@ -321,6 +342,23 @@ export function calculateTripPrice(input: TripQuoteInput): TripQuote {
     const surchargePercent = isSameDay ? SAME_DAY_SURCHARGE.percent : 0
     const surchargeAmount = roundMoney(subtotal * surchargePercent)
 
+    // The pickup fee is the one adjustment that touches neither the subtotal nor
+    // any percentage — it's a flat service charge bolted on at the very end.
+    //
+    // This is a sibling rule to the surcharge above, and the two are deliberately
+    // different for the same underlying reason: what a percentage should be a
+    // percentage *of*. The surcharge is a premium on the rate, so it scales with
+    // the rate but is measured against the undiscounted subtotal. Delivery isn't
+    // part of the rate at all — driving the car across town costs the host the
+    // same effort whether the trip that follows is one day or twenty-one. Folding
+    // it into the subtotal would hand a 21-day renter a 20% discount on the
+    // driving, which is a discount on a cost that never shrank.
+    //
+    // Rounded here for the same reason every other line is: the total below is
+    // summed from already-rounded parts, so the rows in the price breakdown add
+    // up to the number on the card.
+    const pickupFee = roundMoney(rawPickupFee)
+
     return {
         days,
         billableDays,
@@ -334,6 +372,12 @@ export function calculateTripPrice(input: TripQuoteInput): TripQuote {
         surchargePercent,
         surchargeLabel: isSameDay ? SAME_DAY_SURCHARGE.label : null,
         surchargeAmount,
-        total: roundMoney(subtotal - discountAmount - extraDiscountAmount + surchargeAmount),
+        pickupFee,
+        // Only labelled when there's actually something to charge, so the
+        // breakdown can gate its row on the amount and never render a $0 line.
+        pickupFeeLabel: pickupFee > 0 ? pickupFeeLabel : null,
+        total: roundMoney(
+            subtotal - discountAmount - extraDiscountAmount + surchargeAmount + pickupFee,
+        ),
     }
 }

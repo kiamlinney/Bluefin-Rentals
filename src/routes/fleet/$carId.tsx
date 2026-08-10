@@ -18,6 +18,8 @@ import {
 import { findUnavailableDays, spansToDateKeys } from "@/lib/availability.ts";
 import { TripCalendar } from "@/components/TripCalendar.tsx";
 import { PriceBreakdown } from "@/components/PriceBreakdown.tsx";
+import { PickupLocationPicker } from "@/components/PickupLocationPicker.tsx";
+import { DEFAULT_PICKUP, resolvePickup, type PickupSelection } from "@/lib/pickup.ts";
 
 // Optional because most visitors arrive without dates. `.catch(undefined)` so a
 // hand-mangled URL renders an empty picker instead of an error boundary.
@@ -108,18 +110,21 @@ function TimeDropdown({ value, onChange, options }: {
     }, [isOpen]);
 
     return (
-        <div ref={ref} className="relative w-[120px] p-3 flex-shrink-0">
+        <div ref={ref} className="relative flex-1">
             <button
                 type="button"
                 onClick={() => setIsOpen(o => !o)}
-                className="w-full flex items-center justify-between text-gray-900 font-semibold text-sm mt-4 cursor-pointer"
+                className="w-full flex items-center justify-between border border-gray-300 rounded-lg px-4 py-3 text-gray-900 text-sm hover:border-gray-400 transition-colors cursor-pointer"
             >
                 <span>{selected?.label ?? value}</span>
                 <ChevronDown size={14} className={`text-gray-500 transition-transform duration-150 ${isOpen ? "rotate-180" : ""}`} />
             </button>
 
             {isOpen && (
-                <div ref={scrollRef} className="absolute top-full right-0 z-[120] bg-white border border-gray-200 rounded-lg shadow-lg max-h-96 overflow-y-scroll time-dropdown-scroll">
+                <div
+                    ref={scrollRef}
+                    className="absolute top-full left-0 right-0 mt-1 z-[120] bg-white border border-gray-200 rounded-lg shadow-lg max-h-96 overflow-y-scroll time-dropdown-scroll"
+                >
                     {options.map(opt => (
                         <button
                             key={opt.value}
@@ -181,9 +186,13 @@ function CarDetails() {
     const [showGallery, setShowGallery] = useState(false);
     const [startTime, setStartTime] = useState("10:00");
     const [endTime, setEndTime] = useState("22:00");
-    const [airportPickup, setAirportPickup] = useState(false);
-    const [nickAddress, setNickAddress] = useState(false);
-    const [customPickup, setCustomPickup] = useState("");
+    // One selection, replacing the two independent checkboxes and free-text field
+    // this widget used to carry. Those three could disagree — both boxes ticked,
+    // or a box ticked *and* an address typed — and the conflict was resolved
+    // invisibly by the ordering of a ternary chain in handleContinue. A single
+    // discriminated union (src/lib/pickup.ts) makes that state impossible to
+    // reach rather than merely unlikely.
+    const [pickup, setPickup] = useState<PickupSelection>(DEFAULT_PICKUP);
 
     const [disabledDates, setDisabledDates] = useState<{from: Date; to: Date}[]>([]);
     const [availabilityLoaded, setAvailabilityLoaded] = useState(false);
@@ -299,6 +308,11 @@ function CarDetails() {
         ) / (60 * 24);
     }, [startDate, endDate, startTime, endTime]);
 
+    // What the chosen pickup costs, what to call it, and whether it can be booked
+    // at all. Resolved from the same table the server re-resolves against, so the
+    // fee shown here is the fee charged — see src/lib/pickup.ts.
+    const resolvedPickup = useMemo(() => resolvePickup(pickup), [pickup]);
+
     // The trip's price, resolved per day against the admin's price overrides and
     // then discounted by duration. calculateTripPrice is the same function the
     // server runs in createCheckoutSession, so what's quoted here is what gets
@@ -312,7 +326,13 @@ function CarDetails() {
         // serializes it — Number() keeps the arithmetic from concatenating.
         basePricePerDay: Number(car.price_per_day),
         overrides: priceOverrides,
-    }), [startDate, endDate, startTime, endTime, car.price_per_day, priceOverrides]);
+        // Feeding the fee through the quote rather than adding it to the total
+        // afterwards is what makes it show up everywhere for free: the "$X total"
+        // button, the Continue navigation and the price-details modal all read
+        // `quote`, and none of them needed changing.
+        pickupFee: resolvedPickup.fee,
+        pickupFeeLabel: resolvedPickup.feeLabel,
+    }), [startDate, endDate, startTime, endTime, car.price_per_day, priceOverrides, resolvedPickup]);
 
     const totalDays = quote.billableDays;
     const subtotal = quote.total;
@@ -331,12 +351,21 @@ function CarDetails() {
     // One message at a time, duration first: a sub-24h range is fixable by
     // nudging a time, and its conflicting-days list would be a confusing single
     // day. An unavailable range always needs different dates, so it comes last.
+    //
+    // The pickup error is checked *before* the date guard rather than inside it,
+    // because it's the one problem here that has nothing to do with dates: an
+    // out-of-area delivery address is just as wrong on an empty calendar as on a
+    // full one, and staying silent about it until dates are picked would let a
+    // customer choose their days before finding out the location was never
+    // bookable. Among the date-dependent messages it stays last — those two are
+    // the commoner mistakes, and the picker already shows its own message inline.
     const validationError = useMemo(() => {
+        if (resolvedPickup.error) return resolvedPickup.error;
         if (!startDate || !endDate) return null;
         if (totalDurationDays < 1) return "Minimum trip duration is 24 hours. Please adjust your dates or times.";
         if (unavailableDays.length > 0) return unavailableMessage(unavailableDays);
         return null;
-    }, [startDate, endDate, totalDurationDays, unavailableDays]);
+    }, [startDate, endDate, totalDurationDays, unavailableDays, resolvedPickup]);
 
     // availabilityLoaded closes the window where a range prefilled from the
     // search bar could reach checkout before we know what's booked.
@@ -382,11 +411,27 @@ function CarDetails() {
                 endTime,
                 totalDays,
                 subtotal,
-                pickupLocation: airportPickup
-                    ? 'MSP - Minneapolis, MN'
-                    : nickAddress
-                    ? '2033 Sargent Avenue, Saint Paul, MN 55105'
-                    : customPickup,
+                // Two representations of the same choice, deliberately.
+                //
+                // `pickupLocation` is the human-readable string the checkout page
+                // prints in its trip summary. It's for reading, not for deciding:
+                // every one of these params is in the URL and therefore editable,
+                // so a fee derived from this string would be a fee the customer
+                // can rewrite.
+                //
+                // The structured fields below are what the server re-resolves
+                // against src/lib/pickup.ts to recompute the real fee — the same
+                // reason `subtotal` is treated as a display hint and re-priced in
+                // createCheckoutSession.
+                // The delivery coordinates deliberately stay behind. This page
+                // needed them to price and pre-validate the choice, but the
+                // server geocodes the address text rather than trusting numbers
+                // it was handed — so sending them would only add a field a
+                // customer could edit and nothing would read.
+                pickupLocation: resolvedPickup.label,
+                pickupKind: pickup.kind,
+                pickupId: pickup.kind === 'listed' ? pickup.id : undefined,
+                pickupAddress: pickup.kind === 'delivery' ? pickup.address : undefined,
             }
         })
     }
@@ -552,8 +597,10 @@ function CarDetails() {
                                 <CardContent className="p-6 relative">
                                     <div className="flex items-baseline gap-1">
                                         <span className="text-2xl font-bold text-gray-900">${car.price_per_day}</span>
-                                        <span className="text-gray-600 font-medium">/ day</span>
+                                        <span className="text-gray-600 font-medium mb-4">/ day</span>
                                     </div>
+
+                                    <hr className="border-gray-200" />
 
                                     {totalDays > 0 && (
                                         <button
@@ -579,25 +626,26 @@ function CarDetails() {
                                     )}
 
                                     <p className="text-gray-600 text-sm font-medium mb-6 mt-2">
-                                        {totalDays > 0 ? "Tap for price details" : "Including tax and all fees"}
+                                        {totalDays > 0 && "Click for price details"}
                                     </p>
 
-                                    <div className="border border-gray-900 rounded-lg mb-3 bg-white divide-y divide-gray-900">
+                                    <div className="space-y-4 mb-6">
 
                                         {/* Trip start row */}
                                         <div className="relative">
 
-                                            <div className="relative flex divide-x divide-gray-900">
+                                            <label className="block text-sm tex-gray-900 mb-1.5">Trip start</label>
+
+                                            <div className="flex gap-3">
                                                 <button
                                                     ref={startTriggerRef}
                                                     onClick={toggleStartCalendar}
-                                                    className="flex-1 p-3 text-left transition-colors cursor-pointer"
+                                                    className="flex-[1.3] flex items-center justify-between border border-gray-300 rounded-lg px-4 py-3 text-gray-900 text-sm hover:border-gray-400 transition-colors cursor-pointer"
                                                 >
-                                                    <label className="text-[14px] text-gray-900">Trip start</label>
-                                                    <div className="text-gray-900 font-semibold">
-                                                        {startDate ? formatTriggerDate(startDate) : "Select Date"}
-                                                    </div>
+                                                    <span>{startDate ? formatTriggerDate(startDate) : "Select Date"}</span>
+                                                    <ChevronDown size={14} className="text-gray-500" />
                                                 </button>
+
                                                 <TimeDropdown value={startTime} onChange={setStartTime} options={startTimeOptions} />
                                             </div>
 
@@ -617,17 +665,18 @@ function CarDetails() {
                                         {/* Trip end row */}
                                         <div className="relative">
 
-                                            <div className="relative flex divide-x divide-gray-900">
+                                            <label className="block text-sm tex-gray-900 mb-1.5">Trip end</label>
+
+                                            <div className="flex gap-3">
                                                 <button
                                                     ref={endTriggerRef}
                                                     onClick={toggleEndCalendar}
-                                                    className="flex-1 p-3 text-left transition-colors cursor-pointer"
+                                                    className="flex-[1.3] flex items-center justify-between border border-gray-300 rounded-lg px-4 py-3 text-gray-900 text-sm hover:border-gray-400 transition-colors cursor-pointer"
                                                 >
-                                                    <label className="text-[14px] text-gray-900">Trip end</label>
-                                                    <div className="text-gray-900 font-semibold">
-                                                        {endDate ? formatTriggerDate(endDate) : "Select Date"}
-                                                    </div>
+                                                    <span>{endDate ? formatTriggerDate(endDate) : "Select Date"}</span>
+                                                    <ChevronDown size={14} className="text-gray-500" />
                                                 </button>
+
                                                 <TimeDropdown value={endTime} onChange={setEndTime} options={endTimeOptions} />
                                             </div>
 
@@ -645,51 +694,14 @@ function CarDetails() {
                                                 />
                                         </div>
 
-                                    </div>
+                                        <hr className="border-gray-200" />
 
-                                    <div className="border border-gray-900 rounded-lg mb-6 p-3">
-                                        <label className="text-[14px] font-semibold text-gray-900">Pickup & return location</label>
+                                        <PickupLocationPicker
+                                            value={pickup}
+                                            onChange={setPickup}
+                                        />
 
-                                        {/* Airport pickup checkbox */}
-                                        <div className="mt-3 flex items-center gap-2">
-                                            <label htmlFor="airportPickup" className="text-sm text-gray-700 cursor-pointer">
-                                                MSP - Minneapolis, MN
-                                            </label>
-                                            <input
-                                                type="checkbox"
-                                                id="airportPickup"
-                                                checked={airportPickup}
-                                                onChange={(e) => setAirportPickup(e.target.checked)}
-                                                className="w-3 h-3 accent-gray-800 cursor-pointer"
-                                            />
-                                        </div>
-
-                                        <div className="mt-3 flex items-center gap-2">
-                                            <label htmlFor="nickAddress" className="text-sm text-gray-700 cursor-pointer">
-                                                2033 Sargent Avenue, Saint Paul, MN 55105
-                                            </label>
-                                            <input
-                                                type="checkbox"
-                                                id="nickAddress"
-                                                checked={nickAddress}
-                                                onChange={(e) => setNickAddress(e.target.checked)}
-                                                className="w-3 h-3 accent-gray-800 cursor-pointer"
-                                            />
-                                        </div>
-
-                                        {/* Custom address */}
-                                        <div className="mt-3">
-                                            <input
-                                                type="text"
-                                                placeholder="Enter pickup address"
-                                                value={customPickup}
-                                                onChange={(e) => setCustomPickup(e.target.value)}
-                                                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 outline-none focus:border-gray-600 transition-colors"
-                                            />
-                                            <p className="text-xs text-gray-500 mt-1">
-                                                Additional fees apply for custom pickup locations.
-                                            </p>
-                                        </div>
+                                        <hr className="border-gray-200" />
 
                                     </div>
 
@@ -704,8 +716,8 @@ function CarDetails() {
                                         onClick={handleContinue}
                                         disabled={isButtonDisabled}
                                         className={[
-                                            "secondary-button bg-white rounded-lg w-full text-lg py-6 shadow-lg transition-all",
-                                            isButtonDisabled ? "opacity-50 cursor-not-allowed" : ""
+                                            "border border-gray-300 bg-white rounded-lg w-full text-lg py-6 shadow-lg transition-all hover:border-gray-400",
+                                            isButtonDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
                                         ].join(" ")}
                                     >
                                         Continue

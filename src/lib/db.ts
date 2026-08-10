@@ -11,6 +11,14 @@ import {
     todayInBusinessTz,
     type TripQuote,
 } from './pricing'
+import {
+    DELIVERY_RADIUS_MILES,
+    findPickupLocation,
+    milesFromHomeBase,
+    resolvePickup,
+    type ResolvedPickup,
+} from './pickup'
+import { geocodeAddresses } from './geocode'
 
 // Fetches all cars that are available
 export const getCars = createServerFn({ method: 'GET' })
@@ -168,6 +176,109 @@ async function assertCarIsAvailable(carId: number, startTime: string, endTime: s
 
 const MS_PER_HOUR = 60 * 60 * 1000
 
+// The pickup selection as it arrives from the browser: loose, optional fields
+// pulled straight off URL search params. Nothing here is trusted.
+//
+// Note what is absent: coordinates. The picker has them — it needs them to show
+// a live distance and fee — but they stay in React state and never enter the
+// URL, because the server would have to throw them away regardless. See below.
+type PickupInput = {
+    pickupKind?: 'home' | 'listed' | 'delivery'
+    pickupId?: string
+    pickupAddress?: string
+}
+
+// Turns that untrusted bag of params into a priced, verified pickup.
+//
+// ── Why the server geocodes rather than accepting coordinates ────────────────
+// The obvious shortcut is to let the client send the lat/lng it already resolved
+// and measure those against the home base. But coordinates travelling through an
+// editable URL are just numbers the caller chose: nothing would stop a request
+// pairing "1 Main St, Duluth" with a point two blocks from the lot. The radius
+// check would pass, the fee would be $140, and the host would be committed to a
+// 150-mile drive. A check that runs on the caller's own numbers is theatre.
+//
+// So the *address string* — the thing that will be printed on the reservation and
+// actually driven to — is what gets geocoded here. That costs one Mapbox call per
+// checkout, negligible beside the Stripe round trip on the same request, and it
+// is what makes the radius rule binding. Same principle as `totalPrice` further
+// down: values from the browser are display hints, and anything deciding money or
+// obligations is recomputed server-side.
+//
+// ── Why the geocoder's output is discarded ──────────────────────────────────
+// Only the *verdict* survives this function — in range or not. The coordinates
+// and Mapbox's normalized label are read, used, and dropped; what gets stored is
+// the address string the customer submitted.
+//
+// That's a licensing constraint, not a stylistic one. Mapbox distinguishes
+// temporary geocoding (the default, and what the 100k/month free tier covers)
+// from permanent geocoding, and temporary results may not be cached or persisted
+// at all — writing Mapbox's formatted address into bookings.pickup_location would
+// require permanent geocoding, which is separately billed and needs a card on
+// file. Treating the lookup as a pure validator keeps this inside temporary use.
+//
+// It's also the better answer for deliveries independently of licensing: a
+// geocoder returns the building, and the customer's own text is where the
+// apartment number, gate code or "side door" lives — exactly the details that
+// matter to someone actually dropping off a car.
+async function resolvePickupOnServer(input: PickupInput): Promise<ResolvedPickup> {
+    const kind = input.pickupKind ?? 'home'
+
+    if (kind === 'home') return resolvePickup({ kind: 'home' })
+
+    if (kind === 'listed') {
+        // Resolved by id against the same table the widget rendered from, so the
+        // stored pickup_location string is one this codebase wrote — never one
+        // the customer typed. resolvePickup returns an error for an unknown id;
+        // it's surfaced rather than defaulted, since quietly moving someone's
+        // airport pickup to the lot is worse than making them pick again.
+        if (!input.pickupId || !findPickupLocation(input.pickupId)) {
+            throw new Error('That pickup location is no longer available. Please choose another.')
+        }
+        return resolvePickup({ kind: 'listed', id: input.pickupId })
+    }
+
+    const address = input.pickupAddress?.trim()
+    if (!address) throw new Error('A delivery address is required for this pickup option.')
+
+    // Geocoding the customer's text, not a suggestion id, is what lets them
+    // refine it — "2033 Sargent Ave, Saint Paul, MN 55105, Apt 4B" still resolves
+    // to the building. It also means an address edited past recognition after the
+    // picker verified it gets caught right here rather than at the kerb.
+    const [best] = await geocodeAddresses(address)
+
+    // No result means either a geocoder outage or an address Mapbox can't place.
+    // Both are refusals rather than fallbacks: the alternative is charging $140
+    // to deliver somewhere we were never able to locate.
+    if (!best) {
+        throw new Error('We could not verify that delivery address. Please check it and try again.')
+    }
+
+    const miles = milesFromHomeBase(best)
+    if (miles > DELIVERY_RADIUS_MILES) {
+        throw new Error(
+            `Delivery is only available within ${DELIVERY_RADIUS_MILES} miles — that address is ${miles} miles away.`,
+        )
+    }
+
+    // `best` has served its entire purpose and goes no further: it decided the
+    // question above, and nothing derived from it is returned or stored. The
+    // selection is rebuilt from the customer's own address text, with the verified
+    // coordinates attached only so resolvePickup can re-apply the radius rule
+    // from a single code path — they die with this function's scope.
+    const resolved = resolvePickup({
+        kind: 'delivery',
+        address,
+        lat: best.lat,
+        lng: best.lng,
+    })
+
+    // Belt and braces, but cheap, and it guarantees the fee and the eligibility
+    // decision can never come from two different implementations of the rule.
+    if (resolved.error) throw new Error(resolved.error)
+    return resolved
+}
+
 // Recomputes what a trip costs from data only the server can vouch for: the
 // car's base rate and its price overrides, both read with the service-role
 // client (car_price_overrides is admin-only under RLS). The client sends a
@@ -187,6 +298,10 @@ async function quoteTripOnServer(input: {
     endTimeLocal: string
     startTimeIso: string
     endTimeIso: string
+    // Already verified by resolvePickupOnServer. Passed in rather than resolved
+    // here so the geocoder round trip happens once, before this function's own
+    // parallel Supabase reads, instead of being buried inside the pricing path.
+    pickup: ResolvedPickup
 }): Promise<TripQuote> {
     const isoDurationMs = new Date(input.endTimeIso).getTime() - new Date(input.startTimeIso).getTime()
 
@@ -220,6 +335,11 @@ async function quoteTripOnServer(input: {
         endTime: input.endTimeLocal,
         basePricePerDay: Number(car.price_per_day),
         overrides: buildOverrideMap(overrideRows ?? []),
+        // The fee comes from the server's own resolution of the pickup, not from
+        // anything the client sent — same principle as the base rate and the
+        // overrides above, both of which are read here rather than accepted.
+        pickupFee: input.pickup.fee,
+        pickupFeeLabel: input.pickup.feeLabel,
     })
 
     if (quote.billableDays < 1) throw new Error('Minimum trip duration is 24 hours')
@@ -253,7 +373,17 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         endDateLocal: string
         endTimeLocal: string
         totalPrice: number
+        // Display string only. Kept in the signature because the checkout page
+        // still sends it and it's useful in the mismatch log below, but nothing
+        // is priced or stored from it — see resolvePickupOnServer.
         pickupLocation: string
+        // The structured selection, re-resolved server-side. `pickupKind` is
+        // optional so a request from before this change (an in-flight checkout
+        // during a deploy) falls back to the free home-base pickup rather than
+        // failing outright.
+        pickupKind?: 'home' | 'listed' | 'delivery'
+        pickupId?: string
+        pickupAddress?: string
         bookingId?: string // optional
     }) => input)
     .handler(async ({ data }) => {
@@ -322,10 +452,16 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
 
         await assertCarIsAvailable(carIdNum, data.startTime, data.endTime)
 
+        // Resolved before the quote because it can reject the whole booking: an
+        // out-of-area delivery address should fail here, not after a Stripe
+        // PaymentIntent has been created for it.
+        const pickup = await resolvePickupOnServer(data)
+
         // The price is recomputed here rather than taken from data.totalPrice.
         // That value reaches us through URL search params the customer can edit,
         // so it's treated as a display hint only — quote.total is what Stripe
-        // charges and what the booking row records.
+        // charges and what the booking row records. The pickup fee inside that
+        // quote is subject to exactly the same rule.
         const quote = await quoteTripOnServer({
             carId: carIdNum,
             startDateLocal: data.startDateLocal,
@@ -334,6 +470,7 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
             endTimeLocal: data.endTimeLocal,
             startTimeIso: data.startTime,
             endTimeIso: data.endTime,
+            pickup,
         })
 
         // A mismatch is either tampering or genuine drift between the widget's
@@ -353,7 +490,7 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
                 userId: user.id,
                 startTime: data.startTime,
                 endTime: data.endTime,
-                pickupLocation: data.pickupLocation,
+                pickupLocation: pickup.bookingLabel,
             },
         })
 
@@ -371,7 +508,18 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
                 start_time: data.startTime,
                 end_time: data.endTime,
                 total_price: quote.total,
-                pickup_location: data.pickupLocation,
+                // pickup.bookingLabel, not data.pickupLocation. Two reasons, and
+                // the second is the important one:
+                //
+                // 1. For the home base this is the full street address, while the
+                //    customer only ever saw "Saint Paul, MN 55105" — the exact
+                //    address is deliberately withheld until a booking exists.
+                // 2. It's a string this codebase produced from a verified id or a
+                //    geocoded result. data.pickupLocation is whatever was in the
+                //    URL, and it ends up on the admin reservation screen, in the
+                //    confirmation page and in the host's trip list — none of which
+                //    should be rendering unvalidated text from a query param.
+                pickup_location: pickup.bookingLabel,
                 stripe_payment_intent_id: paymentIntent.id,
                 status: 'pending',
             })

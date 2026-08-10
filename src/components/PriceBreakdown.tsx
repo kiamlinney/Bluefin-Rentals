@@ -142,6 +142,27 @@ export function PriceBreakdown({
                                 </span>
                             </div>
                         )}
+
+                        {/* Last row before the total, and the only one with no
+                            percentage next to it — both on purpose.
+
+                            The order of the rows in this column is the order of
+                            the arithmetic in calculateTripPrice, so the breakdown
+                            can be read top to bottom as the total being built:
+                            subtotal, then what comes off it, then what goes on
+                            top. Delivery is applied after everything else because
+                            it's a flat service charge that the duration discounts
+                            deliberately don't touch (a 3-week trip pays the same
+                            $140 as a 2-day one), and printing it above them would
+                            imply it had been discounted along with the rate. */}
+                        {quote.pickupFee > 0 && (
+                            <div className={rowClass}>
+                                <span className="text-gray-700">{quote.pickupFeeLabel}</span>
+                                <span className="font-medium text-gray-900 tabular-nums">
+                                    +{formatMoney(quote.pickupFee)}
+                                </span>
+                            </div>
+                        )}
                     </div>
 
                     <div className="mt-4 pt-4 border-t border-gray-300 flex justify-between items-baseline">
@@ -152,7 +173,7 @@ export function PriceBreakdown({
                     </div>
 
                     <p className="text-xs text-gray-500 mt-3">
-                        Including tax and all fees.
+                        Not including tax.
                     </p>
                 </div>
             </div>
