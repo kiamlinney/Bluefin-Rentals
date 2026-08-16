@@ -1,25 +1,14 @@
 import {createFileRoute} from '@tanstack/react-router'
 import {getPastBookings} from '@/lib/db'
 import {TripCard} from 'src/components/admin/TripCard.tsx'
-
-type Booking = {
-    id: string
-    car_id: number
-    user_id: string
-    start_time: string
-    end_time: string
-    total_price: number
-    status: string
-    created_at: string
-    stripe_payment_intent_id: string
-    pickup_location: string
-}
+import type { BookingWithRelations } from '@/types.ts'
+import {businessDateKey, businessDayStart, formatBusinessDate} from '@/lib/dates'
 
 type DateGroup = {
     dateKey: string      // used as React key
     dateLabel: string    // what gets displayed
     sortDate: Date       // used for sorting groups chronologically
-    bookings: Booking[]
+    bookings: BookingWithRelations[]
 }
 
 export const Route = createFileRoute('/admin/trips/history')({
@@ -30,7 +19,7 @@ export const Route = createFileRoute('/admin/trips/history')({
     component: HistoryPage,
 })
 
-function groupBookingsByDate(bookings: Booking[]): DateGroup[] {
+function groupBookingsByDate(bookings: BookingWithRelations[]): DateGroup[] {
 
     // Map to collect groups
     const groups = new Map<string, DateGroup>()
@@ -38,12 +27,15 @@ function groupBookingsByDate(bookings: Booking[]): DateGroup[] {
     for (const booking of bookings) {
         const relevantDate = new Date(booking.end_time)
 
-        const dateKey = `${relevantDate.getFullYear()}-${relevantDate.getMonth()}`
+        // Month bucket taken from the business calendar day, so a trip returned
+        // at 10pm on the last of the month doesn't land in the next one.
+        const businessDay = businessDayStart(relevantDate)
+        const dateKey = businessDateKey(relevantDate).slice(0, 7)
 
         // If this date key doesn't exist in the map yet, then create it
         if (!groups.has(dateKey)) {
             // Lock sort date to the 1st of the month
-            const normalizedSortDate = new Date(relevantDate.getFullYear(), relevantDate.getMonth(), 1)
+            const normalizedSortDate = new Date(businessDay.getFullYear(), businessDay.getMonth(), 1)
 
             groups.set(dateKey, {
                 dateKey,
@@ -74,7 +66,7 @@ function groupBookingsByDate(bookings: Booking[]): DateGroup[] {
 }
 
 function formatGroupLabel(date: Date): string {
-    return date.toLocaleDateString('en-US', {
+    return formatBusinessDate(date, {
         month: 'long',
         year: 'numeric',
     })

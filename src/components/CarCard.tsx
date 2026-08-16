@@ -17,7 +17,7 @@ const CarCard = ({ car, search } : { car : Car; search?: CarCardSearch }) => {
             className="group flex flex-col bg-[#152110] border-[0.5px] border-gray-400 rounded-2xl shadow-white/10 overflow-hidden hover:shadow-lg transition-shadow"
         >
             <div className="relative aspect-[16/10] w-full overflow-hidden bg-[#152110]">
-                <img src={car.image_url} alt={car.make} className="w-full h-full object-cover" />
+                <img src={car.image_url ?? undefined} alt={car.make} className="w-full h-full object-cover" />
             </div>
 
             <div className="p-4">

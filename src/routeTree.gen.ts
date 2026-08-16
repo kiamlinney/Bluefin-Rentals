@@ -31,6 +31,7 @@ import { Route as AdminBusinessRatingsReviewsRouteImport } from './routes/admin/
 import { Route as AdminBusinessEarningsRouteImport } from './routes/admin/business/earnings'
 import { Route as AdminBusinessClaimsRouteImport } from './routes/admin/business/claims'
 import { Route as AuthedCheckoutCarIdRouteImport } from './routes/_authed.checkout.$carId'
+import { Route as AdminReservationBookingIdPhotosRouteImport } from './routes/admin/reservation.$bookingId_.photos'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -143,6 +144,12 @@ const AuthedCheckoutCarIdRoute = AuthedCheckoutCarIdRouteImport.update({
   path: '/checkout/$carId',
   getParentRoute: () => AuthedRoute,
 } as any)
+const AdminReservationBookingIdPhotosRoute =
+  AdminReservationBookingIdPhotosRouteImport.update({
+    id: '/reservation/$bookingId_/photos',
+    path: '/reservation/$bookingId/photos',
+    getParentRoute: () => AdminRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -166,6 +173,7 @@ export interface FileRoutesByFullPath {
   '/admin/reservation/$bookingId': typeof AdminReservationBookingIdRoute
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
+  '/admin/reservation/$bookingId/photos': typeof AdminReservationBookingIdPhotosRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -188,6 +196,7 @@ export interface FileRoutesByTo {
   '/admin/reservation/$bookingId': typeof AdminReservationBookingIdRoute
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
+  '/admin/reservation/$bookingId/photos': typeof AdminReservationBookingIdPhotosRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -213,6 +222,7 @@ export interface FileRoutesById {
   '/admin/reservation/$bookingId': typeof AdminReservationBookingIdRoute
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
+  '/admin/reservation/$bookingId_/photos': typeof AdminReservationBookingIdPhotosRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -238,6 +248,7 @@ export interface FileRouteTypes {
     | '/admin/reservation/$bookingId'
     | '/admin/trips/booked'
     | '/admin/trips/history'
+    | '/admin/reservation/$bookingId/photos'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -260,6 +271,7 @@ export interface FileRouteTypes {
     | '/admin/reservation/$bookingId'
     | '/admin/trips/booked'
     | '/admin/trips/history'
+    | '/admin/reservation/$bookingId/photos'
   id:
     | '__root__'
     | '/'
@@ -284,6 +296,7 @@ export interface FileRouteTypes {
     | '/admin/reservation/$bookingId'
     | '/admin/trips/booked'
     | '/admin/trips/history'
+    | '/admin/reservation/$bookingId_/photos'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -456,6 +469,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedCheckoutCarIdRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/admin/reservation/$bookingId_/photos': {
+      id: '/admin/reservation/$bookingId_/photos'
+      path: '/reservation/$bookingId/photos'
+      fullPath: '/admin/reservation/$bookingId/photos'
+      preLoaderRoute: typeof AdminReservationBookingIdPhotosRouteImport
+      parentRoute: typeof AdminRoute
+    }
   }
 }
 
@@ -483,6 +503,7 @@ interface AdminRouteChildren {
   AdminReservationBookingIdRoute: typeof AdminReservationBookingIdRoute
   AdminTripsBookedRoute: typeof AdminTripsBookedRoute
   AdminTripsHistoryRoute: typeof AdminTripsHistoryRoute
+  AdminReservationBookingIdPhotosRoute: typeof AdminReservationBookingIdPhotosRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
@@ -494,6 +515,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminReservationBookingIdRoute: AdminReservationBookingIdRoute,
   AdminTripsBookedRoute: AdminTripsBookedRoute,
   AdminTripsHistoryRoute: AdminTripsHistoryRoute,
+  AdminReservationBookingIdPhotosRoute: AdminReservationBookingIdPhotosRoute,
 }
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)

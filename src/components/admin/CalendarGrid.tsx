@@ -1,8 +1,11 @@
 import {useRef, useMemo, useState, useEffect, useCallback} from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { Booking, Car } from "src/types.ts";
+import { X } from "lucide-react"
+import { BookingWithRelations, Car, CarBlockedDate } from "src/types.ts";
 import { MonthPicker } from "@/components/admin/MonthPicker.tsx";
 import { SelectionPanel } from "@/components/admin/SelectionPanel.tsx";
+import { businessDayStart } from "@/lib/dates.ts";
+import { dateKeyToLocalDate } from "@/lib/pricing.ts";
 
 const column_width = 64 // pixels - width of one day column
 const row_height = 80 // pixels - height of one car's price row
@@ -15,7 +18,6 @@ const days_to_show = 365 // full year
 // Example: "3:7" is car with id 3, the column 7 days from today
 // Using a string key means O(1) lookup
 type CellKey = string
-type BlockedDate = { id: string; car_id: number; start_date: string; end_date: string; reason: string | null }
 type TuroBooking = { id: string; car_id: number; start_time: string; end_time: string; renter_name: string | null }
 
 function makeCellKey(carId: number, dateIndex: number): CellKey {
@@ -59,10 +61,10 @@ export function CalendarGrid({
      blockedDates,
 }: {
     cars: Car[]
-    bookings: Booking[]
+    bookings: BookingWithRelations[]
     turoBookings: TuroBooking[]
     priceOverrides: { car_id: number; date: string; price: number }[]
-    blockedDates: BlockedDate[]
+    blockedDates: CarBlockedDate[]
 }) {
     const dateRange = buildDateRange(days_to_show)
 
@@ -132,17 +134,19 @@ export function CalendarGrid({
     // day-difference math instead of looping with findIndex per booking
     const todayMidnight = dateRange[0] ?? new Date(0)
 
+    // Which column a booking timestamp lands in. The day is resolved in the
+    // business's timezone, not the browser's — `.setHours(0,0,0,0)` on the raw
+    // instant put a 10pm Central return in the wrong column for any host west of
+    // Central, drawing the bar a day short.
     const dateToIndex = useCallback((isoString: string): number => {
-        const d = new Date(isoString)
-        d.setHours(0, 0, 0, 0)
+        const d = businessDayStart(isoString)
         const diffMs = d.getTime() - todayMidnight.getTime()
         return Math.round(diffMs / (1000 * 60 * 60 * 24))
     }, [todayMidnight])
 
     // Converts "YYYY-MM-DD" date string to index, so parsed as local midnight, not UTC midnight
     const dateStringToIndex = useCallback((dateStr: string): number => {
-        const d = new Date(`${dateStr}T00:00:00`)
-        d.setHours(0, 0, 0, 0)
+        const d = dateKeyToLocalDate(dateStr) ?? new Date(0)
         return Math.round((d.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24))
     }, [todayMidnight])
 
@@ -150,7 +154,7 @@ export function CalendarGrid({
     // the whole bookings array per row. useMemo avoids recomputing this one every render
     // only recalculates when bookings itself changes like after a fresh loader fetch
     const bookingsByCarId = useMemo(() => {
-        const map = new Map<number, Booking[]>()
+        const map = new Map<number, BookingWithRelations[]>()
         for (const booking of bookings) {
             const existing = map.get(booking.car_id) ?? []
             existing.push(booking)
@@ -173,19 +177,39 @@ export function CalendarGrid({
     }, [turoBookings])
 
     // --- Blocked dates ------------
-    const [localBlockedState, setLocalBlockedState] = useState<BlockedDate[]>([])
-    const allBlockedDates = useMemo(() => [...blockedDates, ...localBlockedState], [blockedDates, localBlockedState])
-    const blockedDatesByCarId = useMemo(() => {
-        const map = new Map<number, BlockedDate[]>()
-        for (const b of allBlockedDates) { const e = map.get(b.car_id) ?? []; e.push(b); map.set(b.car_id, e) }
-        return map
-    }, [allBlockedDates])
+    const [localBlockedState, setLocalBlockedState] = useState<CarBlockedDate[]>([])
 
-    const handleBlocksCreated = useCallback((newBlocks: BlockedDate[]) => {
+    // Tombstones for blocks deleted this session. Filtering localBlockedState
+    // alone only ever removed blocks created since page load — anything that
+    // arrived from the loader stayed on the grid after a successful delete.
+    // A tombstone set covers both sources. Not router.invalidate(): the loader
+    // would re-return rows that are also sitting in localBlockedState.
+    const [deletedBlockIds, setDeletedBlockIds] = useState<Set<string>>(new Set())
+
+    const allBlockedDates = useMemo(
+        () => [...blockedDates, ...localBlockedState].filter(b => !deletedBlockIds.has(b.id)),
+        [blockedDates, localBlockedState, deletedBlockIds],
+    )
+
+    // carId:dateIndex -> the block covering that day. Ranges are stored as one
+    // row with inclusive start/end, so they get expanded per-day here and the
+    // cells themselves carry the blocked treatment. The block object is kept
+    // rather than a boolean so a cell can show its reason on hover.
+    const blockedCellMap = useMemo(() => {
+        const map = new Map<CellKey, CarBlockedDate>()
+        for (const b of allBlockedDates) {
+            const start = Math.max(0, dateStringToIndex(b.start_date))
+            const end = Math.min(dateRange.length - 1, dateStringToIndex(b.end_date))
+            for (let di = start; di <= end; di++) map.set(makeCellKey(b.car_id, di), b)
+        }
+        return map
+    }, [allBlockedDates, dateStringToIndex, dateRange.length])
+
+    const handleBlocksCreated = useCallback((newBlocks: CarBlockedDate[]) => {
         setLocalBlockedState(prev => [...prev, ...newBlocks])
     }, [])
     const handleBlockDeleted = useCallback((blockId: string) => {
-        setLocalBlockedState(prev => prev.filter(b => b.id !== blockId))
+        setDeletedBlockIds(prev => new Set(prev).add(blockId))
     }, [])
 
     const sharedBoundaryIndices = useMemo(() => {
@@ -264,6 +288,30 @@ export function CalendarGrid({
 
     // which of the three panel tabs is showing
     const [activeTab, setActiveTab] = useState<'prices' | 'unavailability' | 'trips'>('prices')
+
+    // Blocking collapses each car's selection to one min→max range, so picking
+    // 8/15 and 8/19 also blocks the three days between them. 
+    const gapFillCells = useMemo(() => {
+        const preview = new Set<CellKey>()
+        if (!panelOpen || activeTab !== 'unavailability') return preview
+
+        const spans = new Map<number, { min: number; max: number }>()
+        for (const key of selectedCells) {
+            const { carId, dateIndex } = parseCellKey(key)
+            const existing = spans.get(carId)
+            spans.set(carId, existing
+                ? { min: Math.min(existing.min, dateIndex), max: Math.max(existing.max, dateIndex) }
+                : { min: dateIndex, max: dateIndex })
+        }
+
+        for (const [carId, { min, max }] of spans) {
+            for (let di = min; di <= max; di++) {
+                const key = makeCellKey(carId, di)
+                if (!selectedCells.has(key)) preview.add(key)
+            }
+        }
+        return preview
+    }, [panelOpen, activeTab, selectedCells])
 
 
     // Escape key handler
@@ -529,7 +577,6 @@ export function CalendarGrid({
                     {/* ── CAR ROWS ─────────────────────────────────────────────── */}
                     {cars.map((car) => {
                         const carBookings = bookingsByCarId.get(car.id) ?? []
-                        const carBlocked = blockedDatesByCarId.get(car.id) ?? []
                         const carTuro = turoBookingsByCarId.get(car.id) ?? []
                         const isCarRowSelected = [...selectedCells].some(
                             key => parseCellKey(key).carId === car.id
@@ -577,14 +624,21 @@ export function CalendarGrid({
                                         const resolvedPrice = date ? getPriceForCell(car.id, car.price_per_day, date) : car.price_per_day
                                         const isOverridden = date ? hasOverride(car.id, date) : false
 
+                                        const cellKey = makeCellKey(car.id, virtualColumn.index)
+                                        const block = blockedCellMap.get(cellKey)
+                                        const isGapFill = gapFillCells.has(cellKey)
+
                                         return (
                                             <div
                                                 key={virtualColumn.key}
                                                 onClick={(e) => handleCellClick(car.id, virtualColumn.index, e)}
+                                                title={block ? (block.reason ?? 'Blocked') : undefined}
                                                 className={[
                                                     'absolute top-0 h-full',
-                                                    'flex items-end justify-center pb-1',
                                                     'text-sm border-r border-gray-200',
+                                                    // A blocked day centers its ✕; a priced day keeps the price
+                                                    // sitting on the baseline where it always was.
+                                                    block ? 'flex items-center justify-center' : 'flex items-end justify-center pb-1',
                                                     // select-none prevents the browser from highlighting text content during shift-click drag operations
                                                     'cursor-pointer select-none',
                                                     // Selection state drives background and text color.
@@ -601,9 +655,35 @@ export function CalendarGrid({
                                                     width: virtualColumn.size,
                                                 }}
                                             >
-                                                <span className={isOverridden && !isSelected ? 'text-amber-600' : ''}>
-                                                    ${Math.floor(resolvedPrice)}
-                                                </span>
+                                                {/* Blocked days are drawn as the cell itself rather than as a
+                                                    bar across it, so a one-day block is exactly as legible as a
+                                                    ten-day one. Selection background wins over the hatch, but
+                                                    the ✕ stays on top either way — otherwise a block would
+                                                    disappear the moment you selected it to remove it. */}
+                                                {block && !isSelected && (
+                                                    <div
+                                                        className="absolute inset-0 pointer-events-none"
+                                                        style={{
+                                                            backgroundImage:
+                                                                'repeating-linear-gradient(45deg, rgba(107,114,128,0.16) 0px, rgba(107,114,128,0.16) 2px, transparent 2px, transparent 6px)',
+                                                        }}
+                                                    />
+                                                )}
+
+                                                {/* Days that a min→max block would swallow but that aren't
+                                                    selected yet. Dashed, so they read as "about to happen"
+                                                    rather than as either selected or already blocked. */}
+                                                {isGapFill && !block && (
+                                                    <div className="absolute inset-0.5 pointer-events-none rounded-sm border border-dashed border-emerald-500/70 bg-emerald-500/10" />
+                                                )}
+
+                                                {block ? (
+                                                    <X size={14} className="relative text-gray-500" strokeWidth={2.5} />
+                                                ) : (
+                                                    <span className={isOverridden && !isSelected ? 'relative text-amber-600' : 'relative'}>
+                                                        ${Math.floor(resolvedPrice)}
+                                                    </span>
+                                                )}
                                             </div>
                                         )
                                     })}
@@ -661,27 +741,13 @@ export function CalendarGrid({
                                         )
                                     })}
 
-                                    {/* Layer 3: Blocked date bars – gray and positioned above booking bars */}
-                                    {carBlocked.map((block) => {
-                                        const rawStart = dateStringToIndex(block.start_date)
-                                        const rawEnd = dateStringToIndex(block.end_date)
-                                        const si = Math.max(0, rawStart), ei = Math.min(dateRange.length - 1, rawEnd)
-                                        if (rawEnd < 0 || rawStart > dateRange.length - 1) return null
-                                        const clampStart = rawStart < 0, clampEnd = rawEnd > dateRange.length - 1
-                                        const left = clampStart ? 0 : si * column_width + column_width / 2
-                                        const rightEdge = clampEnd ? dateRange.length * column_width : ei * column_width + column_width / 2
-                                        const width = rightEdge - left
-                                        return (
-                                            <div key={block.id} className="absolute pointer-events-none z-7"
-                                                 style={{ left, width, top: row_height / 2 - 8, height: 2 }}>
-                                                <div className="absolute inset-0 bg-gray-400 rounded-full" />
-                                                {!clampStart && <div className="absolute -top-[3px] w-2 h-2 rounded-full bg-gray-400" style={{ left: -2 }} />}
-                                                {!clampEnd && <div className="absolute -top-[3px] w-2 h-2 rounded-full bg-gray-400" style={{ right: -2 }} />}
-                                            </div>
-                                        )
-                                    })}
+                                    {/* Blocked dates used to be a third bar layer here, drawn from the
+                                        center of the start cell to the center of the end cell. A one-day
+                                        block made that zero pixels wide and stacked its two end dots on
+                                        top of each other. They're rendered as the price cells themselves
+                                        now (Layer 1), which can't collapse and reads unambiguously. */}
 
-                                    {/* Layer 4: Turo booking bars – violet, own track below the booking line */}
+                                    {/* Layer 3: Turo booking bars – violet, own track below the booking line */}
                                     {carTuro.map((trip) => {
                                         const rawStart = dateToIndex(trip.start_time)
                                         const rawEnd = dateToIndex(trip.end_time)

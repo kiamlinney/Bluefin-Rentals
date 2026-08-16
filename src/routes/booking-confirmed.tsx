@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { z } from 'zod'
 import { getBookingById } from '@/lib/db'
+import { formatBusinessDate, formatBusinessTime } from '@/lib/dates'
 
 export const Route = createFileRoute('/booking-confirmed')({
     // validateSearch ensures the bookingId param is always a string.
@@ -25,26 +26,16 @@ function BookingConfirmed() {
     // cars(*) in the select query returns the full car row nested here
     const car = booking.cars
 
-    const startDate = new Date(booking.start_time).toLocaleDateString('en-US', {
-        weekday: 'long',
-        month: 'long',
-        day: 'numeric',
-    })
-    const endDate = new Date(booking.end_time).toLocaleDateString('en-US', {
-        weekday: 'long',
-        month: 'long',
-        day: 'numeric',
-    })
-    const startTime = new Date(booking.start_time).toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        timeZone: 'America/Chicago',
-    })
-    const endTime = new Date(booking.end_time).toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        timeZone: 'America/Chicago',
-    })
+    // The times here were already pinned to Chicago but the dates were not,
+    // which is the same split that shifted the checkout summary: a 10pm return
+    // is 03:00Z the next day, so the receipt showed the correct time next to
+    // the following day's date for any viewer at or west of Central.
+    const dateFormat = { weekday: 'long', month: 'long', day: 'numeric' } as const
+
+    const startDate = formatBusinessDate(booking.start_time, dateFormat)
+    const endDate = formatBusinessDate(booking.end_time, dateFormat)
+    const startTime = formatBusinessTime(booking.start_time)
+    const endTime = formatBusinessTime(booking.end_time)
 
     return (
         <div className="min-h-screen bg-[#152110] flex items-center justify-center py-12 px-4">

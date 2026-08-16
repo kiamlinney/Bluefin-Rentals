@@ -18,6 +18,7 @@ import {
     finalizeIdentitySession,
 } from '@/lib/db'
 import { wallClockToUtcIso } from '@/lib/pricing'
+import { formatDateKey } from '@/lib/dates'
 
 // loadStripe is called once at module level — NOT inside a component.
 // If it were inside a component, a new Stripe instance would be created
@@ -196,8 +197,14 @@ function CheckoutPage() {
         void init()
     }, [step])
 
-    const startDate = new Date(search.startDate).toLocaleDateString()
-    const endDate = new Date(search.endDate).toLocaleDateString()
+    // formatDateKey, not `new Date(...)`: these are 'YYYY-MM-DD' search params
+    // with no instant in them, and the Date constructor reads a date-only
+    // string as UTC midnight — which renders as the day before in every US
+    // timezone. That's what made this summary disagree with both the picker
+    // the customer just used and the dates the server actually booked.
+    const dateFormat = { month: 'numeric', day: 'numeric', year: 'numeric' } as const
+    const startDate = formatDateKey(search.startDate, dateFormat)
+    const endDate = formatDateKey(search.endDate, dateFormat)
 
     return (
         <div className="min-h-screen bg-[#152110] py-12">
@@ -292,21 +299,12 @@ function CheckoutPage() {
                             </div>
                         )}
                         {clientSecret && bookingId && (
-                            // The Elements provider gives useStripe() and useElements()
-                            // access to the initialized Stripe instance and PaymentElement.
-                            // clientSecret ties these Elements to the specific PaymentIntent
-                            // created for this booking — never reuse a clientSecret across
-                            // different payment attempts.
                             <Elements
                                 stripe={stripePromise}
                                 options={{
                                     clientSecret,
                                     appearance: {
-                                        // ── FIX: theme: 'stripe' is the correct choice for a
-                                        // light-colored card background (bg-gray-200 = #e5e7eb).
-                                        // 'flat' removes borders between input fields, making them
-                                        // hard to visually distinguish. 'stripe' provides clean
-                                        // bordered inputs that work well on light backgrounds.
+
                                         theme: 'stripe',
                                         variables: {
                                             colorPrimary: '#1f2937',      // gray-800 — matches buttons

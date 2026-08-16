@@ -1,8 +1,9 @@
 import { Link } from "@tanstack/react-router";
-import {Car} from "@/types.ts";
+import {BookingWithRelations} from "@/types.ts";
+import {formatBusinessDate, formatBusinessTime} from "@/lib/dates.ts";
 
-export function TripCard({ booking }: { booking: any }) {
-    const car: Car = booking.cars
+export function TripCard({ booking }: { booking: BookingWithRelations }) {
+    const car = booking.cars
 
     const now = new Date()
     const startTime = new Date(booking.start_time)
@@ -10,17 +11,11 @@ export function TripCard({ booking }: { booking: any }) {
 
     const isActive = startTime <= now
 
-    const formatTime = (date: Date): string =>
-        date.toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-        })
+    // Pinned to business time: a host checking the schedule while travelling
+    // should still see the pickup hour the customer was quoted.
+    const formatTime = (date: Date): string => formatBusinessTime(date)
 
-    const formatDate = (date: Date): string =>
-        date.toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-        })
+    const formatDate = (date: Date): string => formatBusinessDate(date)
 
 
     let badgeText = ''

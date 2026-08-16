@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { getUserBookings } from '@/lib/db'
+import { formatBusinessDateTime } from '@/lib/dates'
 import { BookingCard } from '../components/BookingCard'
 
 export const Route = createFileRoute('/_authed/my-bookings')({
@@ -18,14 +19,15 @@ function MyBookingsPage() {
     const pastBookings = bookings.filter((b: any) => (b.status === 'completed') || b.status === 'canceled')
     const pendingBookings = bookings.filter((b: any) => b.status === 'pending')
 
-    const formatDate = (dateStr: string) => {
-        return new Date(dateStr).toLocaleDateString('en-US', {
-            month: 'long',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        })
-    }
+    // Booking times are wall-clock times at the lot, so they're rendered in the
+    // business's timezone rather than the viewer's — a customer booking from
+    // California picked a 10am pickup and should be shown 10am, not 8am.
+    const formatDate = (dateStr: string) =>
+        formatBusinessDateTime(
+            dateStr,
+            { month: 'long', day: 'numeric' },
+            { hour: '2-digit', minute: '2-digit' },
+        )
 
     return (
         <div className="min-h-screen bg-[#152110] py-24 px-4 md:px-8">

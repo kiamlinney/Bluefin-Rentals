@@ -1,18 +1,12 @@
 import { useMemo, useState } from "react";
 import { X, CarFront} from 'lucide-react'
 import { Link } from "@tanstack/react-router";
-import { Booking, Car } from 'src/types.ts'
+import { BookingWithRelations, Car, CarBlockedDate } from 'src/types.ts'
 import { upsertPriceOverrides, createBlockedDates, deleteBlockedDate } from "@/lib/db.ts";
+import { formatBusinessDate, formatBusinessTime, formatDateKey } from "@/lib/dates.ts";
+import { dateKeyToLocalDate } from "@/lib/pricing.ts";
 
 export type PanelTab = 'prices' | 'unavailability' | 'trips'
-
-type BlockedDate = {
-    id: string
-    car_id: number
-    start_date: string
-    end_date: string
-    reason: string | null
-}
 
 export type SelectionPanelProps = {
     selectionInfo: { totalCells: number; uniqueDates: number; uniqueCars: number }
@@ -20,14 +14,14 @@ export type SelectionPanelProps = {
     setActiveTab: (tab: PanelTab) => void
     onClose: () => void
     selectedCells: Set<string>
-    bookings: Booking[]
+    bookings: BookingWithRelations[]
     cars: Car[]
     dateRange: Date[]
     dateToIndex: (isoString: string) => number
     priceOverrideMap: Map<string, number>
     onPricesUpdated: (updates: { carId: number; date: string; price: number }[]) => void
-    blockedDates: BlockedDate[]
-    onBlocksCreated: (blocks: BlockedDate[]) => void
+    blockedDates: CarBlockedDate[]
+    onBlocksCreated: (blocks: CarBlockedDate[]) => void
     onBlockDeleted: (blockId: string) => void
 }
 
@@ -45,21 +39,11 @@ function parseCellKey(key: string): { carId: number; dateIndex: number } {
     }
 }
 
-function formatLocalTime(isoString: string): string {
-    return new Date(isoString).toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        timeZone: 'America/Chicago',
-    })
-}
-
-function formatLocalDate(isoString: string): string {
-    return new Date(isoString).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        timeZone: 'America/Chicago',
-    })
-}
+// These were already correct — they just spelled the zone out inline. Routed
+// through src/lib/dates.ts so there's one definition of "business time" to
+// change if the lot ever moves, rather than a string to go hunting for.
+const formatLocalTime = formatBusinessTime
+const formatLocalDate = formatBusinessDate
 
 // --- Selection Panel
 // A fixed position panel that overlays the right edge of the screen whenever one or more
@@ -381,7 +365,7 @@ function UnavailabilityTab({
     selectedCells: Set<string>
     cars: Car[]
     dateRange: Date[]
-    blockedDates: BlockedDate[]
+    blockedDates: CarBlockedDate[]
     selectionInfo: SelectionPanelProps['selectionInfo']
     onBlocksCreated: SelectionPanelProps['onBlocksCreated']
     onBlockDeleted: SelectionPanelProps['onBlockDeleted']
@@ -401,33 +385,69 @@ function UnavailabilityTab({
     // Build a Map<carId, { minDate, maxDate }> from the selection.
     // For each car in the selection, we find the earliest and latest selected
     // date to create a single contiguous blocked range per car.
+    // selectedDays is tracked alongside so the panel can tell how many days the
+    // range picks up that were never actually clicked.
     const selectionByCarId = useMemo(() => {
-        const map = new Map<number, { minDateIndex: number; maxDateIndex: number }>()
+        const map = new Map<number, { minDateIndex: number; maxDateIndex: number; selectedDays: number }>()
         for (const key of selectedCells) {
             const { carId, dateIndex } = parseCellKey(key)
             const existing = map.get(carId)
             if (!existing) {
-                map.set(carId, { minDateIndex: dateIndex, maxDateIndex: dateIndex })
+                map.set(carId, { minDateIndex: dateIndex, maxDateIndex: dateIndex, selectedDays: 1 })
             } else {
                 map.set(carId, {
                     minDateIndex: Math.min(existing.minDateIndex, dateIndex),
                     maxDateIndex: Math.max(existing.maxDateIndex, dateIndex),
+                    selectedDays: existing.selectedDays + 1,
                 })
             }
         }
         return map
     }, [selectedCells])
 
+    // What blocking will actually write, per vehicle — the collapsed min→max
+    // range, not the cells that happen to be highlighted. The button used to be
+    // labelled from the selected-cell count, so picking 8/15 and 8/19 offered to
+    // "Block 2 dates" and then wrote five days.
+    const resolvedRanges = useMemo(() => {
+        return Array.from(selectionByCarId.entries()).flatMap(([carId, span]) => {
+            const start = dateRange[span.minDateIndex]
+            const end = dateRange[span.maxDateIndex]
+            if (!start || !end) return []
+            const spanDays = span.maxDateIndex - span.minDateIndex + 1
+            return [{
+                carId,
+                startDate: start.toLocaleDateString('en-CA'),
+                endDate: end.toLocaleDateString('en-CA'),
+                spanDays,
+                gapDays: spanDays - span.selectedDays,
+            }]
+        })
+    }, [selectionByCarId, dateRange])
+
+    // The largest span across vehicles, which is what the button acts on. Summing
+    // would overcount: blocking 5 days on 3 cars is still a 5-day block.
+    const daysToBlock = useMemo(
+        () => resolvedRanges.reduce((max, r) => Math.max(max, r.spanDays), 0),
+        [resolvedRanges],
+    )
+    const totalGapDays = useMemo(
+        () => resolvedRanges.reduce((sum, r) => sum + r.gapDays, 0),
+        [resolvedRanges],
+    )
+
     // Find any existing blocked date ranges that overlap the current selection
     const overlappingBlocks = useMemo(() => {
         return blockedDates.filter(block => {
             const carDates = selectionByCarId.get(block.car_id)
             if (!carDates) return false
-            const blockStart = new Date(`${block.start_date}T00:00:00`)
-            const blockEnd = new Date(`${block.end_date}T00:00:00`)
+            // Blocked dates are stored as bare date keys, so they're compared at
+            // local midnight against dateRange, which is built the same way.
+            const blockStart = dateKeyToLocalDate(block.start_date)
+            const blockEnd = dateKeyToLocalDate(block.end_date)
             const selStart = dateRange[carDates.minDateIndex]
             const selEnd = dateRange[carDates.maxDateIndex]
-            if (!selStart || !selEnd) return false
+            if (!selStart || !selEnd || !blockStart || !blockEnd) return false
             return blockStart <= selEnd && blockEnd >= selStart
         })
     }, [blockedDates, selectionByCarId, dateRange])
@@ -436,30 +456,18 @@ function UnavailabilityTab({
         setSaving(true)
         setError(null)
         try {
-            const blocks = Array.from(selectionByCarId.entries()).map(([carId, { minDateIndex, maxDateIndex }]) => {
-                const startDate = dateRange[minDateIndex]
-                const endDate = dateRange[maxDateIndex]
-                return {
-                    carId,
-                    startDate: startDate!.toLocaleDateString('en-CA'),
-                    endDate: endDate!.toLocaleDateString('en-CA'),
-                    reason: reason.trim() || undefined,
-                }
-            })
+            const blocks = resolvedRanges.map(r => ({
+                carId: r.carId,
+                startDate: r.startDate,
+                endDate: r.endDate,
+                reason: reason.trim() || undefined,
+            }))
 
             const result = await createBlockedDates({ data: { blocks } })
 
-            // Build optimistic BlockedDate objects for immediate local state update
-            // ids here are temporary, real ids come from Supabase on next loader fetch
-            const newBlocks: BlockedDate[] = blocks.map((b, i) => ({
-                id: `temp-${Date.now()}-${i}`,
-                car_id: b.carId,
-                start_date: b.startDate,
-                end_date: b.endDate,
-                reason: b.reason ?? null,
-            }))
-
-            onBlocksCreated(newBlocks)
+            // The inserted rows come straight back from Supabase, so the grid
+            // gets real uuids. 
+            onBlocksCreated(result.blocks)
             setReason('')
             setSuccessMsg(`Blocked ${result.created} ${result.created === 1 ? 'vehicle' : 'vehicles'}`)
             setTimeout(() => setSuccessMsg(null), 2500)
@@ -500,7 +508,8 @@ function UnavailabilityTab({
                                             {car ? `${car.make} ${car.model} ${car.year}` : `Car #${block.car_id}`}
                                         </p>
                                         <p className="text-xs text-gray-500 mt-0.5">
-                                            {block.start_date} → {block.end_date}
+                                            {formatDateKey(block.start_date)}
+                                            {block.end_date !== block.start_date && ` → ${formatDateKey(block.end_date)}`}
                                         </p>
                                         {block.reason && (
                                             <p className="text-xs text-gray-400 mt-0.5 truncate">{block.reason}</p>
@@ -523,11 +532,39 @@ function UnavailabilityTab({
             {/* Block new dates section */}
             <div>
                 <h3 className="text-sm font-semibold text-gray-900 mb-1">Block availability</h3>
-                <p className="text-xs text-gray-500 mb-4">
-                    Block {selectionInfo.uniqueDates} {selectionInfo.uniqueDates === 1 ? 'date' : 'dates'} across{' '}
+                <p className="text-xs text-gray-500 mb-3">
+                    Block {daysToBlock} {daysToBlock === 1 ? 'day' : 'days'} across{' '}
                     {selectionInfo.uniqueCars} {selectionInfo.uniqueCars === 1 ? 'vehicle' : 'vehicles'}.
                     Blocked dates cannot be booked by guests.
                 </p>
+
+                {/* The exact range each vehicle will get. Blocking collapses a
+                    selection to one min→max range per car */}
+                <div className="mb-3 space-y-1.5">
+                    {resolvedRanges.map(r => {
+                        const car = carsById.get(r.carId)
+                        return (
+                            <p key={r.carId} className="text-xs text-gray-700">
+                                <span className="font-medium">
+                                    {car ? `${car.make} ${car.model} ${car.year}` : `Car #${r.carId}`}
+                                </span>
+                                {' — '}
+                                {formatDateKey(r.startDate)}
+                                {r.endDate !== r.startDate && ` → ${formatDateKey(r.endDate)}`}
+                                {' '}({r.spanDays} {r.spanDays === 1 ? 'day' : 'days'})
+                            </p>
+                        )
+                    })}
+                </div>
+
+                {totalGapDays > 0 && (
+                    <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                        <p className="text-xs text-amber-800">
+                            ⚠ {totalGapDays} unselected {totalGapDays === 1 ? 'day' : 'days'} in between
+                            will also be blocked.
+                        </p>
+                    </div>
+                )}
 
                 {/* Optional reason input */}
                 <input
@@ -540,7 +577,7 @@ function UnavailabilityTab({
 
                 <button type="button" onClick={handleBlock} disabled={saving}
                         className="w-full py-2.5 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-black disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer">
-                    {saving ? 'Blocking...' : `+ Block ${selectionInfo.uniqueDates} ${selectionInfo.uniqueDates === 1 ? 'date' : 'dates'}`}
+                    {saving ? 'Blocking...' : `+ Block ${daysToBlock} ${daysToBlock === 1 ? 'day' : 'days'}`}
                 </button>
             </div>
 
@@ -571,7 +608,7 @@ function TripsTab({
      dateToIndex,
 }: {
     selectedCells: Set<string>
-    bookings: Booking[]
+    bookings: BookingWithRelations[]
     cars: Car[]
     dateRange: Date[]
     dateToIndex: (iso: string) => number

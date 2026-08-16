@@ -15,6 +15,7 @@ import {
     toDateKey,
     type PriceOverrides,
 } from "@/lib/pricing.ts";
+import { businessDayStart, formatDateKey } from "@/lib/dates.ts";
 import { findUnavailableDays, spansToDateKeys } from "@/lib/availability.ts";
 import { TripCalendar } from "@/components/TripCalendar.tsx";
 import { PriceBreakdown } from "@/components/PriceBreakdown.tsx";
@@ -152,13 +153,11 @@ function TimeDropdown({ value, onChange, options }: {
     );
 }
 
-// Built from parts rather than `new Date(key)`: a 'YYYY-MM-DD' string parses as
-// UTC midnight and renders as the previous day west of Greenwich.
-const formatDayKey = (key: string) => {
-    const [year, month, day] = key.split("-").map(Number);
-    return new Date(year ?? 1970, (month ?? 1) - 1, day ?? 1)
-        .toLocaleDateString("en-US", { month: "short", day: "numeric" });
-};
+// Goes through src/lib/dates.ts rather than `new Date(key)`: a 'YYYY-MM-DD'
+// string parses as UTC midnight and renders as the previous day west of
+// Greenwich.
+const formatDayKey = (key: string) =>
+    formatDateKey(key, { month: "short", day: "numeric" });
 
 // "Aug 12, Aug 13 and 2 more days" — name the days that actually collide so the
 // customer can see which end of their range to move, without listing thirty.
@@ -381,15 +380,14 @@ function CarDetails() {
 
             setPriceOverrides(buildOverrideMap(overrides));
 
-            const formattedDates = bookings.map((booking: any) => {
-                const start = new Date(booking.start_time);
-                const end = new Date(booking.end_time);
-
-                return {
-                    from: new Date(start.getFullYear(), start.getMonth(), start.getDate()),
-                    to: new Date(end?.getFullYear(), end?.getMonth(), end.getDate())
-                };
-            });
+            // Which days a booking occupies is decided in business time, not in
+            // the visitor's. Reading the day off the instant with getDate() made
+            // a 10pm Central return spill into the next day for anyone at or east
+            // of UTC, greying out a day that's actually free to book.
+            const formattedDates = bookings.map((booking: any) => ({
+                from: businessDayStart(booking.start_time),
+                to: businessDayStart(booking.end_time),
+            }));
 
             setDisabledDates(formattedDates);
         }
@@ -442,6 +440,9 @@ function CarDetails() {
 
     const images = car.gallery_images || [];
     const PREFERRED_ORDER = ["Safety", "Device connectivity", "Convenience", "Additional features"];
+
+  
+    const features = (car.features ?? {}) as Record<string, unknown>;
 
     if (showGallery) {
         return (
@@ -559,14 +560,17 @@ function CarDetails() {
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-12">
                             {PREFERRED_ORDER.map((category) => {
-                                const list = car.features[category];
-                                if (!list) return null;
+                                const raw = features[category];
+                                const list = Array.isArray(raw)
+                                    ? raw.filter((f): f is string => typeof f === 'string')
+                                    : [];
+                                if (list.length === 0) return null;
 
                                 return (
                                     <div key={category}>
                                         <h3 className="font-bold text-lg mb-3">{category}</h3>
                                         <ul className="space-y-2">
-                                            {list.map((feature: string) => (
+                                            {list.map((feature) => (
                                                 <li key={feature} className="text-gray-300 font-medium">
                                                     {feature}
                                                 </li>

@@ -1,5 +1,6 @@
 import {useState} from "react";
 import {cancelBooking} from "@/lib/db.ts";
+import {businessDateKey, businessWallClockTime} from "@/lib/dates.ts";
 import {CalendarDays, MapPin} from "lucide-react";
 import {Link} from "@tanstack/react-router";
 
@@ -13,11 +14,22 @@ export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any,
     const start = new Date(booking.start_time)
     const end = new Date(booking.end_time)
 
+    // Resuming a pending checkout has to rebuild the exact search params the car
+    // page would have produced, which means reversing wallClockToUtcIso rather
+    // than slicing the stored timestamp.
+    //
+    // `start_time.split('T')[0]` took the UTC day and `start.getHours()` took the
+    // browser's clock, and neither is the day or the hour on the reservation: a
+    // 10pm Central return is 03:00Z the next day, so the split handed checkout an
+    // endDate one day late. That was survivable only because createCheckoutSession
+    // short-circuits on bookingId and returns the stored booking untouched — but
+    // if the pending row has since been swept, it falls through and books the
+    // wrong range for real.
     const checkoutParams = {
-        startDate: booking.start_time.split('T')[0],
-        endDate: booking.end_time.split('T')[0],
-        startTime: `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`,
-        endTime: `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`,
+        startDate: businessDateKey(start),
+        endDate: businessDateKey(end),
+        startTime: businessWallClockTime(start),
+        endTime: businessWallClockTime(end),
         totalDays: Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)),
         subtotal: booking.total_price,
         pickupLocation: booking.pickup_location,

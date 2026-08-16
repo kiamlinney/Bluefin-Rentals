@@ -9,6 +9,7 @@ import {
     daysBetween,
     timeToMinutes,
     todayInBusinessTz,
+    wallClockToUtcIso,
     type TripQuote,
 } from './pricing'
 import {
@@ -401,7 +402,12 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
                 .eq('status', 'pending')
                 .maybeSingle()
 
-            if (existing) {
+            // A pending booking with no intent id isn't reusable — there's nothing
+            // to hand back. Off-platform bookings entered by hand have no Stripe
+            // intent at all, so this is a real case, not a defensive check.
+            // Falling through creates a fresh booking + intent instead of calling
+            // Stripe with null, which threw.
+            if (existing?.stripe_payment_intent_id) {
                 // No re-pricing here: this booking's total was computed server-side
                 // when it was created, and its PaymentIntent is already locked to
                 // that amount.
@@ -427,8 +433,9 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
             .eq('end_time', data.endTime)
             .maybeSingle()
 
-        // If exists, retrieve existing Stripe intent instead of creating new one
-        if (existingBooking) {
+        // If exists, retrieve existing Stripe intent instead of creating new one.
+        // Same guard as above — no intent id means nothing to reuse.
+        if (existingBooking?.stripe_payment_intent_id) {
             const intent = await stripe.paymentIntents.retrieve(existingBooking.stripe_payment_intent_id)
             return {
                 clientSecret: intent.client_secret,
@@ -568,7 +575,10 @@ export const confirmBooking = createServerFn({ method: 'POST' })
 export const cancelBooking = createServerFn({ method: 'POST' })
     .inputValidator((input: {
         bookingId: string
-        paymentIntentId: string
+        // Nullable: bookings entered by hand for off-platform trips never had a
+        // Stripe intent. Those are still cancellable, there's just nothing to
+        // refund — see the guard on the refund call below.
+        paymentIntentId: string | null
     }) => input)
     .handler(async ({ data }) => {
         const supabaseAdmin = createClient(
@@ -583,8 +593,10 @@ export const cancelBooking = createServerFn({ method: 'POST' })
             .eq('id', data.bookingId)
             .single()
 
-        // Only refund if was actually paid for
-        if (booking?.status === 'confirmed') {
+        // Only refund if was actually paid for, and only if there's an intent to
+        // refund against — an off-platform booking has no Stripe side to reverse,
+        // so it falls straight through to being marked canceled.
+        if (booking?.status === 'confirmed' && data.paymentIntentId) {
             try {
                 await stripe.refunds.create({
                     payment_intent: data.paymentIntentId,
@@ -615,9 +627,11 @@ export const getBookingById = createServerFn({ method: 'GET' })
     .handler(async ({ data: bookingId }) => {
         const supabase = getSupabaseServerClient()
 
+        // trip_media(count) rides along so the reservation page can label the
+        // Trip Photos section without a second round trip.
         const { data, error } = await supabase
             .from('bookings')
-            .select('*, cars(*), profiles(*)')
+            .select('*, cars(*), profiles(*), trip_media(count)')
             .eq('id', bookingId)
             .single()
 
@@ -955,7 +969,7 @@ export const getBlockedDates = createServerFn({ method: 'GET' })
 
         const { data: blocked, error} = await supabase
             .from('car_blocked_dates')
-            .select('id, car_id, start_date, end_date, reason')
+            .select('id, car_id, start_date, end_date, reason, created_at')
             .lte('start_date', data.endDate)
             .gte('end_date', data.startDate)
         if (error) throw new Error(error.message)
@@ -983,12 +997,16 @@ export const createBlockedDates = createServerFn({ method: 'POST' })
             end_date: b.endDate,
             reason: b.reason ?? null,
         }))
-        const { error } = await supabase
+        // .select() so the real uuids come back with the insert. Without it the
+        // caller has no id to hand to deleteBlockedDate and has to invent one,
+        // which then fails the uuid cast on the way back in.
+        const { data: inserted, error } = await supabase
             .from('car_blocked_dates')
             .insert(rows)
+            .select('id, car_id, start_date, end_date, reason, created_at')
 
         if (error) throw new Error(error.message)
-        return { created: rows.length }
+        return { created: inserted?.length ?? 0, blocks: inserted ?? [] }
     })
 
 export const deleteBlockedDate = createServerFn({ method: 'POST' })
@@ -1003,8 +1021,15 @@ export const deleteBlockedDate = createServerFn({ method: 'POST' })
             .from('profiles').select('is_admin').eq('id', user.id).single()
         if (!profile?.is_admin) throw new Error('Not authorized')
 
-        const { error } = await supabase.from('car_blocked_dates').delete().eq('id', blockId)
+        // Ask for the deleted row back and treat an empty result as
+        // the failure it is. Since a delete that matches nothing is not an error in Supabase
+        const { data: deleted, error } = await supabase
+            .from('car_blocked_dates')
+            .delete()
+            .eq('id', blockId)
+            .select('id')
         if (error) throw new Error(error.message)
+        if (!deleted || deleted.length === 0) throw new Error('Block not found or already removed')
         return { deleted: blockId }
     })
 
@@ -1117,13 +1142,18 @@ export const syncTuroBookings = createServerFn({ method: 'POST' })
             if (ampm.toLowerCase() === 'pm' && h !== 12) h += 12
             if (ampm.toLowerCase() === 'am' && h === 12) h = 0
             const fullYear = 2000 + parseInt(year2)
-            // No "Z" suffix → new Date() treats this as local time (CST/CDT)
-            // which is correct since Turo shows times in the host's local timezone
-            const localStr = [
-                `${fullYear}-${String(parseInt(month)).padStart(2,'0')}-${String(parseInt(day)).padStart(2,'0')}`,
-                `T${String(h).padStart(2,'0')}:${min}:00`
-            ].join('')
-            return new Date(localStr).toISOString()
+
+            // Turo prints times in the host's local timezone, i.e. business time.
+            //
+            // This used to build a suffix-less string and hand it to `new Date()`,
+            // relying on the host interpreting it as CST/CDT. That holds on a
+            // developer's laptop and is wrong everywhere this actually runs: a
+            // server function runs on the server, whose clock is UTC in
+            // production, so every synced Turo trip was stored 5–6 hours early.
+            // wallClockToUtcIso names the zone instead of inheriting it, and
+            // gives the same answer wherever it runs.
+            const dateKey = `${fullYear}-${String(parseInt(month)).padStart(2,'0')}-${String(parseInt(day)).padStart(2,'0')}`
+            return wallClockToUtcIso(dateKey, `${String(h).padStart(2,'0')}:${min}`)
         }
 
         // Recursively find the plain text MIME part.
@@ -1368,4 +1398,257 @@ export const inspectTuroEmail = createServerFn({ method: 'GET' })
             const desc = e?.response?.data?.error_description
             throw new Error(desc ? `${err}: ${desc}` : err)
         }
+    })
+
+// ---- Trip media -------------------------------------------------------------------------
+
+export const TRIP_MEDIA_BUCKET = 'trip-media'
+
+// Signed read URLs are handed to the browser and used for the life of a page
+// view. An hour outlasts any realistic session on the photos page.
+const TRIP_MEDIA_URL_TTL_SECONDS = 60 * 60
+
+type TripMediaKind = 'photo' | 'video'
+
+function getServiceRoleClient() {
+    return createClient(
+        process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { persistSession: false, autoRefreshToken: false } }
+    )
+}
+
+// Trip media is readable and writable by platform admins and by the renter on
+// the booking. Every trip-media server function calls this itself: route-level
+// admin auth does not cover server functions invoked directly, and the same
+// check has to hold for the guest-facing view once it exists.
+async function assertBookingAccess(bookingId: string) {
+    const supabase = getSupabaseServerClient()
+    const authResult = await supabase.auth.getUser()
+    const user = authResult.data.user
+    if (!user) throw new Error('Not authenticated')
+
+    const { data: profile } = await supabase
+        .from('profiles').select('is_admin').eq('id', user.id).single()
+
+    const supabaseAdmin = getServiceRoleClient()
+    const { data: booking, error } = await supabaseAdmin
+        .from('bookings')
+        .select('id, user_id')
+        .eq('id', bookingId)
+        .single()
+
+    if (error || !booking) throw new Error('Booking not found')
+
+    const isAdmin = Boolean(profile?.is_admin)
+    if (!isAdmin && booking.user_id !== user.id) throw new Error('Not authorized')
+
+    return { user, isAdmin, supabase, supabaseAdmin }
+}
+
+// Turns stored rows into rows the browser can render, by signing every full-size
+// and thumbnail path in a single round trip.
+async function withSignedUrls(supabaseAdmin: ReturnType<typeof getServiceRoleClient>, rows: any[]) {
+    if (rows.length === 0) return []
+
+    const paths = rows.flatMap(row =>
+        row.thumb_path ? [row.storage_path, row.thumb_path] : [row.storage_path]
+    )
+
+    const { data: signed, error } = await supabaseAdmin
+        .storage
+        .from(TRIP_MEDIA_BUCKET)
+        .createSignedUrls(paths, TRIP_MEDIA_URL_TTL_SECONDS)
+
+    if (error) throw new Error(error.message)
+
+    // createSignedUrls returns results in request order, but each entry also
+    // carries its path, so match on that rather than trusting the ordering.
+    const urlByPath = new Map<string, string>()
+    for (const entry of signed ?? []) {
+        if (entry.path && entry.signedUrl) urlByPath.set(entry.path, entry.signedUrl)
+    }
+
+    return rows.map(row => ({
+        ...row,
+        url: urlByPath.get(row.storage_path) ?? null,
+        // Items whose thumbnail could not be generated (HEIC, odd codecs) fall
+        // back to the full-size URL so the tile still renders.
+        thumbUrl: (row.thumb_path ? urlByPath.get(row.thumb_path) : null)
+            ?? urlByPath.get(row.storage_path)
+            ?? null,
+    }))
+}
+
+export const getTripMedia = createServerFn({ method: 'GET' })
+    .inputValidator((bookingId: string) => bookingId)
+    .handler(async ({ data: bookingId }) => {
+        const { supabaseAdmin } = await assertBookingAccess(bookingId)
+
+        const { data, error } = await supabaseAdmin
+            .from('trip_media')
+            .select('*, profiles:uploaded_by(full_name)')
+            .eq('booking_id', bookingId)
+            .order('created_at', { ascending: true })
+
+        if (error) throw new Error(error.message)
+        return withSignedUrls(supabaseAdmin, data ?? [])
+    })
+
+// Step one of the upload: hand the browser a signed URL per file so the bytes
+// go straight to storage. Server functions serialize their input as JSON, so a
+// 100-photo batch (let alone a video) can never be routed through one.
+export const createTripMediaUploadUrls = createServerFn({ method: 'POST' })
+    .inputValidator((input: {
+        bookingId: string
+        files: { ext: string; withThumb: boolean }[]
+    }) => input)
+    .handler(async ({ data }) => {
+        const { supabaseAdmin } = await assertBookingAccess(data.bookingId)
+
+        if (data.files.length === 0) return []
+        if (data.files.length > 200) throw new Error('Too many files in one batch')
+
+        return Promise.all(data.files.map(async file => {
+            const id = crypto.randomUUID()
+            // Extensions come from the browser; keep them to a safe shape so
+            // they can't escape the booking's folder.
+            const ext = file.ext.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5) || 'bin'
+            const path = `bookings/${data.bookingId}/${id}.${ext}`
+            const thumbPath = file.withThumb ? `bookings/${data.bookingId}/thumbs/${id}.jpg` : null
+
+            const storage = supabaseAdmin.storage.from(TRIP_MEDIA_BUCKET)
+
+            const [full, thumb] = await Promise.all([
+                storage.createSignedUploadUrl(path, { upsert: true }),
+                thumbPath
+                    ? storage.createSignedUploadUrl(thumbPath, { upsert: true })
+                    : Promise.resolve(null),
+            ])
+
+            if (full.error) throw new Error(full.error.message)
+            if (thumb?.error) throw new Error(thumb.error.message)
+
+            return {
+                id,
+                path,
+                token: full.data.token,
+                thumbPath,
+                thumbToken: thumb?.data.token ?? null,
+            }
+        }))
+    })
+
+// Step two: the browser confirms the bytes landed, and only then does a row
+// appear. A failed upload leaves an orphaned object rather than a broken tile.
+export const recordTripMedia = createServerFn({ method: 'POST' })
+    .inputValidator((input: {
+        bookingId: string
+        items: {
+            id: string
+            kind: TripMediaKind
+            storagePath: string
+            thumbPath: string | null
+            mimeType: string
+            sizeBytes: number
+            width: number | null
+            height: number | null
+            durationSeconds: number | null
+        }[]
+    }) => input)
+    .handler(async ({ data }) => {
+        const { user, supabaseAdmin } = await assertBookingAccess(data.bookingId)
+
+        if (data.items.length === 0) return []
+
+        const rows = data.items.map(item => {
+            // Never trust a client-supplied path: rebuild it from the id so a
+            // caller cannot write a row pointing at another booking's folder.
+            const expectedPrefix = `bookings/${data.bookingId}/`
+            if (!item.storagePath.startsWith(expectedPrefix)) {
+                throw new Error('Invalid storage path')
+            }
+            if (item.thumbPath && !item.thumbPath.startsWith(expectedPrefix)) {
+                throw new Error('Invalid thumbnail path')
+            }
+
+            return {
+                id: item.id,
+                booking_id: data.bookingId,
+                kind: item.kind,
+                storage_path: item.storagePath,
+                thumb_path: item.thumbPath,
+                mime_type: item.mimeType,
+                size_bytes: item.sizeBytes,
+                width: item.width,
+                height: item.height,
+                duration_seconds: item.durationSeconds,
+                uploaded_by: user.id,
+            }
+        })
+
+        const { data: inserted, error } = await supabaseAdmin
+            .from('trip_media')
+            .insert(rows)
+            .select('*, profiles:uploaded_by(full_name)')
+
+        if (error) throw new Error(error.message)
+        return withSignedUrls(supabaseAdmin, inserted ?? [])
+    })
+
+export const updateTripMediaCaption = createServerFn({ method: 'POST' })
+    .inputValidator((input: { mediaId: string; caption: string }) => input)
+    .handler(async ({ data }) => {
+        const supabaseAdmin = getServiceRoleClient()
+
+        const { data: media, error: findErr } = await supabaseAdmin
+            .from('trip_media')
+            .select('booking_id')
+            .eq('id', data.mediaId)
+            .single()
+
+        if (findErr || !media) throw new Error('Photo not found')
+        await assertBookingAccess(media.booking_id)
+
+        const caption = data.caption.trim().slice(0, 200)
+
+        const { error } = await supabaseAdmin
+            .from('trip_media')
+            .update({ caption: caption || null })
+            .eq('id', data.mediaId)
+
+        if (error) throw new Error(error.message)
+        return { caption: caption || null }
+    })
+
+export const deleteTripMedia = createServerFn({ method: 'POST' })
+    .inputValidator((mediaId: string) => mediaId)
+    .handler(async ({ data: mediaId }) => {
+        const supabaseAdmin = getServiceRoleClient()
+
+        const { data: media, error: findErr } = await supabaseAdmin
+            .from('trip_media')
+            .select('booking_id, storage_path, thumb_path')
+            .eq('id', mediaId)
+            .single()
+
+        if (findErr || !media) throw new Error('Photo not found')
+        await assertBookingAccess(media.booking_id)
+
+        const paths = [media.storage_path, media.thumb_path].filter(Boolean) as string[]
+        const { error: removeErr } = await supabaseAdmin
+            .storage
+            .from(TRIP_MEDIA_BUCKET)
+            .remove(paths)
+
+        // A missing object should not strand the row — drop the row either way,
+        // but surface anything else that went wrong.
+        if (removeErr && !/not found/i.test(removeErr.message)) {
+            throw new Error(removeErr.message)
+        }
+
+        const { error } = await supabaseAdmin.from('trip_media').delete().eq('id', mediaId)
+        if (error) throw new Error(error.message)
+
+        return { deleted: mediaId }
     })

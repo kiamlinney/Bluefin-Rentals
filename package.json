@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "start": "node .output/server/index.mjs"
+    "start": "node .output/server/index.mjs",
+    "gen:types": "supabase gen types typescript --linked --schema public > /tmp/db.types.ts && mv /tmp/db.types.ts src/lib/database.types.ts"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.8",
@@ -42,6 +43,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
+    "supabase": "^2.114.0",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.7.2",
     "vite": "^7.3.1",

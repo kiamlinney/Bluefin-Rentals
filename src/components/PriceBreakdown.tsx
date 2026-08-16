@@ -2,22 +2,20 @@ import { useEffect } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils.ts";
 import type { TripQuote } from "@/lib/pricing.ts";
+import { formatDateKey } from "@/lib/dates.ts";
 
 // Formats a 'YYYY-MM-DD' key as "Mon, Aug 3".
 //
-// The parts are pulled apart and fed to the Date constructor individually
-// rather than passing the string — new Date('2026-08-03') is parsed as UTC
-// midnight, which renders as Aug 2 for anyone west of Greenwich, so every row
-// would show the day before the one being charged.
-const formatDayLabel = (dateKey: string): string => {
-    const [year, month, day] = dateKey.split("-").map(Number);
-    const date = new Date(year ?? 1970, (month ?? 1) - 1, day ?? 1);
-    return date.toLocaleDateString(undefined, {
+// formatDayLabel goes through src/lib/dates.ts rather than the Date constructor:
+// new Date('2026-08-03') is parsed as UTC midnight, which renders as Aug 2 for
+// anyone west of Greenwich, so every row would show the day before the one
+// being charged.
+const formatDayLabel = (dateKey: string): string =>
+    formatDateKey(dateKey, {
         weekday: "short",
         month: "short",
         day: "numeric",
     });
-};
 
 const formatMoney = (amount: number): string =>
     `$${amount.toFixed(2)}`;

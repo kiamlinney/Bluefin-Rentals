@@ -1,5 +1,6 @@
 import {createFileRoute, Link} from '@tanstack/react-router'
 import {cancelBooking, getBookingById} from "@/lib/db.ts";
+import {formatBusinessDate, formatBusinessTime} from "@/lib/dates.ts";
 import { Plane, CarFront, Check, X} from 'lucide-react';
 import {useState} from "react";
 
@@ -31,39 +32,56 @@ function getRelativeTimeString(target: Date, now: Date): string {
     return `${minutes} minute${minutes !== 1 ? 's' : ''}`
 }
 
+// Renders a stored phone number as +1 (XXX) XXX-XXXX when it really is a 10-digit
+// US number, and otherwise hands back whatever was stored, untouched. Returns
+// null when there's no number at all, so the caller shows "Not provided".
+//
+// The +1 lives in here rather than in the JSX because it's only true for numbers
+// we actually recognized — prefixing it onto an unrecognized string would invent
+// a country code for a number that may already carry a different one.
+function formatPhone(phone: string | null): string | null {
+    if (!phone) return null
+    const digits = phone.replace(/\D/g, '')
+    // 11 digits starting with 1 is a US number with the country code typed in.
+    const local = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
+    if (local.length !== 10) return phone
+    return `+1 (${local.slice(0, 3)}) ${local.slice(3, 6)}-${local.slice(6)}`
+}
+
 function ReservationDetailsPage() {
     const { booking } = Route.useLoaderData()
     const car = booking.cars
     const profile = booking.profiles
-    const renterName = profile?.full_name
+    // Matches TripCard's fallback chain so the same renter reads the same way on
+    // the trip list and on this page.
+    const renterName = profile?.full_name ?? profile?.email?.split('@')[0] ?? 'Guest'
 
     const isPastTrip = booking.status === 'completed' || booking.status === 'canceled'
+
+    // getBookingById selects trip_media(count), which Supabase returns as a
+    // one-element array of aggregates.
+    const mediaCount = booking.trip_media?.[0]?.count ?? 0
 
     const now = new Date()
     const startDate = new Date(booking.start_time)
     const endDate = new Date(booking.end_time)
 
-    const createdAt = new Date(profile.created_at)
-    const numberFormatted = (profile.phone.slice(0,3).toString() + '-' + profile.phone.slice(3,6).toString() + '-' + profile.phone.slice(6,10).toString())
+    // profiles.created_at is nullable, unlike bookings.created_at.
+    const createdAt = profile.created_at ? new Date(profile.created_at) : null
 
-    const formatTime = (date: Date): string =>
-        date.toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-        })
+    // The phone column is nullable and free-form — it's whatever the renter typed,
+    // so it isn't guaranteed to be 10 digits. The old version sliced blindly,
+    // which turned a 7-digit or already-formatted number into nonsense like
+    // "555-123-" rather than just showing what was stored.
+    const numberFormatted = formatPhone(profile.phone)
+
+    const formatTime = (date: Date): string => formatBusinessTime(date)
 
     const formatDate = (date: Date): string =>
-        date.toLocaleDateString('en-US', {
-            weekday: 'long',
-            month: 'long',
-            day: 'numeric',
-        })
+        formatBusinessDate(date, { weekday: 'long', month: 'long', day: 'numeric' })
 
     const formatDateYear = (date: Date): string =>
-        date.toLocaleDateString('en-US', {
-            month: 'long',
-            year: 'numeric',
-        })
+        formatBusinessDate(date, { month: 'long', year: 'numeric' })
 
     const startsIn = getRelativeTimeString(startDate, now)
     const endsIn = getRelativeTimeString(endDate, now)
@@ -204,8 +222,16 @@ function ReservationDetailsPage() {
                         </section>
 
                         <section className="space-y-1">
-                            <h3 className="text-xs font-bold uppercase tracking-wider text-black">Trip Photos</h3>
-                            <p className="text-lg text-gray-500">- -</p>
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-black">
+                                Trip Photos{mediaCount > 0 && ` (${mediaCount})`}
+                            </h3>
+                            <Link
+                                to="/admin/reservation/$bookingId/photos"
+                                params={{ bookingId: booking.id }}
+                                className="text-sm font-semibold text-emerald-700 hover:underline cursor-pointer block pt-1"
+                            >
+                                {mediaCount > 0 ? 'View and add more' : 'Add photos'}
+                            </Link>
                         </section>
 
                         <section className="space-y-1">
@@ -276,10 +302,12 @@ function ReservationDetailsPage() {
                                 </div>
                                 <div>
                                     <h4 className="font-bold text-gray-900">{renterName}</h4>
-                                    {profile.num_trips > 0 && (
+                                    {(profile.num_trips ?? 0) > 0 && (
                                         <p className="text-s text-gray-500">{profile.num_trips} trips</p>
                                     )}
-                                    <p className="text-s text-gray-500">Joined {formatDateYear(createdAt)}</p>
+                                    {createdAt && (
+                                        <p className="text-s text-gray-500">Joined {formatDateYear(createdAt)}</p>
+                                    )}
                                 </div>
                             </div>
 
@@ -307,7 +335,7 @@ function ReservationDetailsPage() {
                                 <div className="flex justify-between items-center text-sm">
                                     <span className="text-gray-600">Phone number</span>
                                     <span className="text-emerald-700 cursor-pointer hover:underline">
-                                        {profile.phone ? `+ 1 ${numberFormatted}` : 'Not provided'}
+                                        {numberFormatted ?? 'Not provided'}
                                     </span>
                                 </div>
                                 <div className="flex justify-between items-center text-sm">

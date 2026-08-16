@@ -2,16 +2,18 @@ import { createFileRoute } from '@tanstack/react-router'
 import { CalendarGrid } from 'src/components/admin/CalendarGrid.tsx'
 import { CalendarToolbar } from "@/components/admin/CalendarToolbar.tsx";
 import { getConfirmedBookings, getCars, getPriceOverrides, getBlockedDates, getTuroBookings } from "@/lib/db.ts";
+import { addDays, todayInBusinessTz } from "@/lib/pricing.ts";
 
 export const Route = createFileRoute('/admin/calendar')({
     loader: async() => {
-        const today = new Date()
-        today.setHours(0, 0, 0, 0)
-        const endDate = new Date(today)
-        endDate.setDate(today.getDate() + 365)
-
-        const startDateStr = today.toLocaleDateString('en-US')
-        const endDateStr = endDate.toLocaleDateString('en-US')
+        // 'YYYY-MM-DD' keys, which is what every date column these three
+        // functions filter on is stored as. This used to send
+        // toLocaleDateString('en-US') — "8/14/2026" — and relied on Postgres
+        // guessing MDY, which is a DateStyle setting away from silently reading
+        // the range as a different year. addDays does the arithmetic on the key
+        // itself, so the window can't drift across a DST boundary either.
+        const startDateStr = todayInBusinessTz()
+        const endDateStr = addDays(startDateStr, 365)
 
         const [cars, bookings, turoBookings, priceOverrides, blockedDates ] = await Promise.all([
             getCars(),
