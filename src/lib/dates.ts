@@ -119,6 +119,22 @@ export function formatBusinessDateTime(
     return `${formatBusinessDate(value, dateOptions)}, ${formatBusinessTime(value, timeOptions)}`
 }
 
+// Minutes since midnight -> '1:00 PM'.
+//
+// No instant and no timezone involved: the availability model works in
+// minute-of-day marks (src/lib/availability.ts) and this is how they're shown.
+// Built by hand rather than through Intl because there's nothing to convert —
+// manufacturing a Date just to format it would invite exactly the zone shift
+// the rest of this module exists to prevent.
+export function formatMinutesOfDay(minutes: number): string {
+    const clamped = Math.max(0, Math.min(24 * 60, Math.round(minutes)))
+    const hour24 = Math.floor(clamped / 60)
+    const minute = clamped % 60
+    const period = hour24 >= 12 && hour24 < 24 ? 'PM' : 'AM'
+    const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12
+    return `${hour12}:${String(minute).padStart(2, '0')} ${period}`
+}
+
 // A 'YYYY-MM-DD' key, formatted for display.
 //
 // Deliberately NOT timezone-pinned, because a bare date key has no instant in

@@ -20,6 +20,12 @@ import {
     type ResolvedPickup,
 } from './pickup'
 import { geocodeAddresses } from './geocode'
+import {
+    MIN_LEAD_TIME_HOURS,
+    TURNAROUND_HOURS,
+    type UnavailabilityRow,
+} from './availability'
+import { businessDateKey, formatBusinessDateTime } from './dates'
 
 // Fetches all cars that are available
 export const getCars = createServerFn({ method: 'GET' })
@@ -86,12 +92,33 @@ export const getBookedDates = createServerFn({ method: 'GET' })
                 .eq('car_id', carIdNum),
         ])
 
-        const blockedRanges = (blocked ?? []).map(b => ({
-            start_time: `${b.start_date}T00:00:00`,
-            end_time: `${b.end_date}T00:00:00`,
-        }))
-
-        return [...(data ?? []), ...blockedRanges, ...(turo ?? [])];
+        // Tagged by source rather than flattened into one shape. The booking
+        // widget applies a turnaround buffer to real trips but not to admin
+        // blocks, and it can't make that distinction after the fact.
+        //
+        // Blocks also keep their native date-only form. They used to be
+        // converted here into `${b.start_date}T00:00:00` — a string with no zone
+        // suffix, which `new Date()` reads as *browser-local* midnight and so
+        // shifted a block a day earlier for anyone east of Central. There's no
+        // instant in a blocked date to begin with; handing over the keys lets
+        // src/lib/availability.ts treat it as the calendar range it actually is.
+        return [
+            ...(data ?? []).map(b => ({
+                kind: 'booking' as const,
+                start_time: b.start_time,
+                end_time: b.end_time,
+            })),
+            ...(turo ?? []).map(t => ({
+                kind: 'turo' as const,
+                start_time: t.start_time,
+                end_time: t.end_time,
+            })),
+            ...(blocked ?? []).map(b => ({
+                kind: 'block' as const,
+                start_date: b.start_date,
+                end_date: b.end_date,
+            })),
+        ] satisfies UnavailabilityRow[];
     });
 
 // Per-day price overrides for one car, used by the booking widget to quote a
@@ -129,33 +156,80 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
     apiVersion: '2023-10-16' as Stripe.StripeConfig['apiVersion'],
 })
 
+const MS_PER_HOUR = 60 * 60 * 1000
+
+// A trip may not start sooner than MIN_LEAD_TIME_HOURS from now.
+//
+// The booking widget already greys out the slots this rejects, but it is not the
+// enforcement point — server functions can be called directly, a checkout tab can
+// sit open past the cutoff, and every one of these values arrives through an
+// editable URL. This is the rule; the widget is the courtesy.
+function assertStartIsBookable(startTimeIso: string) {
+    const start = new Date(startTimeIso).getTime()
+    if (Number.isNaN(start)) throw new Error('Invalid start time')
+
+    if (start < Date.now() + MIN_LEAD_TIME_HOURS * MS_PER_HOUR) {
+        throw new Error(
+            `Trips must start at least ${MIN_LEAD_TIME_HOURS} hours from now. Please choose a later start time.`
+        )
+    }
+}
+
 // Authoritative server-side conflict check for a car/date-range, checked before
 // a new booking is created. Uses the service-role client because a regular
 // customer's RLS-scoped client can't see other users' bookings, or
 // car_blocked_dates/turo_bookings at all (those are admin-only tables).
-async function assertCarIsAvailable(carId: number, startTime: string, endTime: string) {
+//
+// Trips need TURNAROUND_HOURS of clearance on both sides for cleaning and
+// inspection, so the overlap windows are widened by that buffer rather than
+// being a bare intersection test. Widening the *query* rather than filtering
+// afterwards keeps the work in Postgres and keeps this a single round trip.
+//
+// `excludeBookingId` is for the resume-payment paths in createCheckoutSession:
+// re-validating an existing pending booking would otherwise find that booking
+// itself and refuse to let the customer pay for it.
+async function assertCarIsAvailable(
+    carId: number,
+    startTime: string,
+    endTime: string,
+    options: { excludeBookingId?: string } = {},
+) {
     const supabaseAdmin = createClient(
         process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
         { auth: { persistSession: false, autoRefreshToken: false } }
     )
 
+    const bufferMs = TURNAROUND_HOURS * MS_PER_HOUR
+    const windowStart = new Date(new Date(startTime).getTime() - bufferMs).toISOString()
+    const windowEnd = new Date(new Date(endTime).getTime() + bufferMs).toISOString()
+
     // Other site bookings: confirmed always blocks; pending only blocks while
     // still "live" (mirrors the 1-hour stale-pending cleanup in getUserBookings)
     const holdCutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString()
-    const { data: conflictingBookings, error: bErr } = await supabaseAdmin
+    let bookingQuery = supabaseAdmin
         .from('bookings')
-        .select('id')
+        .select('start_time, end_time')
         .eq('car_id', carId)
         .in('status', ['pending', 'confirmed'])
-        .lt('start_time', endTime)
-        .gt('end_time', startTime)
+        .lt('start_time', windowEnd)
+        .gt('end_time', windowStart)
         .or(`status.eq.confirmed,created_at.gte.${holdCutoff}`)
-    if (bErr) throw new Error(bErr.message)
-    if (conflictingBookings?.length) throw new Error('This car is no longer available for the selected dates')
+    if (options.excludeBookingId) bookingQuery = bookingQuery.neq('id', options.excludeBookingId)
 
-    const startDate = startTime.slice(0, 10)
-    const endDate = endTime.slice(0, 10)
+    const { data: conflictingBookings, error: bErr } = await bookingQuery
+    if (bErr) throw new Error(bErr.message)
+    if (conflictingBookings?.length) {
+        throw new Error(conflictMessage(conflictingBookings, startTime, endTime))
+    }
+
+    // Blocked dates are date-only and unbuffered: a block means the car is
+    // spoken for those whole days, and the day after it ends is bookable from
+    // opening. businessDateKey rather than startTime.slice(0, 10) — the slice
+    // takes the UTC day, and a 10pm Central start is already the next day there,
+    // which pushed this comparison a day off.
+    const startDate = businessDateKey(startTime)
+    const endDate = businessDateKey(endTime)
     const { data: conflictingBlocks, error: blErr } = await supabaseAdmin
         .from('car_blocked_dates')
         .select('id')
@@ -165,17 +239,46 @@ async function assertCarIsAvailable(carId: number, startTime: string, endTime: s
     if (blErr) throw new Error(blErr.message)
     if (conflictingBlocks?.length) throw new Error('This car is not available for the selected dates')
 
+    // Turo trips are real trips, so they get the same buffer as site bookings.
     const { data: conflictingTuro, error: tErr } = await supabaseAdmin
         .from('turo_bookings')
-        .select('id')
+        .select('start_time, end_time')
         .eq('car_id', carId)
-        .lt('start_time', endTime)
-        .gt('end_time', startTime)
+        .lt('start_time', windowEnd)
+        .gt('end_time', windowStart)
     if (tErr) throw new Error(tErr.message)
-    if (conflictingTuro?.length) throw new Error('This car is not available for the selected dates')
+    if (conflictingTuro?.length) {
+        throw new Error(conflictMessage(conflictingTuro, startTime, endTime))
+    }
 }
 
-const MS_PER_HOUR = 60 * 60 * 1000
+// Turns a conflicting row into something the customer can act on. A trip that
+// merely lands inside the turnaround buffer is a different problem from one that
+// genuinely overlaps — the first is fixed by nudging a dropdown a few hours, and
+// saying "no longer available" would send them hunting for another car instead.
+function conflictMessage(
+    conflicts: { start_time: string; end_time: string }[],
+    startTime: string,
+    endTime: string,
+): string {
+    const start = new Date(startTime).getTime()
+    const end = new Date(endTime).getTime()
+
+    const bufferOnly = conflicts.find(c => {
+        const cStart = new Date(c.start_time).getTime()
+        const cEnd = new Date(c.end_time).getTime()
+        return cStart >= end || cEnd <= start
+    })
+
+    if (!bufferOnly) return 'This car is no longer available for the selected dates'
+
+    const endsBeforeUs = new Date(bufferOnly.end_time).getTime() <= start
+    return endsBeforeUs
+        ? `This car is being returned at ${formatBusinessDateTime(bufferOnly.end_time)}. ` +
+          `Trips need at least ${TURNAROUND_HOURS} hours between them, so please start later.`
+        : `Another trip starts at ${formatBusinessDateTime(bufferOnly.start_time)}. ` +
+          `Trips need at least ${TURNAROUND_HOURS} hours between them, so please return earlier.`
+}
 
 // The pickup selection as it arrives from the browser: loose, optional fields
 // pulled straight off URL search params. Nothing here is trusted.
@@ -393,6 +496,20 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         const user = authResult.data.user
         if (!user) throw new Error('Not authenticated')
 
+        const carIdNum = Number.parseInt(data.carId, 10)
+
+        // Checked here, before either resume path below, rather than alongside
+        // the other sanity checks further down.
+        //
+        // Both of those paths hand back a Stripe client secret and return, so
+        // anything validated after them isn't validated at all for a resumed
+        // booking. That's fine for price — the PaymentIntent is already locked to
+        // an amount this server computed — but not for time: a pending booking
+        // made two hours ago for a trip starting soon would otherwise still be
+        // payable, and a car booked by someone else in the meantime would still
+        // take the money.
+        assertStartIsBookable(data.startTime)
+
         // If we have bookingId, use directly
         if (data.bookingId) {
             const { data: existing } = await supabase
@@ -408,6 +525,16 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
             // Falling through creates a fresh booking + intent instead of calling
             // Stripe with null, which threw.
             if (existing?.stripe_payment_intent_id) {
+                // The row's own times, not data.startTime — those arrive through an
+                // editable URL and needn't describe the booking being resumed.
+                assertStartIsBookable(existing.start_time)
+                await assertCarIsAvailable(
+                    existing.car_id,
+                    existing.start_time,
+                    existing.end_time,
+                    { excludeBookingId: existing.id },
+                )
+
                 // No re-pricing here: this booking's total was computed server-side
                 // when it was created, and its PaymentIntent is already locked to
                 // that amount.
@@ -419,8 +546,6 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
                 }
             }
         }
-
-        const carIdNum = Number.parseInt(data.carId, 10)
 
         // Checking for an existing pending booking for this exact car and user, preventing duplicates
         const { data: existingBooking } = await supabase
@@ -436,6 +561,10 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         // If exists, retrieve existing Stripe intent instead of creating new one.
         // Same guard as above — no intent id means nothing to reuse.
         if (existingBooking?.stripe_payment_intent_id) {
+            await assertCarIsAvailable(carIdNum, data.startTime, data.endTime, {
+                excludeBookingId: existingBooking.id,
+            })
+
             const intent = await stripe.paymentIntents.retrieve(existingBooking.stripe_payment_intent_id)
             return {
                 clientSecret: intent.client_secret,

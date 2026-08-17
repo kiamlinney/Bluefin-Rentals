@@ -7,16 +7,33 @@ import { Card, CardContent } from "@/components/ui/card";
 import { getBookedDates, getCarPriceOverrides } from "@/lib/db.ts";
 import { getUser } from "@/lib/auth.ts";
 import {
+    addDays,
     buildOverrideMap,
     calculateTripPrice,
     dateKeyToLocalDate,
     getTripDurationMinutes,
     timeToMinutes,
     toDateKey,
+    todayInBusinessTz,
     type PriceOverrides,
 } from "@/lib/pricing.ts";
-import { businessDayStart, formatDateKey } from "@/lib/dates.ts";
-import { findUnavailableDays, spansToDateKeys } from "@/lib/availability.ts";
+import { formatDateKey, formatMinutesOfDay } from "@/lib/dates.ts";
+import {
+    BUSINESS_CLOSE_MINUTES,
+    BUSINESS_OPEN_MINUTES,
+    MIN_LEAD_TIME_HOURS,
+    SLOT_MINUTES,
+    buildAvailabilityMap,
+    dayWindow,
+    earliestStartMinutesFor,
+    earliestStartMinutesToday,
+    findTripConflict,
+    latestEndMinutesFor,
+    toOccupiedSpans,
+    type AvailabilityMap,
+    type DateSpan,
+    type TripConflict,
+} from "@/lib/availability.ts";
 import { TripCalendar } from "@/components/TripCalendar.tsx";
 import { PriceBreakdown } from "@/components/PriceBreakdown.tsx";
 import { PickupLocationPicker } from "@/components/PickupLocationPicker.tsx";
@@ -173,6 +190,24 @@ const unavailableMessage = (keys: string[]) => {
     return `This car is already booked on ${list}. Please choose different dates.`;
 };
 
+// Every conflict names the fix, not just the problem. "Unavailable" sends a
+// customer looking for another car; "the earliest you can start is 1:00 PM"
+// sends them to the dropdown three inches away.
+const conflictMessage = (conflict: TripConflict): string => {
+    switch (conflict.kind) {
+        case "lead-time":
+            return conflict.earliestStart === null
+                ? `Trips must start at least ${MIN_LEAD_TIME_HOURS} hours from now, so today is fully booked. Please choose a later date.`
+                : `Trips must start at least ${MIN_LEAD_TIME_HOURS} hours from now. The earliest start today is ${formatMinutesOfDay(conflict.earliestStart)}.`;
+        case "start-too-early":
+            return `This car is returning from another trip on ${formatDayKey(conflict.dateKey)}. The earliest you can start that day is ${formatMinutesOfDay(conflict.earliestStart)}.`;
+        case "end-too-late":
+            return `Another trip starts on ${formatDayKey(conflict.dateKey)}, so this car must be back by ${formatMinutesOfDay(conflict.latestEnd)} that day.`;
+        case "days-unavailable":
+            return unavailableMessage(conflict.dateKeys);
+    }
+};
+
 // Pinned locale: with dates prefilled from the URL these labels now render on
 // the server too, and Node's default locale needn't match the browser's.
 const formatTriggerDate = (d: Date) => d.toLocaleDateString("en-US");
@@ -193,8 +228,20 @@ function CarDetails() {
     // reach rather than merely unlikely.
     const [pickup, setPickup] = useState<PickupSelection>(DEFAULT_PICKUP);
 
-    const [disabledDates, setDisabledDates] = useState<{from: Date; to: Date}[]>([]);
+    // Per-day free windows rather than a list of dead days — see
+    // src/lib/availability.ts. This is what lets a trip start at 1pm on a day
+    // another trip returned at 10am.
+    const [availability, setAvailability] = useState<AvailabilityMap>(() => new Map());
     const [availabilityLoaded, setAvailabilityLoaded] = useState(false);
+
+    // The 3-hour lead time is measured against a moving target, so `now` can't
+    // be read once at render. Without this tick a widget left open on a phone
+    // crosses the cutoff and keeps offering a slot the server will reject.
+    const [now, setNow] = useState(() => new Date());
+    useEffect(() => {
+        const id = setInterval(() => setNow(new Date()), 60_000);
+        return () => clearInterval(id);
+    }, []);
     const [priceOverrides, setPriceOverrides] = useState<PriceOverrides>({});
     const [showPriceDetails, setShowPriceDetails] = useState(false);
 
@@ -246,17 +293,21 @@ function CarDetails() {
 
     // ------------------------------------------------------------------------------------------------------------------------
 
+    // Business hours now come from src/lib/availability.ts, which is also where
+    // the "earliest start today" math reads them — the two can't disagree about
+    // when 10:30pm is, which matters because one greys out slots and the other
+    // decides whether today is bookable at all.
     const baseTimeOptions = useMemo(() => {
-        return Array.from({ length: 48 }, (_, i) => {
-            const totalMinutes = i * 30; // starts at midnight (0 min)
+        return Array.from({ length: (24 * 60) / SLOT_MINUTES }, (_, i) => {
+            const totalMinutes = i * SLOT_MINUTES; // starts at midnight (0 min)
             const hour = Math.floor(totalMinutes / 60);
             const min = totalMinutes % 60;
             const minStr = min === 0 ? "00" : "30";
             const period = hour >= 12 ? "PM" : "AM";
             const displayHour = hour % 12 === 0 ? 12 : hour % 12;
 
-            // Business hours: 10:00 AM (600 min) to 10:30 PM (1350 min)
-            const outOfHours = totalMinutes < 600 || totalMinutes > 1350;
+            const outOfHours =
+                totalMinutes < BUSINESS_OPEN_MINUTES || totalMinutes > BUSINESS_CLOSE_MINUTES;
 
             return {
                 value: `${hour}:${minStr}`,
@@ -277,25 +328,89 @@ function CarDetails() {
         );
     }, [startDate, endDate]);
 
-    // Start options: disable slots >= endTime on same-day trips.
-    const startTimeOptions = useMemo(() => {
-        if (!isSameDay) return baseTimeOptions;
-        const endMinutes = timeToMinutes(endTime);
-        return baseTimeOptions.map(t => ({
-            ...t,
-            disabled: t.disabled || timeToMinutes(t.value) >= endMinutes,
-        }));
-    }, [isSameDay, endTime, baseTimeOptions]);
+    // The earliest a trip may begin on the chosen start day, and the latest it
+    // may end on the chosen end day. Both fold together everything that
+    // constrains that day: the turnaround buffer around neighbouring trips, and
+    // — for today only — the 3-hour lead time.
+    const earliestStart = useMemo(() => {
+        if (!startDate) return BUSINESS_OPEN_MINUTES;
+        return dayWindow(availability, toDateKey(startDate)).earliestStart;
+    }, [startDate, availability]);
 
-    // End options: disable slots <= startTime on same-day trips.
+    const latestEnd = useMemo(() => {
+        if (!endDate) return BUSINESS_CLOSE_MINUTES;
+        return dayWindow(availability, toDateKey(endDate)).latestEnd;
+    }, [endDate, availability]);
+
+    // Null once the lead time pushes past closing, i.e. today is spent.
+    const leadTimeFloor = useMemo(
+        () => (startDate && toDateKey(startDate) === todayInBusinessTz(now)
+            ? earliestStartMinutesToday(now)
+            : null),
+        [startDate, now],
+    );
+
+    // Start options: on same-day trips disable slots >= endTime; always disable
+    // anything before the day's earliest start or before the lead-time floor.
+    const startTimeOptions = useMemo(() => {
+        const endMinutes = timeToMinutes(endTime);
+        const floor = Math.max(earliestStart, leadTimeFloor ?? 0);
+        const todayIsSpent = startDate != null
+            && toDateKey(startDate) === todayInBusinessTz(now)
+            && leadTimeFloor === null;
+
+        return baseTimeOptions.map(t => {
+            const minutes = timeToMinutes(t.value);
+            return {
+                ...t,
+                disabled:
+                    t.disabled
+                    || todayIsSpent
+                    || minutes < floor
+                    || (isSameDay && minutes >= endMinutes),
+            };
+        });
+    }, [isSameDay, endTime, baseTimeOptions, earliestStart, leadTimeFloor, startDate, now]);
+
+    // End options: on same-day trips disable slots <= startTime; always disable
+    // anything after the day's latest end.
     const endTimeOptions = useMemo(() => {
-        if (!isSameDay) return baseTimeOptions;
         const startMinutes = timeToMinutes(startTime);
-        return baseTimeOptions.map(t => ({
-            ...t,
-            disabled: t.disabled || timeToMinutes(t.value) <= startMinutes,
-        }));
-    }, [isSameDay, startTime, baseTimeOptions]);
+        return baseTimeOptions.map(t => {
+            const minutes = timeToMinutes(t.value);
+            return {
+                ...t,
+                disabled:
+                    t.disabled
+                    || minutes > latestEnd
+                    || (isSameDay && minutes <= startMinutes),
+            };
+        });
+    }, [isSameDay, startTime, baseTimeOptions, latestEnd]);
+
+    // Picking a day whose first free slot is 1:00 PM leaves startTime sitting on
+    // its "10:00" default — a value the dropdown now renders as disabled and the
+    // server would reject. Snap to the first slot that is actually offered.
+    //
+    // Guarded on availabilityLoaded so the empty initial map doesn't count as
+    // "everything is free" and overwrite a time the customer just chose.
+    useEffect(() => {
+        if (!availabilityLoaded) return;
+        const current = startTimeOptions.find(o => o.value === startTime);
+        if (current && !current.disabled) return;
+        const firstFree = startTimeOptions.find(o => !o.disabled);
+        if (firstFree) setStartTime(firstFree.value);
+    }, [availabilityLoaded, startTimeOptions, startTime]);
+
+    useEffect(() => {
+        if (!availabilityLoaded) return;
+        const current = endTimeOptions.find(o => o.value === endTime);
+        if (current && !current.disabled) return;
+        // Last rather than first: an end time wants to be as late as the day
+        // allows, which is also what the "22:00" default was reaching for.
+        const lastFree = [...endTimeOptions].reverse().find(o => !o.disabled);
+        if (lastFree) setEndTime(lastFree.value);
+    }, [availabilityLoaded, endTimeOptions, endTime]);
 
     // Duration comes from the pricing module rather than local Date math so the
     // 24-hour minimum enforced here is measured exactly the way billing measures
@@ -336,16 +451,46 @@ function CarDetails() {
     const totalDays = quote.billableDays;
     const subtotal = quote.total;
 
-    const blockedDayKeys = useMemo(() => spansToDateKeys(disabledDates), [disabledDates]);
+    // Which days can't host a start, and which can't host an end
+    const unselectableStartDays = useMemo<DateSpan[]>(() => {
+        const spans: DateSpan[] = [];
+        for (const key of availability.keys()) {
+            if (earliestStartMinutesFor(key, availability, now) !== null) continue;
+            const date = dateKeyToLocalDate(key);
+            if (date) spans.push({ from: date, to: date });
+        }
+        return spans;
+    }, [availability, now]);
+
+    const unselectableEndDays = useMemo<DateSpan[]>(() => {
+        const spans: DateSpan[] = [];
+        for (const key of availability.keys()) {
+            if (latestEndMinutesFor(key, availability) !== null) continue;
+            const date = dateKeyToLocalDate(key);
+            if (date) spans.push({ from: date, to: date });
+        }
+        return spans;
+    }, [availability]);
+
+    // The floor for the start calendar. Passing this explicitly also pins the
+    // floor to the business day: TripCalendar's own default is the *browser's*
+    // local midnight, which is a different day for a customer in Hawaii.
+    const earliestSelectableDay = useMemo(() => {
+        const todayKey = todayInBusinessTz(now);
+        const key = earliestStartMinutesToday(now) === null ? addDays(todayKey, 1) : todayKey;
+        return dateKeyToLocalDate(key) ?? undefined;
+    }, [now]);
 
     // Both pickers already refuse a booked day as an *endpoint*, but nothing
     // stopped a start before a booked block and an end after it — the whole
     // block sat inside the range and the trip only failed at the Stripe payment
     // step, after driver info and identity verification.
-    const unavailableDays = useMemo(() => {
-        if (!startDate || !endDate) return [];
-        return findUnavailableDays(toDateKey(startDate), toDateKey(endDate), blockedDayKeys);
-    }, [startDate, endDate, blockedDayKeys]);
+    const conflict = useMemo(() => {
+        if (!startDate || !endDate) return null;
+        return findTripConflict(
+            toDateKey(startDate), startTime, toDateKey(endDate), endTime, availability, now,
+        );
+    }, [startDate, endDate, startTime, endTime, availability, now]);
 
     // One message at a time, duration first: a sub-24h range is fixable by
     // nudging a time, and its conflicting-days list would be a confusing single
@@ -362,9 +507,9 @@ function CarDetails() {
         if (resolvedPickup.error) return resolvedPickup.error;
         if (!startDate || !endDate) return null;
         if (totalDurationDays < 1) return "Minimum trip duration is 24 hours. Please adjust your dates or times.";
-        if (unavailableDays.length > 0) return unavailableMessage(unavailableDays);
+        if (conflict) return conflictMessage(conflict);
         return null;
-    }, [startDate, endDate, totalDurationDays, unavailableDays, resolvedPickup]);
+    }, [startDate, endDate, totalDurationDays, conflict, resolvedPickup]);
 
     // availabilityLoaded closes the window where a range prefilled from the
     // search bar could reach checkout before we know what's booked.
@@ -380,16 +525,12 @@ function CarDetails() {
 
             setPriceOverrides(buildOverrideMap(overrides));
 
-            // Which days a booking occupies is decided in business time, not in
-            // the visitor's. Reading the day off the instant with getDate() made
-            // a 10pm Central return spill into the next day for anyone at or east
-            // of UTC, greying out a day that's actually free to book.
-            const formattedDates = bookings.map((booking: any) => ({
-                from: businessDayStart(booking.start_time),
-                to: businessDayStart(booking.end_time),
-            }));
-
-            setDisabledDates(formattedDates);
+            // The clock times survive this time. They used to be collapsed to
+            // whole days here, which is what made same-day handoff impossible —
+            // nothing downstream could know a trip returned at 10am. Everything
+            // that decides *which* day a time belongs to happens in business
+            // time inside toOccupiedSpans, not in the visitor's zone.
+            setAvailability(buildAvailabilityMap(toOccupiedSpans(bookings)));
         }
         void fetchAvailability().finally(() => setAvailabilityLoaded(true));
     }, [carId]);
@@ -661,7 +802,8 @@ function CarDetails() {
                                                     startDate={startDate}
                                                     endDate={endDate}
                                                     onSelectStart={handleStartSelect}
-                                                    unavailableRanges={disabledDates}
+                                                    unavailableRanges={unselectableStartDays}
+                                                    minDate={earliestSelectableDay}
                                                 />
                                         </div>
 
@@ -694,7 +836,8 @@ function CarDetails() {
                                                     startDate={startDate}
                                                     endDate={endDate}
                                                     onSelectEnd={handleEndSelect}
-                                                    unavailableRanges={disabledDates}
+                                                    unavailableRanges={unselectableEndDays}
+                                                    minDate={earliestSelectableDay}
                                                 />
                                         </div>
 

@@ -192,9 +192,34 @@ export function TripCalendar(props: TripCalendarProps) {
         return mode === 'end' && startDate && startDate > floor ? startDate : floor
     }, [mode, minDate, today, startDate])
 
+    // The trip's OTHER end, when it's already been chosen.
+    const oppositeEndpointKey = useMemo(() => {
+        if (mode === 'start') return endDate ? toDateKey(endDate) : null
+        if (mode === 'end') return startDate ? toDateKey(startDate) : null
+        return null
+    }, [mode, startDate, endDate])
+
+    // A predicate rather than surgery on the spans: the excluded day can sit
+    // anywhere inside a span, and splitting one range into two around it would
+    // be more code for the same answer.
+    const unavailableMatchers = useMemo<Matcher[]>(() => {
+        if (!unavailableRanges.length) return []
+        if (oppositeEndpointKey === null) return [...unavailableRanges]
+
+        return [
+            (day: Date) => {
+                const key = toDateKey(day)
+                if (key === oppositeEndpointKey) return false
+                return unavailableRanges.some(
+                    span => toDateKey(span.from) <= key && key <= toDateKey(span.to),
+                )
+            },
+        ]
+    }, [unavailableRanges, oppositeEndpointKey])
+
     const disabledMatchers = useMemo<Matcher[]>(
-        () => [{ before: min }, ...unavailableRanges],
-        [min, unavailableRanges],
+        () => [{ before: min }, ...unavailableMatchers],
+        [min, unavailableMatchers],
     )
 
     const resolvedDefaultMonth = useMemo(() => {
@@ -205,7 +230,9 @@ export function TripCalendar(props: TripCalendarProps) {
 
     const modifiers = useMemo<Record<string, Matcher | Matcher[] | undefined>>(() => {
         const next: Record<string, Matcher | Matcher[]> = {}
-        if (unavailableRanges.length) next.booked = unavailableRanges
+        // Same matchers the disabled set uses, so the strikethrough can never
+        // mark a day this picker is willing to accept.
+        if (unavailableMatchers.length) next.booked = unavailableMatchers
 
         // How many calendar days the selection spans, or null if it isn't a
         // pair yet. 0 means start and end landed on the same day.
@@ -244,7 +271,7 @@ export function TripCalendar(props: TripCalendarProps) {
         }
 
         return next
-    }, [mode, startDate, endDate, unavailableRanges])
+    }, [mode, startDate, endDate, unavailableMatchers])
 
     // Runs before paint (useLayoutEffect), so a flip never flickers: the panel
     // always mounts anchored below first (both to measure its natural height
