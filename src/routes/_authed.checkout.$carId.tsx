@@ -1,24 +1,26 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useEffect, useRef, useState } from 'react'
+import { createFileRoute } from '@tanstack/react-router'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { loadStripe } from '@stripe/stripe-js'
 import {
-    Elements,
-    PaymentElement,
-    useStripe,
-    useElements,
-} from '@stripe/react-stripe-js'
-import { z } from 'zod'
-import {
     getCarById,
+    getCarPriceOverrides,
     getProfile,
-    saveDriverInfo,
-    createIdentitySession,
     createCheckoutSession,
-    confirmBooking,
-    finalizeIdentitySession,
+    type PaymentMode,
 } from '@/lib/db'
-import { wallClockToUtcIso } from '@/lib/pricing'
-import { formatDateKey } from '@/lib/dates'
+import {
+    buildOverrideMap,
+    calculateTripPrice,
+    wallClockToUtcIso,
+} from '@/lib/pricing'
+import { resolvePickup, type PickupSelection } from '@/lib/pickup'
+import { checkoutSearchSchema, type Step } from '@/lib/checkout-search'
+import { CheckoutHeader } from '@/components/checkout/CheckoutHeader'
+import { StepIndicator } from '@/components/checkout/StepIndicator'
+import { TripSummaryCard } from '@/components/checkout/TripSummaryCard'
+import { DriverInfoStep } from '@/components/checkout/DriverInfoStep'
+import { IdentityStep } from '@/components/checkout/IdentityStep'
+import { PaymentSection } from '@/components/checkout/PaymentSection'
 
 // loadStripe is called once at module level — NOT inside a component.
 // If it were inside a component, a new Stripe instance would be created
@@ -26,58 +28,47 @@ import { formatDateKey } from '@/lib/dates'
 // initialization to restart repeatedly.
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
-// Zod validates that the URL search params are exactly the right shape
-// before the loader or component even runs. If a param is missing or
-// the wrong type, TanStack Router throws a structured error immediately.
-const checkoutSearchSchema = z.object({
-    startDate: z.string(),
-    endDate: z.string(),
-    startTime: z.string(),
-    endTime: z.string(),
-    totalDays: z.number(),
-    subtotal: z.number(),
-    pickupLocation: z.string(),
-    // The pickup choice arrives twice: once as the display string above, and
-    // once structurally below.
-    //
-    // pickupLocation is what the trip summary on this page prints. It is not
-    // what anything is priced from — like subtotal, it's a hint that travels
-    // through an editable URL. The fields below carry the selection in the shape
-    // src/lib/pickup.ts can re-resolve, and createCheckoutSession recomputes the
-    // fee (and re-checks the delivery radius) from those rather than from any
-    // string the browser handed it.
-    //
-    // .catch('home') rather than a bare default: a hand-mangled or truncated
-    // link should fall back to the free home-base pickup, which is the one option
-    // that can never be wrong to offer. Every other value would either overcharge
-    // or promise a delivery nobody agreed to.
-    //
-    // No coordinates here on purpose. The picker resolves them and uses them to
-    // show a live distance, but they stay in React state: the server geocodes the
-    // address text itself rather than trusting numbers from a URL, so putting
-    // them here would be dead weight the customer could edit.
-    pickupKind: z.enum(['home', 'listed', 'delivery']).catch('home'),
-    pickupId: z.string().optional().catch(undefined),
-    pickupAddress: z.string().optional().catch(undefined),
-    // bookingId is optional — only present when resuming an existing
-    // pending booking rather than creating a fresh one
-    bookingId: z.string().optional(),
-})
-
-// Derive the search type from the schema so it's always in sync
-type CheckoutSearch = z.infer<typeof checkoutSearchSchema>
+// Stripe's own inputs, themed to match the rest of this page rather than
+// Stripe's defaults. Defined at module level so the object identity is stable —
+// passing a fresh appearance object on every render remounts the iframe.
+const stripeAppearance = {
+    theme: 'stripe' as const,
+    variables: {
+        colorPrimary: '#152110',       // brand green — focus rings, accents
+        colorBackground: '#ffffff',
+        colorText: '#111827',          // gray-900
+        colorTextSecondary: '#6b7280', // gray-500
+        colorDanger: '#b91c1c',        // red-700
+        fontFamily: 'Mona Sans, ui-sans-serif, system-ui, sans-serif',
+        borderRadius: '10px',
+        spacingUnit: '4px',
+    },
+    rules: {
+        '.Input': {
+            border: '1px solid #d1d5db', // gray-300, same as this page's own inputs
+            boxShadow: 'none',
+        },
+        '.Input:focus': {
+            border: '1px solid #152110',
+            boxShadow: 'none',
+        },
+    },
+}
 
 export const Route = createFileRoute('/_authed/checkout/$carId')({
     validateSearch: checkoutSearchSchema,
     loader: async ({ params }) => {
-        // Promise.all fetches both in parallel — faster than awaiting sequentially.
-        // If either throws, the loader fails and TanStack Router shows the
-        // errorComponent rather than rendering a broken checkout.
-        const [car, profile] = await Promise.all([
+        // Promise.all fetches all three in parallel — faster than awaiting
+        // sequentially. If any throws, the loader fails and TanStack Router
+        // shows the errorComponent rather than rendering a broken checkout.
+        //
+        // priceOverrides is here so the trip summary can show a real breakdown.
+        const [car, profile, priceOverrides] = await Promise.all([
             getCarById({ data: params.carId }),
             getProfile(),
+            getCarPriceOverrides({ data: params.carId }),
         ])
-        return { car, profile }
+        return { car, profile, priceOverrides }
     },
     component: CheckoutPage,
 })
@@ -96,13 +87,10 @@ export const Route = createFileRoute('/_authed/checkout/$carId')({
 const buildDateTime = (dateInput: string, time: string): string =>
     wallClockToUtcIso(dateInput.slice(0, 10), time)
 
-// The three sequential checkout steps
-type Step = 'driver-info' | 'identity' | 'payment'
-
 // ── CheckoutPage ──────────────────────────────────────────────────────────────
 
 function CheckoutPage() {
-    const { car, profile: initialProfile } = Route.useLoaderData()
+    const { car, profile: initialProfile, priceOverrides } = Route.useLoaderData()
     const { carId } = Route.useParams()
     const search = Route.useSearch()
 
@@ -138,25 +126,78 @@ function CheckoutPage() {
     const [paymentError, setPaymentError] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(false)
 
-    // The price the server actually charged. search.subtotal is only a display
-    // hint — it travels in the URL, so it's whatever the customer's address bar
-    // says. createCheckoutSession recomputes the real total and returns it, and
-    // that's the number shown everywhere below once it arrives.
-    const [serverTotal, setServerTotal] = useState<number | null>(null)
-    const displayTotal = serverTotal ?? search.subtotal
+    // Which family of payment methods the Element offers. This lives up here
+    // rather than inside PaymentStep because changing it changes the
+    // PaymentIntent — see createCheckoutSession — so the client secret has to be
+    // fetched again and <Elements> remounted with it.
+    const [paymentMode, setPaymentMode] = useState<PaymentMode>('card')
 
-    // hasInitialized prevents double-invocation from React Strict Mode.
-    // In development, React deliberately calls effects twice to surface bugs.
-    // Without this ref, two PaymentIntents and two pending booking rows would
-    // be created. The ref persists across re-renders without causing them.
-    const hasInitialized = useRef(false)
+    // ── The itemised quote behind the summary card ────────────────────────────
+    //
+    // Rebuilt here from the same inputs the server uses, not read off the URL.
+    // The pickup selection is reconstructed from the structured search params
+    // and resolved through the same table src/lib/db.ts re-resolves against, and
+    // calculateTripPrice is literally the function the server runs — so the
+    // itemisation shown here is the arithmetic that produces the charge.
+    //
+    // This mirrors the car page (src/routes/fleet/$carId.tsx), which quotes the
+    // same trip the same way; the two must not be allowed to drift.
+    const pickupSelection = useMemo<PickupSelection>(() => {
+        if (search.pickupKind === 'listed' && search.pickupId) {
+            return { kind: 'listed', id: search.pickupId }
+        }
+        if (search.pickupKind === 'delivery' && search.pickupAddress) {
+            return { kind: 'delivery', address: search.pickupAddress }
+        }
+        return { kind: 'home' }
+    }, [search.pickupKind, search.pickupId, search.pickupAddress])
+
+    const resolvedPickup = useMemo(() => resolvePickup(pickupSelection), [pickupSelection])
+
+    const overrides = useMemo(() => buildOverrideMap(priceOverrides), [priceOverrides])
+
+    const quote = useMemo(() => calculateTripPrice({
+        startDate: search.startDate.slice(0, 10),
+        startTime: search.startTime,
+        endDate: search.endDate.slice(0, 10),
+        endTime: search.endTime,
+        // Postgres `numeric` can arrive as a string depending on how PostgREST
+        // serializes it — Number() keeps the arithmetic from concatenating.
+        basePricePerDay: Number(car.price_per_day),
+        overrides,
+        pickupFee: resolvedPickup.fee,
+        pickupFeeLabel: resolvedPickup.feeLabel,
+    }), [search.startDate, search.startTime, search.endDate, search.endTime, car.price_per_day, overrides, resolvedPickup])
+
+    // The price the server actually charged. createCheckoutSession recomputes the
+    // real total and returns it, and that's the number shown everywhere once it
+    // arrives. Before then the local quote stands in — computed from the same
+    // override rows the server reads, unlike search.subtotal, which is only a
+    // hint travelling through an address bar the customer can edit.
+    const [serverTotal, setServerTotal] = useState<number | null>(null)
+    const displayTotal = serverTotal ?? quote.total
+
+    // Prevents double-invocation from React Strict Mode. In development, React
+    // deliberately calls effects twice to surface bugs; without a guard, two
+    // PaymentIntents and two pending booking rows would be created. The ref
+    // persists across re-renders without causing them.
+    //
+    // It stores the mode it ran for rather than a bare boolean, so switching
+    // between Pay now and Pay over time still refetches — the same protection,
+    // one notch less blunt.
+    const initializedFor = useRef<PaymentMode | null>(null)
 
     useEffect(() => {
-        if (step !== 'payment' || hasInitialized.current) return
-        hasInitialized.current = true
+        if (step !== 'payment' || initializedFor.current === paymentMode) return
+        initializedFor.current = paymentMode
 
         const init = async () => {
             setIsLoading(true)
+            // Drop the previous secret first: it belongs to an intent that
+            // allows the other set of methods, and leaving it mounted would show
+            // the old form for as long as the request takes.
+            setClientSecret(null)
+            setPaymentError(null)
             try {
                 const result = await createCheckoutSession({
                     data: {
@@ -173,15 +214,11 @@ function CheckoutPage() {
                         endTimeLocal: search.endTime,
                         totalPrice: search.subtotal,
                         pickupLocation: search.pickupLocation,
-                        // Forwarded verbatim and deliberately not re-derived here.
-                        // This page has no more authority over them than the car
-                        // page did — both run in the browser. They're passed
-                        // straight through to the server, which resolves the
-                        // location and its fee from its own copy of the table.
                         pickupKind: search.pickupKind,
                         pickupId: search.pickupId,
                         pickupAddress: search.pickupAddress,
                         bookingId: search.bookingId,
+                        paymentMode,
                     }
                 })
                 setClientSecret(result.clientSecret)
@@ -195,628 +232,77 @@ function CheckoutPage() {
             }
         }
         void init()
-    }, [step])
-
-    // formatDateKey, not `new Date(...)`: these are 'YYYY-MM-DD' search params
-    // with no instant in them, and the Date constructor reads a date-only
-    // string as UTC midnight — which renders as the day before in every US
-    // timezone. That's what made this summary disagree with both the picker
-    // the customer just used and the dates the server actually booked.
-    const dateFormat = { month: 'numeric', day: 'numeric', year: 'numeric' } as const
-    const startDate = formatDateKey(search.startDate, dateFormat)
-    const endDate = formatDateKey(search.endDate, dateFormat)
+    }, [step, paymentMode])
 
     return (
-        <div className="min-h-screen bg-[#152110] py-12">
-            <div className="max-w-2xl mx-auto px-4">
+        // bg-white overrides the site-wide dark green on <body> (src/index.css).
+        // Checkout is deliberately its own surface: no marketing chrome, nothing
+        // to click off to, green demoted from background to accent.
+        <div className="min-h-screen bg-white text-gray-900">
+            <CheckoutHeader carId={carId} />
 
-                {/* Step progress indicator */}
-                <div className="mt-6 flex items-center gap-2 mb-8">
-                    {(['driver-info', 'identity', 'payment'] as Step[]).map((s, i) => {
-                        const isActive = step === s
-                        const isCompleted =
-                            (s === 'driver-info' && (step === 'identity' || step === 'payment')) ||
-                            (s === 'identity' && step === 'payment')
-                        return (
-                            <div key={s} className="flex items-center gap-2">
-                                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                                    isActive
-                                        ? 'bg-gray-800 text-gray-200'
-                                        : isCompleted
-                                            ? 'bg-gray-400 text-white'
-                                            : 'bg-gray-200/40 text-gray-500'
-                                }`}>
-                                    {i + 1}
-                                </div>
-                                <span className={`text-xs hidden sm:block ${isActive ? 'text-gray-200' : 'text-gray-500'}`}>
-                                    {s === 'driver-info' ? 'Your info' : s === 'identity' ? 'Verify ID' : 'Payment'}
-                                </span>
-                                {i < 2 && <div className="w-8 h-px bg-gray-700" />}
-                            </div>
-                        )
-                    })}
-                </div>
+            <div className="max-w-6xl mx-auto px-4 py-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
 
-                {/* Trip summary card — visible on all steps */}
-                <div className="bg-gray-200 border border-gray-400 rounded-2xl p-5 mb-6">
-                    <div className="flex gap-4 items-center">
-                        <img
-                            src={`https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/car%20gallery/car_${carId}/main.PNG`}
-                            alt={`${car.year} ${car.make} ${car.model}`}
-                            className="w-20 h-14 object-cover rounded-lg flex-shrink-0"
+                {/* ── Left: the steps, scrolling with the page ─────────────── */}
+                <div className="order-2 lg:order-1 min-w-0">
+                    <StepIndicator current={step} />
+
+                    {step === 'driver-info' && (
+                        <DriverInfoStep
+                            existingProfile={currentProfile}
+                            onComplete={() => {
+                                // Optimistically update local state so getInitialStep()
+                                // sees a full_name and doesn't restart from step 1
+                                setCurrentProfile(prev => ({ ...prev, full_name: 'Saved' } as typeof prev))
+                                setStep('identity')
+                            }}
                         />
-                        <div className="flex-1 min-w-0">
-                            <p className="font-bold text-gray-900">{car.year} {car.make} {car.model}</p>
-                            <p className="text-gray-700 text-sm mt-0.5">
-                                {startDate}, {search.startTime} → {endDate}, {search.endTime}
-                            </p>
-                            <p className="text-gray-600 text-xs mt-0.5">{search.pickupLocation}</p>
-                        </div>
-                        <div className="text-right flex-shrink-0">
-                            <p className="font-bold text-gray-900 text-lg">${displayTotal.toFixed(2)}</p>
-                            <p className="text-gray-500 text-xs">total</p>
-                        </div>
-                    </div>
+                    )}
+
+                    {step === 'identity' && (
+                        <IdentityStep
+                            carId={carId}
+                            search={search}
+                            onComplete={() => {
+                                // Optimistically mark verified so the hard guard
+                                // (useEffect above) doesn't kick us back to identity
+                                setCurrentProfile(prev => ({ ...prev, identity_verified: true } as typeof prev))
+                                setStep('payment')
+                            }}
+                        />
+                    )}
+
+                    {step === 'payment' && (
+                        <PaymentSection
+                            stripePromise={stripePromise}
+                            appearance={stripeAppearance}
+                            isLoading={isLoading}
+                            paymentError={paymentError}
+                            clientSecret={clientSecret}
+                            bookingId={bookingId}
+                            total={displayTotal}
+                            paymentMode={paymentMode}
+                            onPaymentModeChange={setPaymentMode}
+                        />
+                    )}
                 </div>
 
-                {/* ── Step content ─────────────────────────────────────────── */}
-
-                {step === 'driver-info' && (
-                    <DriverInfoStep
-                        existingProfile={currentProfile}
-                        onComplete={() => {
-                            // Optimistically update local state so getInitialStep()
-                            // sees a full_name and doesn't restart from step 1
-                            setCurrentProfile(prev => ({ ...prev, full_name: 'Saved' } as typeof prev))
-                            setStep('identity')
-                        }}
-                    />
-                )}
-
-                {step === 'identity' && (
-                    <IdentityStep
+                {/* ── Right: the summary, pinned ───────────────────────────── */}
+                {/* Sticky on the page's own scroll rather than an independently
+                    scrolling pane: same result (summary stays, form moves under
+                    it) without nesting a scroll container that fights the page
+                    on touch devices. Above the form on mobile, where a pinned
+                    card would eat the viewport. */}
+                <aside className="order-1 lg:order-2 lg:sticky lg:top-20">
+                    <TripSummaryCard
+                        car={car}
                         carId={carId}
                         search={search}
-                        onComplete={() => {
-                            // Optimistically mark verified so the hard guard
-                            // (useEffect above) doesn't kick us back to identity
-                            setCurrentProfile(prev => ({ ...prev, identity_verified: true } as typeof prev))
-                            setStep('payment')
-                        }}
+                        quote={quote}
+                        total={displayTotal}
                     />
-                )}
-
-                {step === 'payment' && (
-                    <>
-                        {isLoading && (
-                            <div className="text-gray-400 text-center py-8 text-sm">
-                                Preparing payment...
-                            </div>
-                        )}
-                        {paymentError && (
-                            <div className="bg-red-100 border border-red-400 rounded-xl p-4 text-red-800 text-sm">
-                                {paymentError}
-                            </div>
-                        )}
-                        {clientSecret && bookingId && (
-                            <Elements
-                                stripe={stripePromise}
-                                options={{
-                                    clientSecret,
-                                    appearance: {
-
-                                        theme: 'stripe',
-                                        variables: {
-                                            colorPrimary: '#1f2937',      // gray-800 — matches buttons
-                                            colorBackground: '#e5e7eb',   // gray-200 — matches card bg
-                                            colorText: '#1f2937',         // gray-800 — primary text
-                                            colorTextSecondary: '#6b7280', // gray-500 — secondary text
-                                            colorDanger: '#b91c1c',       // red-700 — error state
-                                            fontFamily: 'Mona Sans, ui-sans-serif, system-ui, sans-serif',
-                                            borderRadius: '8px',
-                                            spacingUnit: '4px',
-                                        },
-                                        rules: {
-                                            // Give input fields a visible border so they're
-                                            // clearly interactive on the gray card background
-                                            '.Input': {
-                                                border: '1px solid #9ca3af',
-                                                boxShadow: 'none',
-                                            },
-                                            '.Input:focus': {
-                                                border: '1px solid #1f2937',
-                                                boxShadow: 'none',
-                                            },
-                                        },
-                                    },
-                                }}
-                            >
-                                <PaymentStep
-                                    bookingId={bookingId}
-                                    subtotal={displayTotal}
-                                    carId={carId}
-                                />
-                            </Elements>
-                        )}
-                    </>
-                )}
+                </aside>
             </div>
         </div>
-    )
-}
-
-// ─── Step 1: Driver info ──────────────────────────────────────────────────────
-
-function DriverInfoStep({
-                            existingProfile,
-                            onComplete,
-                        }: {
-    existingProfile: Awaited<ReturnType<typeof getProfile>>
-    onComplete: () => void
-}) {
-    const [form, setForm] = useState({
-        fullName:    existingProfile?.full_name    ?? '',
-        dateOfBirth: existingProfile?.date_of_birth ?? '',
-        email:       existingProfile?.email        ?? '',
-        phone:       existingProfile?.phone        ?? '',
-        address:     existingProfile?.address      ?? '',
-        city:        existingProfile?.city         ?? '',
-        state:       existingProfile?.state        ?? '',
-        zip:         existingProfile?.zip          ?? '',
-    })
-    const [error, setError] = useState<string | null>(null)
-    const [saving, setSaving] = useState(false)
-
-    // Returns a change handler for any field — avoids writing one per input
-    const update = (field: keyof typeof form) =>
-        (e: React.ChangeEvent<HTMLInputElement>) =>
-            setForm(prev => ({ ...prev, [field]: e.target.value }))
-
-    const handleSubmit = async () => {
-        const required = ['fullName', 'dateOfBirth', 'phone', 'address', 'city', 'state', 'zip'] as const
-        if (required.some(f => !form[f]?.trim())) {
-            setError('Please fill in all required fields')
-            return
-        }
-        setSaving(true)
-        setError(null)
-        try {
-            await saveDriverInfo({ data: form })
-            onComplete()
-        } catch (e: unknown) {
-            setError(e instanceof Error ? e.message : 'Failed to save information')
-        } finally {
-            setSaving(false)
-        }
-    }
-
-    const inputClass = "w-full bg-gray-100 border border-gray-400 rounded-lg px-3 py-2.5 text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none focus:border-gray-700 transition-colors"
-    const labelClass = "block text-xs font-medium text-gray-700 mb-1"
-
-    return (
-        <div className="bg-gray-200 border border-gray-400 rounded-2xl p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">Driver information</h2>
-            <p className="text-gray-600 text-sm mb-6">Required once for all future bookings.</p>
-
-            <div className="space-y-4">
-                <div>
-                    <label className={labelClass}>Full legal name</label>
-                    <input className={inputClass} placeholder="As it appears on your license"
-                           value={form.fullName} onChange={update('fullName')} />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                    <div>
-                        <label className={labelClass}>Date of birth</label>
-                        <input type="date" className={inputClass}
-                               value={form.dateOfBirth} onChange={update('dateOfBirth')} />
-                    </div>
-                    <div>
-                        <label className={labelClass}>Phone number</label>
-                        <input className={inputClass} placeholder="(612) 555-0100"
-                               value={form.phone} onChange={update('phone')} />
-                    </div>
-                </div>
-
-                <div>
-                    <label className={labelClass}>Street address</label>
-                    <input className={inputClass} placeholder="123 Main St"
-                           value={form.address} onChange={update('address')} />
-                </div>
-
-                <div className="grid grid-cols-5 gap-3">
-                    <div className="col-span-2">
-                        <label className={labelClass}>City</label>
-                        <input className={inputClass} placeholder="Minneapolis"
-                               value={form.city} onChange={update('city')} />
-                    </div>
-                    <div>
-                        <label className={labelClass}>State</label>
-                        <input className={inputClass} placeholder="MN" maxLength={2}
-                               value={form.state} onChange={update('state')} />
-                    </div>
-                    <div className="col-span-2">
-                        <label className={labelClass}>ZIP code</label>
-                        <input className={inputClass} placeholder="55401" maxLength={5}
-                               value={form.zip} onChange={update('zip')} />
-                    </div>
-                </div>
-            </div>
-
-            {error && <p className="text-red-600 text-sm mt-4">{error}</p>}
-
-            <button
-                onClick={handleSubmit}
-                disabled={saving}
-                className="mt-6 w-full py-3 bg-gray-800 hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed text-gray-100 font-semibold rounded-xl transition-colors"
-            >
-                {saving ? 'Saving...' : 'Continue to ID verification'}
-            </button>
-        </div>
-    )
-}
-
-// ─── Step 2: Identity verification ───────────────────────────────────────────
-
-function IdentityStep({
-                          carId,
-                          search,
-                          onComplete,
-                      }: {
-    carId: string
-    search: CheckoutSearch
-    onComplete: () => void
-}) {
-    const [loading, setLoading] = useState(false)
-    const [error, setError] = useState<string | null>(null)
-    const [polling, setPolling] = useState(false)
-
-    const handleStartVerification = async () => {
-        setLoading(true)
-        setError(null)
-        try {
-            // Build the return URL with all current search params preserved so
-            // the user lands back on the same checkout state after the scan.
-            // verificationReturn=true signals to the useEffect below that we've
-            // come back from Stripe and should begin polling for the result.
-            const params = new URLSearchParams(
-                Object.fromEntries(
-                    Object.entries(search).map(([k, v]) => [k, String(v)])
-                )
-            )
-            params.set('verificationReturn', 'true')
-            const returnUrl = `${window.location.origin}/checkout/${carId}?${params.toString()}`
-
-            const result = await createIdentitySession({ data: { returnUrl } })
-
-            // ── FIX: guard the url before using it ────────────────────────────
-            // The old code used url! (non-null assertion). If Stripe returns a
-            // session without a url, that navigates to the literal string "null",
-            // showing a broken page with no error. Now we throw explicitly so the
-            // catch block shows the user a real error message instead.
-            if (!result.url) throw new Error('Verification session URL was not returned')
-            window.location.href = result.url
-        } catch (e: unknown) {
-            setError(e instanceof Error ? e.message : 'Failed to start verification')
-            setLoading(false)
-        }
-    }
-
-    useEffect(() => {
-        const params = new URLSearchParams(window.location.search)
-        if (params.get('verificationReturn') !== 'true') return
-
-        let cancelled = false
-        // ── FIX: store intervalId so it can be cleared on unmount ────────────
-        // The old code stored the interval in a local variable inside the
-        // async function, so the cleanup return could never reach it.
-        // Now intervalId is declared in the outer scope so the cleanup can
-        // call clearInterval on the actual timer handle.
-        let intervalId: ReturnType<typeof setInterval> | null = null
-
-        const run = async () => {
-            setError(null)
-            setPolling(true)
-
-            try {
-                const profile = await getProfile()
-
-                // Fast path: webhook already confirmed verification
-                if (profile?.identity_verified) {
-                    if (!cancelled) {
-                        setPolling(false)
-                        onComplete()
-                    }
-                    return
-                }
-
-                const sessionId = profile?.stripe_identity_session_id
-                if (!sessionId) throw new Error('Verification session not found. Please try again.')
-
-                let attempts = 0
-                const maxAttempts = 20 // 40 seconds at 2s intervals
-
-                intervalId = setInterval(async () => {
-                    if (cancelled) {
-                        if (intervalId) clearInterval(intervalId)
-                        return
-                    }
-                    attempts++
-
-                    try {
-                        const res = await finalizeIdentitySession({ data: { sessionId } })
-                        if ((res as { verified?: boolean })?.verified) {
-                            if (intervalId) clearInterval(intervalId)
-                            if (!cancelled) {
-                                setPolling(false)
-                                onComplete()
-                            }
-                        } else if (attempts >= maxAttempts) {
-                            if (intervalId) clearInterval(intervalId)
-                            if (!cancelled) {
-                                setPolling(false)
-                                // ── FIX: show a specific error instead of the generic message ──
-                                // The old catch block was empty (swallowing errors silently).
-                                // Now maxAttempts shows the user something actionable.
-                                setError('Verification is taking longer than expected. Please try again or contact support.')
-                            }
-                        }
-                    } catch (e: unknown) {
-                        // ── FIX: removed the empty catch block ────────────────────────────
-                        // Previously errors from finalizeIdentitySession were completely
-                        // silenced. Now they surface as actionable error messages.
-                        if (intervalId) clearInterval(intervalId)
-                        if (!cancelled) {
-                            setPolling(false)
-                            setError(e instanceof Error ? e.message : 'Verification check failed. Please try again.')
-                        }
-                    }
-                }, 2000)
-
-            } catch (e: unknown) {
-                if (!cancelled) {
-                    setPolling(false)
-                    setError(e instanceof Error ? e.message : 'An error occurred during verification')
-                }
-            }
-        }
-
-        void run()
-
-        return () => {
-            // ── FIX: proper cleanup clears the interval AND sets the cancel flag ──
-            // The old cleanup only set cleaned=true but could never reach the
-            // interval handle (it was in a nested async scope). Now both are cleared
-            // so no network calls fire after unmount.
-            cancelled = true
-            if (intervalId) clearInterval(intervalId)
-        }
-    }, [])
-
-    if (polling) {
-        return (
-            <div className="bg-gray-200 border border-gray-400 rounded-2xl p-8 text-center">
-                <div className="text-3xl mb-4">⏳</div>
-                <p className="text-gray-900 font-semibold">Confirming your verification...</p>
-                <p className="text-gray-600 text-sm mt-2">This usually takes just a few seconds.</p>
-            </div>
-        )
-    }
-
-    return (
-        <div className="bg-gray-200 border border-gray-400 rounded-2xl p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">Verify your identity</h2>
-            <p className="text-gray-600 text-sm mb-6">
-                Required once for all future bookings. You'll need your driver's license and a quick selfie.
-                Powered by Stripe Identity.
-            </p>
-            <div className="space-y-3 mb-6">
-                {[
-                    "Take a photo of your driver's license",
-                    'Take a quick selfie to match your photo',
-                    'Results confirmed instantly',
-                ].map((s, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                        <div className="w-6 h-6 rounded-full bg-gray-800 text-gray-100 flex items-center justify-center text-xs font-bold flex-shrink-0">
-                            {i + 1}
-                        </div>
-                        <p className="text-gray-700 text-sm">{s}</p>
-                    </div>
-                ))}
-            </div>
-            {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
-            <button
-                onClick={handleStartVerification}
-                disabled={loading}
-                className="w-full py-3 bg-gray-800 hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed text-gray-100 font-semibold rounded-xl transition-colors"
-            >
-                {loading ? 'Loading...' : 'Start verification →'}
-            </button>
-        </div>
-    )
-}
-
-// ─── Step 3: Payment ──────────────────────────────────────────────────────────
-//
-// Must be a child of <Elements> — useStripe() and useElements() only work
-// inside the Elements provider tree.
-
-function PaymentStep({
-                         bookingId,
-                         subtotal,
-                         carId,
-                     }: {
-    bookingId: string
-    subtotal: number
-    carId: string
-}) {
-    const stripe = useStripe()
-    const elements = useElements()
-    const navigate = useNavigate()
-    const [processing, setProcessing] = useState(false)
-    const [error, setError] = useState<string | null>(null)
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault()
-        // stripe and elements are null during the initial render before Stripe.js
-        // has loaded. The submit button is already disabled in this state, but
-        // the guard here prevents any edge-case double-submit.
-        if (!stripe || !elements) return
-
-        setProcessing(true)
-        setError(null)
-
-        // elements.submit() validates the form client-side and performs any
-        // preliminary tokenization. It does NOT charge the card.
-        // Errors here are things like incomplete card number, expired date, etc.
-        const { error: submitError } = await elements.submit()
-        if (submitError) {
-            setError(submitError.message ?? 'Please check your card details')
-            setProcessing(false)
-            return
-        }
-
-        // stripe.confirmPayment() actually charges the card using the
-        // PaymentIntent identified by the clientSecret that was passed to
-        // the <Elements> provider above.
-        //
-        // redirect: 'if_required' handles 3D Secure inline when possible.
-        // return_url is the fallback for cards that require a full browser
-        // redirect for 3DS — Stripe sends the user back here after authentication.
-        //
-        // ── FIX: added return_url ──────────────────────────────────────────────
-        // The old code had no return_url. For cards that DO require a redirect
-        // for 3DS authentication (some European cards, Amex in certain banks),
-        // Stripe needs a URL to return the user to. Without it, those payments
-        // fail silently with no error shown. The booking-confirmed page handles
-        // checking the PaymentIntent status on arrival.
-        const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
-            elements,
-            redirect: 'if_required',
-            confirmParams: {
-                return_url: `${window.location.origin}/booking-confirmed?bookingId=${bookingId}`,
-            },
-        })
-
-        if (stripeError) {
-            // stripeError.message comes directly from Stripe and is already
-            // user-friendly ("Your card was declined", "Insufficient funds", etc.)
-            setError(stripeError.message ?? 'Payment failed. Please try again.')
-            setProcessing(false)
-            return
-        }
-
-        if (paymentIntent?.status === 'succeeded') {
-            try {
-                // Verify on the server: confirmBooking re-fetches the PaymentIntent
-                // from Stripe directly to confirm it's genuinely succeeded before
-                // updating the booking row to 'confirmed'. This prevents a malicious
-                // user from calling confirmBooking with a fake paymentIntentId.
-                await confirmBooking({
-                    data: {
-                        bookingId,
-                        paymentIntentId: paymentIntent.id,
-                    }
-                })
-                void navigate({ to: '/booking-confirmed', search: { bookingId } })
-            } catch (e: unknown) {
-                // Payment went through on Stripe's side but the DB update failed.
-                // The webhook (payment_intent.succeeded) will catch this as a backup
-                // and set status to 'confirmed' even if we never reach this navigate.
-                setError('Payment succeeded but confirmation failed. Please contact us — your booking ID is ' + bookingId)
-                setProcessing(false)
-            }
-            return
-        }
-
-        // ── FIX: added this else block — this was the root cause of "stuck on processing"
-        //
-        // WHAT WAS WRONG:
-        // The old gray-theme version added `fields: { billingDetails: { name: 'never',
-        // email: 'never', address: 'never', phone: 'never' } }` to PaymentElement options.
-        // Setting a field to 'never' tells Stripe "I will provide this data myself in
-        // confirmPayment's confirmParams" — but confirmPayment was never passed those details.
-        // Stripe received a payment with suppressed billing fields and no substitute data,
-        // causing it to return a paymentIntent with status !== 'succeeded' but WITHOUT setting
-        // stripeError. Since there was no else clause, the button stayed stuck on
-        // "Processing payment..." permanently with no error shown and no way out.
-        //
-        // THE FIX:
-        // 1. The `fields.billingDetails: 'never'` settings have been completely removed from
-        //    PaymentElement below — Stripe now collects what it needs in its own UI.
-        // 2. This else clause handles any non-succeeded status that slips through, giving
-        //    the user an actionable error and resetting the button.
-        //
-        // Possible statuses that reach here: 'requires_action' (3DS not completed inline),
-        // 'requires_confirmation', 'processing' (bank processing). In production these are
-        // rare with redirect: 'if_required', but they must be handled gracefully.
-        if (paymentIntent) {
-            setError(
-                `Payment status: ${paymentIntent.status}. ` +
-                'If you were charged, please contact us with your booking reference: ' + bookingId
-            )
-        } else {
-            setError('Payment did not complete. Please try again.')
-        }
-        setProcessing(false)
-    }
-
-    return (
-        <form onSubmit={handleSubmit}>
-            <div className="bg-gray-200 border border-gray-400 rounded-2xl p-6 mb-4">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Payment details</h2>
-
-                {/*
-                    PaymentElement renders the card input form styled using the
-                    appearance config passed to <Elements> above.
-
-                    ── FIX: removed fields.billingDetails: 'never' settings ──────────────
-                    Those settings were the root cause of the broken payment.
-                    Setting billingDetails fields to 'never' tells Stripe not to collect
-                    them in the UI — but then you MUST provide them yourself in confirmPayment's
-                    confirmParams.payment_method_data.billing_details. The old code didn't,
-                    causing Stripe to silently fail and return a non-succeeded paymentIntent
-                    with no stripeError, resulting in the infinite "Processing payment..." state.
-
-                    ── FIX: removed layout: 'accordion' ────────────────────────────────────
-                    'accordion' layout enables Stripe Link's "Save my information for faster
-                    checkout" promotional section, which is what you saw in the screenshot.
-                    The default 'tabs' layout (used when no layout option is set) does not
-                    display the Link signup section. To permanently suppress Link across all
-                    layouts, go to Stripe Dashboard → Settings → Payment methods → Link and
-                    disable it at the account level.
-
-                    wallets: applePay/googlePay 'auto' shows Apple Pay / Google Pay buttons
-                    automatically when the device and browser support them. This is the
-                    recommended setting — showing wallet options increases conversion.
-                */}
-                <PaymentElement
-                    options={{
-                        wallets: {
-                            applePay: 'auto',
-                            googlePay: 'auto',
-                        },
-                    }}
-                />
-            </div>
-
-            {error && (
-                <div className="bg-red-100 border border-red-400 rounded-xl p-4 mb-4 text-red-800 text-sm">
-                    {error}
-                </div>
-            )}
-
-            <button
-                type="submit"
-                disabled={!stripe || processing}
-                className="w-full py-4 bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed text-gray-800 font-bold rounded-xl text-lg transition-colors cursor-pointer"
-            >
-                {processing ? 'Processing payment...' : `Pay $${subtotal.toFixed(2)}`}
-            </button>
-
-            <p className="text-center text-gray-500 text-xs mt-3">
-                Secured by Stripe
-            </p>
-        </form>
     )
 }

@@ -465,6 +465,101 @@ async function quoteTripOnServer(input: {
     return quote
 }
 
+// ── Payment method families ───────────────────────────────────────────────────
+//
+// PaymentElement shows exactly the methods the PaymentIntent permits; there is
+// no client-side filter for it. Leaving payment_method_types unset lets Stripe
+// enable everything switched on in the dashboard, which is what turned the
+// payment step into a six-row accordion (Card, Bank, Cash App, Affirm, Amazon
+// Pay, Klarna) with nothing expanded.
+//
+// Naming the types splits that in two: 'card' is a single type, so the Element
+// draws the card fields directly with no chooser above them, and 'other' is
+// everything else, sitting behind "Pay another way". The `other` list must stay
+// a subset of what's actually enabled on the Stripe account — an unenabled or
+// ineligible type makes the whole PaymentIntent fail to create.
+export type PaymentMode = 'card' | 'other'
+
+const PAYMENT_METHOD_TYPES: Record<PaymentMode, string[]> = {
+    card: ['card'],
+    other: ['us_bank_account', 'cashapp', 'affirm', 'klarna', 'amazon_pay'],
+}
+
+// Whether an existing intent already offers exactly this mode's methods.
+//
+// automatic_payment_methods is checked first and is the important half. An
+// intent created without either parameter gets APM enabled by default (Stripe
+// changed the default in Aug 2023), and APM keeps deciding what the Element
+// shows no matter what payment_method_types says — which is why a card-only
+// list still rendered Bank and Klarna rows.
+function intentMatchesMode(intent: Stripe.PaymentIntent, mode: PaymentMode): boolean {
+    if (intent.automatic_payment_methods?.enabled) return false
+
+    const wanted = PAYMENT_METHOD_TYPES[mode]
+    // Stripe attaches 'link' to card intents on its own; it isn't a choice
+    // anyone made here, so it shouldn't count as a mismatch and force a rebuild.
+    const current = (intent.payment_method_types ?? []).filter(t => t !== 'link')
+
+    return current.length === wanted.length && wanted.every(t => current.includes(t))
+}
+
+// Returns an intent for this booking that offers `mode`'s payment methods,
+// rebuilding it if the existing one doesn't.
+//
+// Rebuild rather than update, because automatic_payment_methods is not an
+// updatable field — it isn't in the update endpoint's parameter list, so an
+// APM-enabled intent can never be narrowed in place. The only way to get a
+// card-only Element is a new intent created with payment_method_types set.
+//
+// The booking row is repointed at the replacement in the same breath:
+// stripe_payment_intent_id holds exactly one id, and an orphaned intent that
+// nothing references is one that can be paid without confirming any booking.
+async function intentForMode(
+    booking: { id: string; total_price: number | string; car_id: number; user_id: string; start_time: string; end_time: string; pickup_location: string | null; stripe_payment_intent_id: string },
+    mode: PaymentMode,
+) {
+    const existing = await stripe.paymentIntents.retrieve(booking.stripe_payment_intent_id)
+    if (intentMatchesMode(existing, mode)) return existing
+
+    const replacement = await stripe.paymentIntents.create({
+        // The amount is copied from the row, not recomputed: this booking was
+        // priced server-side when it was created and switching how it's paid for
+        // is not an occasion to re-quote it.
+        amount: Math.round(Number(booking.total_price) * 100),
+        currency: 'usd',
+        payment_method_types: PAYMENT_METHOD_TYPES[mode],
+        metadata: {
+            carId: String(booking.car_id),
+            userId: booking.user_id,
+            startTime: booking.start_time,
+            endTime: booking.end_time,
+            pickupLocation: booking.pickup_location ?? '',
+        },
+    })
+
+    if (!replacement.client_secret) throw new Error('Failed to create payment intent')
+
+    const supabaseAdmin = getServiceRoleClient()
+    const { error } = await supabaseAdmin
+        .from('bookings')
+        .update({ stripe_payment_intent_id: replacement.id })
+        .eq('id', booking.id)
+
+    if (error) throw new Error(error.message)
+
+    // Only after the row points at the replacement. Cancelling first would leave
+    // a window where a failed update strands the booking on a dead intent.
+    // Best-effort: an intent Stripe considers uncancellable is abandoned
+    // instead, which costs nothing since it was never confirmed.
+    try {
+        await stripe.paymentIntents.cancel(existing.id)
+    } catch {
+        // ignore — the replacement is already live and recorded
+    }
+
+    return replacement
+}
+
 export const createCheckoutSession = createServerFn({ method: 'POST' })
     .inputValidator((input: {
         carId: string
@@ -489,6 +584,13 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         pickupId?: string
         pickupAddress?: string
         bookingId?: string // optional
+        // Which family of payment methods the Element should offer. Has to be
+        // decided here rather than in the browser: PaymentElement renders
+        // whatever the PaymentIntent allows and gives the client no way to
+        // filter it, so "card only" is a property of the intent.
+        // Optional, defaulting to card, so an in-flight checkout from before
+        // this change keeps working.
+        paymentMode?: PaymentMode
     }) => input)
     .handler(async ({ data }) => {
         const supabase = getSupabaseServerClient()
@@ -538,7 +640,10 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
                 // No re-pricing here: this booking's total was computed server-side
                 // when it was created, and its PaymentIntent is already locked to
                 // that amount.
-                const intent = await stripe.paymentIntents.retrieve(existing.stripe_payment_intent_id)
+                const intent = await intentForMode(
+                    { ...existing, stripe_payment_intent_id: existing.stripe_payment_intent_id },
+                    data.paymentMode ?? 'card',
+                )
                 return {
                     clientSecret: intent.client_secret,
                     bookingId: existing.id,
@@ -565,7 +670,10 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
                 excludeBookingId: existingBooking.id,
             })
 
-            const intent = await stripe.paymentIntents.retrieve(existingBooking.stripe_payment_intent_id)
+            const intent = await intentForMode(
+                { ...existingBooking, stripe_payment_intent_id: existingBooking.stripe_payment_intent_id },
+                data.paymentMode ?? 'card',
+            )
             return {
                 clientSecret: intent.client_secret,
                 bookingId: existingBooking.id,
@@ -621,6 +729,10 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         const paymentIntent = await stripe.paymentIntents.create({
             amount: Math.round(quote.total * 100),
             currency: 'usd',
+            // Naming these suppresses Stripe's automatic payment methods, which
+            // is what makes the card mode render as bare card fields instead of
+            // a chooser listing every method enabled on the account.
+            payment_method_types: PAYMENT_METHOD_TYPES[data.paymentMode ?? 'card'],
             metadata: {
                 carId: data.carId,
                 userId: user.id,

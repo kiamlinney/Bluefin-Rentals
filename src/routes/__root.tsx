@@ -61,11 +61,14 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 function RootComponent() {
     const { user } = Route.useLoaderData();
     const { pathname } = useLocation();
-    const isAdminShell = pathname.startsWith("/admin");
+    // Routes that supply their own chrome and must not get the site Navbar on
+    // top of it. /admin has the sidebar shell; /checkout has its own header
+    const isBareShell =
+        pathname.startsWith("/admin") || pathname.startsWith("/checkout");
 
     return (
         <RootDocument>
-            {!isAdminShell && <Navbar user={user}/>}
+            {!isBareShell && <Navbar user={user}/>}
             <Outlet />
             {/* Devtools disabled to prevent potential overlay intercepting clicks */}
             {null}
