@@ -1,6 +1,6 @@
 import {createFileRoute, Link} from '@tanstack/react-router'
 import {cancelBooking, getBookingById} from "@/lib/db.ts";
-import {formatBusinessDate, formatBusinessTime} from "@/lib/dates.ts";
+import {formatBusinessDate, formatBusinessTime, getRelativeTimeString} from "@/lib/dates.ts";
 import { Plane, CarFront, Check, X} from 'lucide-react';
 import {useState} from "react";
 
@@ -11,26 +11,6 @@ export const Route = createFileRoute('/admin/reservation/$bookingId')({
     },
     component: ReservationDetailsPage,
 })
-
-function getRelativeTimeString(target: Date, now: Date): string {
-    const diffMs = target.getTime() - now.getTime() // difference in milliseconds
-
-    // Target is in the past relative to now
-    if (diffMs <= 0) return 'now'
-
-    const totalMinutes = Math.floor(diffMs / (1000 * 60))
-    const days = Math.floor(totalMinutes / (60 * 24))
-    const hours = Math.floor((totalMinutes % (60 * 24)) / 60)
-    const minutes = totalMinutes % 60
-
-    if (days > 0) {
-        return `${days} day${days !== 1 ? 's' : ''}${hours > 0 ? ` and ${hours} hour${hours !== 1 ? 's' : ''}` : ''}`
-    }
-    if (hours > 0) {
-        return `${hours} hour${hours !== 1 ? 's' : ''}${minutes > 0 ? ` and ${minutes} minute${minutes !== 1 ? 's' : ''}` : ''}`
-    }
-    return `${minutes} minute${minutes !== 1 ? 's' : ''}`
-}
 
 // Renders a stored phone number as +1 (XXX) XXX-XXXX when it really is a 10-digit
 // US number, and otherwise hands back whatever was stored, untouched. Returns
@@ -95,12 +75,7 @@ function ReservationDetailsPage() {
     const handleCancel = async () => {
         setConfirmCancel(true);
         try {
-            await cancelBooking({
-                data: {
-                    bookingId: booking.id,
-                    paymentIntentId: booking.stripe_payment_intent_id,
-                }
-            });
+            await cancelBooking({ data: { bookingId: booking.id } });
             window.location.reload(); // Refreshing page
         } catch (err) {
             alert("Failed to cancel trip. Please contact support.");
@@ -225,8 +200,11 @@ function ReservationDetailsPage() {
                             <h3 className="text-xs font-bold uppercase tracking-wider text-black">
                                 Trip Photos{mediaCount > 0 && ` (${mediaCount})`}
                             </h3>
+                            {/* Guest and host share one photos page now; the
+                                back link there points wherever the viewer came
+                                from. */}
                             <Link
-                                to="/admin/reservation/$bookingId/photos"
+                                to="/trips/$bookingId/photos"
                                 params={{ bookingId: booking.id }}
                                 className="text-sm font-semibold text-emerald-700 hover:underline cursor-pointer block pt-1"
                             >

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { businessDateKey, businessWallClockTime } from './dates'
 
 // Zod validates that the URL search params are exactly the right shape
 // before the loader or component even runs. If a param is missing or
@@ -43,6 +44,51 @@ export const checkoutSearchSchema = z.object({
 
 // Derive the search type from the schema so it's always in sync
 export type CheckoutSearch = z.infer<typeof checkoutSearchSchema>
+
+/**
+ * Rebuilds the search params the car page would have produced, so a pending
+ * booking can be resumed at checkout. Called from the my-bookings card and from
+ * the trip page's `unpaid` state.
+ *
+ * This has to reverse wallClockToUtcIso rather than slice the stored timestamp.
+ * `start_time.split('T')[0]` takes the UTC day and `start.getHours()` takes the
+ * browser's clock, and neither is the day or the hour on the reservation: a 10pm
+ * Central return is 03:00Z the next day, so the split hands checkout an endDate
+ * one day late. That was survivable only because createCheckoutSession
+ * short-circuits on bookingId and returns the stored booking untouched — but if
+ * the pending row has since been swept, it falls through and books the wrong
+ * range for real.
+ *
+ * Known gap: pickupKind/pickupId/pickupAddress are not reconstructed, because
+ * the booking row stores only the rendered `pickup_location` string. A resumed
+ * delivery booking therefore falls back to home-base pickup via the
+ * `.catch('home')` above. Fixing it needs the structured selection persisted on
+ * the row; it is not something this function can recover.
+ */
+export function buildCheckoutSearch(booking: {
+    id: string
+    start_time: string
+    end_time: string
+    total_price: number
+    pickup_location: string
+}): CheckoutSearch {
+    const start = new Date(booking.start_time)
+    const end = new Date(booking.end_time)
+
+    return {
+        startDate: businessDateKey(start),
+        endDate: businessDateKey(end),
+        startTime: businessWallClockTime(start),
+        endTime: businessWallClockTime(end),
+        totalDays: Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)),
+        subtotal: booking.total_price,
+        pickupLocation: booking.pickup_location,
+        pickupKind: 'home',
+        pickupId: undefined,
+        pickupAddress: undefined,
+        bookingId: booking.id,
+    }
+}
 
 // The three sequential checkout steps
 export type Step = 'driver-info' | 'identity' | 'payment'

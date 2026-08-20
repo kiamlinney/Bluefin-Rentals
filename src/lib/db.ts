@@ -789,17 +789,16 @@ export const confirmBooking = createServerFn({ method: 'POST' })
         paymentIntentId: string
     }) => input)
     .handler(async ({ data }) => {
+        // Already self-limiting — the update below only matches a row whose
+        // stored intent is the one Stripe just confirmed as succeeded — but
+        // every other booking-scoped function authorizes, so this one does too.
+        const { supabaseAdmin } = await assertBookingAccess(data.bookingId)
+
         const paymentIntent = await stripe.paymentIntents.retrieve(data.paymentIntentId)
 
         if (paymentIntent.status !== 'succeeded') {
             throw new Error('Payment not completed')
         }
-
-        const supabaseAdmin = createClient(
-            process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
-            process.env.SUPABASE_SERVICE_ROLE_KEY!,
-            { auth: { persistSession: false, autoRefreshToken: false } }
-        )
 
         const { data: booking, error } = await supabaseAdmin
             .from('bookings')
@@ -813,34 +812,32 @@ export const confirmBooking = createServerFn({ method: 'POST' })
         return booking
     })
 
+// The paymentIntentId the caller used to pass is gone on purpose. This function
+// runs as the service role and issues real refunds, so it takes exactly one
+// thing from the client — which booking — and reads everything it acts on from
+// the row itself.
 export const cancelBooking = createServerFn({ method: 'POST' })
-    .inputValidator((input: {
-        bookingId: string
-        // Nullable: bookings entered by hand for off-platform trips never had a
-        // Stripe intent. Those are still cancellable, there's just nothing to
-        // refund — see the guard on the refund call below.
-        paymentIntentId: string | null
-    }) => input)
+    .inputValidator((input: { bookingId: string }) => input)
     .handler(async ({ data }) => {
-        const supabaseAdmin = createClient(
-            process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
-            process.env.SUPABASE_SERVICE_ROLE_KEY!,
-            { auth: { persistSession: false, autoRefreshToken: false } }
-        )
+        // Admin, or the renter on this booking. Without this, knowing a booking
+        // UUID was enough to cancel the trip and refund the charge.
+        const { supabaseAdmin } = await assertBookingAccess(data.bookingId)
 
         const { data: booking } = await supabaseAdmin
             .from('bookings')
-            .select('status')
+            .select('status, stripe_payment_intent_id')
             .eq('id', data.bookingId)
             .single()
 
         // Only refund if was actually paid for, and only if there's an intent to
         // refund against — an off-platform booking has no Stripe side to reverse,
-        // so it falls straight through to being marked canceled.
-        if (booking?.status === 'confirmed' && data.paymentIntentId) {
+        // so it falls straight through to being marked canceled. The intent comes
+        // from the row, never from the request: a caller who could name the
+        // payment intent could otherwise refund a charge from another booking.
+        if (booking?.status === 'confirmed' && booking.stripe_payment_intent_id) {
             try {
                 await stripe.refunds.create({
-                    payment_intent: data.paymentIntentId,
+                    payment_intent: booking.stripe_payment_intent_id,
                 });
             } catch (err: any) {
                 console.error("Stripe refund failed:", err.message);
@@ -863,21 +860,170 @@ export const cancelBooking = createServerFn({ method: 'POST' })
         return { success: true }
 })
 
+// The profile columns the reservation and trip pages actually render. This was
+// `profiles(*)`, which shipped the renter's date of birth, home address, and
+// stripe_identity_session_id to the browser on every load — none of which any
+// page displays. Widen it only alongside a matching change to
+// BookingWithDetails in src/types.ts.
+const BOOKING_PROFILE_COLUMNS =
+    'id, full_name, email, phone, num_trips, created_at, identity_verified'
+
 export const getBookingById = createServerFn({ method: 'GET' })
     .inputValidator((bookingId: string) => bookingId)
     .handler(async ({ data: bookingId }) => {
-        const supabase = getSupabaseServerClient()
+        // Authorize before reading rather than leaning on RLS. This function is
+        // reachable directly as a server function, and it embeds another user's
+        // profile — so "the policy would have blocked it" is not a defense worth
+        // betting the renter's contact details on.
+        const { supabaseAdmin } = await assertBookingAccess(bookingId)
 
         // trip_media(count) rides along so the reservation page can label the
         // Trip Photos section without a second round trip.
-        const { data, error } = await supabase
+        const { data, error } = await supabaseAdmin
             .from('bookings')
-            .select('*, cars(*), profiles(*), trip_media(count)')
+            .select(`*, cars(*), profiles(${BOOKING_PROFILE_COLUMNS}), trip_media(count)`)
             .eq('id', bookingId)
             .single()
 
         if (error) throw new Error('Booking not found')
         return data
+    })
+
+// What the trip page is allowed to say about the money, as opposed to what the
+// bookings row happens to hold. `unpaid` is the one worth naming: a `pending`
+// row whose intent still wants a payment method is an abandoned checkout, not a
+// failure, and it gets a "finish checkout" path rather than an error.
+export type TripPaymentState =
+    | 'confirmed'
+    | 'processing'
+    | 'unpaid'
+    | 'failed'
+    | 'canceled'
+    | 'completed'
+
+export type TripPaymentCard = {
+    brand: string | null
+    last4: string | null
+    receiptUrl: string | null
+}
+
+// Terminal states are read off the row. Once a booking is canceled or completed,
+// what the PaymentIntent says no longer changes what the page should show — and
+// a refunded booking must never be talked back into looking confirmed.
+function terminalStateOf(status: string): TripPaymentState | null {
+    if (status === 'canceled') return 'canceled'
+    if (status === 'completed') return 'completed'
+    if (status === 'failed') return 'failed'
+    return null
+}
+
+/**
+ * Loader for the guest trip page. Same authorization as getBookingById, plus a
+ * payment state that has actually been checked against Stripe rather than
+ * inferred from the row.
+ *
+ * The row alone is not enough to render this page honestly: the webhook is the
+ * source of truth for confirmation, and until it lands (or if it never does) a
+ * paid booking still reads `pending`. The old booking-confirmed page skipped
+ * this entirely and told everyone "You're all set!".
+ */
+export const getTripForGuest = createServerFn({ method: 'GET' })
+    .inputValidator((bookingId: string) => bookingId)
+    .handler(async ({ data: bookingId }) => {
+        const { supabaseAdmin, isAdmin } = await assertBookingAccess(bookingId)
+
+        const { data: booking, error } = await supabaseAdmin
+            .from('bookings')
+            .select(`*, cars(*), profiles(${BOOKING_PROFILE_COLUMNS}), trip_media(count)`)
+            .eq('id', bookingId)
+            .single()
+
+        if (error || !booking) throw new Error('Booking not found')
+
+        const terminal = terminalStateOf(booking.status)
+
+        // Hand-entered off-platform bookings never had an intent, so there is
+        // nothing to verify and nothing to put on a receipt.
+        if (!booking.stripe_payment_intent_id) {
+            return {
+                booking,
+                isAdmin,
+                paymentState: terminal ?? (booking.status === 'confirmed' ? 'confirmed' : 'unpaid'),
+                card: null as TripPaymentCard | null,
+            }
+        }
+
+        let intent: Stripe.PaymentIntent
+        try {
+            // One retrieve serves both jobs: the status the page gates on, and
+            // the card and receipt link the receipt block renders.
+            intent = await stripe.paymentIntents.retrieve(booking.stripe_payment_intent_id, {
+                expand: ['latest_charge'],
+            })
+        } catch (err: any) {
+            // Stripe being unreachable should not take the page down — the trip
+            // details are still worth showing. Fall back to the row, which is
+            // the pessimistic read.
+            console.error('Could not retrieve PaymentIntent for booking', bookingId, err?.message)
+            return {
+                booking,
+                isAdmin,
+                paymentState: terminal ?? (booking.status === 'confirmed' ? 'confirmed' : 'processing'),
+                card: null as TripPaymentCard | null,
+            }
+        }
+
+        const charge = intent.latest_charge as Stripe.Charge | null
+        const card: TripPaymentCard | null = charge
+            ? {
+                brand: charge.payment_method_details?.card?.brand ?? null,
+                last4: charge.payment_method_details?.card?.last4 ?? null,
+                receiptUrl: charge.receipt_url ?? null,
+            }
+            : null
+
+        if (terminal) return { booking, isAdmin, paymentState: terminal, card }
+
+        let paymentState: TripPaymentState
+        switch (intent.status) {
+            case 'succeeded':
+                paymentState = 'confirmed'
+                break
+            case 'processing':
+            case 'requires_action':
+            case 'requires_confirmation':
+            case 'requires_capture':
+                paymentState = 'processing'
+                break
+            case 'requires_payment_method':
+                paymentState = 'unpaid'
+                break
+            case 'canceled':
+                paymentState = 'canceled'
+                break
+            default:
+                paymentState = 'processing'
+        }
+
+        // The webhook normally does this. When it is late, delayed, or was never
+        // delivered, the guest is sitting on the page watching a paid booking
+        // claim to be pending — so close the gap here too. Scoped to `pending`
+        // so this can never revive a row that moved on.
+        if (paymentState === 'confirmed' && booking.status === 'pending') {
+            const { error: updateErr } = await supabaseAdmin
+                .from('bookings')
+                .update({ status: 'confirmed' })
+                .eq('id', bookingId)
+                .eq('status', 'pending')
+
+            if (updateErr) {
+                console.error('Could not confirm booking from trip page', bookingId, updateErr.message)
+            } else {
+                booking.status = 'confirmed'
+            }
+        }
+
+        return { booking, isAdmin, paymentState, card }
     })
 
 // Fetches current user profile's row
@@ -1003,6 +1149,14 @@ export const finalizeIdentitySession = createServerFn({ method: 'POST' })
 
         // Retrieve status from Stripe
         const session = await stripe.identity.verificationSessions.retrieve(data.sessionId)
+
+        // The session id arrives from the browser, so being logged in is not
+        // enough — without this, passing someone else's verified session id
+        // marks your own profile as identity-verified. createIdentitySession
+        // stamps metadata.userId at creation for exactly this check.
+        if (session.metadata?.userId !== user.id) {
+            throw new Error('Not authorized')
+        }
 
         if (session.status === 'verified') {
             const supabaseAdmin = createClient(
@@ -1687,6 +1841,19 @@ async function assertBookingAccess(bookingId: string) {
     return { user, isAdmin, supabase, supabaseAdmin }
 }
 
+// Editing or removing one item is narrower than reading the set: booking access
+// alone would let a renter delete the host's photos of the damage they caused.
+// Admins act on anything; everyone else only on what they uploaded.
+async function assertMediaOwnership(media: { booking_id: string; uploaded_by: string | null }) {
+    const access = await assertBookingAccess(media.booking_id)
+
+    if (!access.isAdmin && media.uploaded_by !== access.user.id) {
+        throw new Error('Not authorized')
+    }
+
+    return access
+}
+
 // Turns stored rows into rows the browser can render, by signing every full-size
 // and thumbnail path in a single round trip.
 async function withSignedUrls(supabaseAdmin: ReturnType<typeof getServiceRoleClient>, rows: any[]) {
@@ -1844,12 +2011,12 @@ export const updateTripMediaCaption = createServerFn({ method: 'POST' })
 
         const { data: media, error: findErr } = await supabaseAdmin
             .from('trip_media')
-            .select('booking_id')
+            .select('booking_id, uploaded_by')
             .eq('id', data.mediaId)
             .single()
 
         if (findErr || !media) throw new Error('Photo not found')
-        await assertBookingAccess(media.booking_id)
+        await assertMediaOwnership(media)
 
         const caption = data.caption.trim().slice(0, 200)
 
@@ -1869,12 +2036,12 @@ export const deleteTripMedia = createServerFn({ method: 'POST' })
 
         const { data: media, error: findErr } = await supabaseAdmin
             .from('trip_media')
-            .select('booking_id, storage_path, thumb_path')
+            .select('booking_id, storage_path, thumb_path, uploaded_by')
             .eq('id', mediaId)
             .single()
 
         if (findErr || !media) throw new Error('Photo not found')
-        await assertBookingAccess(media.booking_id)
+        await assertMediaOwnership(media)
 
         const paths = [media.storage_path, media.thumb_path].filter(Boolean) as string[]
         const { error: removeErr } = await supabaseAdmin

@@ -156,3 +156,30 @@ export function formatDateKey(
 export function isBusinessToday(value: Instant, now: Date = new Date()): boolean {
     return businessDateKey(value) === businessDateKey(now)
 }
+
+// "3 days and 4 hours", "45 minutes", or "now" once the target has passed.
+// Used for the countdown on both the admin reservation page and the guest trip
+// page, which is why it lives here rather than in either route file.
+//
+// No timezone pinning on purpose, and none needed: this is a difference between
+// two instants, and a duration is the same length in every zone. Only the
+// endpoints being *displayed* need formatBusinessDate.
+export function getRelativeTimeString(target: Date, now: Date): string {
+    const diffMs = target.getTime() - now.getTime()
+
+    // Target is in the past relative to now
+    if (diffMs <= 0) return 'now'
+
+    const totalMinutes = Math.floor(diffMs / (1000 * 60))
+    const days = Math.floor(totalMinutes / (60 * 24))
+    const hours = Math.floor((totalMinutes % (60 * 24)) / 60)
+    const minutes = totalMinutes % 60
+
+    if (days > 0) {
+        return `${days} day${days !== 1 ? 's' : ''}${hours > 0 ? ` and ${hours} hour${hours !== 1 ? 's' : ''}` : ''}`
+    }
+    if (hours > 0) {
+        return `${hours} hour${hours !== 1 ? 's' : ''}${minutes > 0 ? ` and ${minutes} minute${minutes !== 1 ? 's' : ''}` : ''}`
+    }
+    return `${minutes} minute${minutes !== 1 ? 's' : ''}`
+}

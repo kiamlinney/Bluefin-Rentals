@@ -17,7 +17,7 @@ import {
 // The trailing underscore on $bookingId_ opts this route out of nesting under
 // reservation.$bookingId.tsx, so it renders as its own page. The URL is
 // unaffected: /admin/reservation/{bookingId}/photos.
-export const Route = createFileRoute('/admin/reservation/$bookingId_/photos')({
+export const Route = createFileRoute('/_authed/trips/$bookingId_/photos')({
     loader: async ({ params }) => {
         const [booking, media] = await Promise.all([
             getBookingById({ data: params.bookingId }),

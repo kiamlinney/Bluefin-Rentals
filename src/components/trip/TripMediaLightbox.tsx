@@ -19,9 +19,20 @@ function frameWidth(width: number | null, height: number | null) {
     return `min(${MAX_FRAME_WIDTH}, 92vw, calc(${MAX_FRAME_HEIGHT} * ${ratio}))`
 }
 
+// Who is looking. Both the guest and the host reach this component through the
+// same page now, and they are not allowed to do the same things to each other's
+// photos — see assertMediaOwnership in db.ts, which is where the rule is
+// actually enforced. This prop only keeps the UI from offering an action that
+// the server is going to refuse.
+export type MediaViewer = {
+    id: string
+    isAdmin: boolean
+}
+
 type TripMediaLightboxProps = {
     items: TripMediaItem[]
     index: number
+    viewer: MediaViewer
     onNavigate: (index: number) => void
     onClose: () => void
     onDeleted: (mediaId: string) => void
@@ -29,9 +40,14 @@ type TripMediaLightboxProps = {
 }
 
 export function TripMediaLightbox({
-    items, index, onNavigate, onClose, onDeleted, onCaptionSaved,
+    items, index, viewer, onNavigate, onClose, onDeleted, onCaptionSaved,
 }: TripMediaLightboxProps) {
     const item = items[index]
+
+    // Admins act on anything on the booking; everyone else only on what they
+    // uploaded. A renter deleting the host's photo of the damage they caused is
+    // the case this exists for.
+    const canModify = Boolean(item) && (viewer.isAdmin || item!.uploaded_by === viewer.id)
 
     const [caption, setCaption] = useState(item?.caption ?? '')
     const [savingCaption, setSavingCaption] = useState(false)
@@ -179,16 +195,25 @@ export function TripMediaLightbox({
 
                 <div className="flex items-start justify-between gap-4 px-5 py-4">
                     <div className="min-w-0 flex-1 space-y-1">
-                        <input
-                            value={caption}
-                            onChange={event => setCaption(event.target.value)}
-                            onBlur={saveCaption}
-                            onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
-                            maxLength={200}
-                            placeholder="Add a label"
-                            aria-label="Photo label"
-                            className="w-full text-lg text-black bg-transparent border-b border-transparent hover:border-gray-200 focus:border-emerald-700 focus:outline-none placeholder:text-gray-400 py-0.5"
-                        />
+                        {canModify ? (
+                            <input
+                                value={caption}
+                                onChange={event => setCaption(event.target.value)}
+                                onBlur={saveCaption}
+                                onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
+                                maxLength={200}
+                                placeholder="Add a label"
+                                aria-label="Photo label"
+                                className="w-full text-lg text-black bg-transparent border-b border-transparent hover:border-gray-200 focus:border-emerald-700 focus:outline-none placeholder:text-gray-400 py-0.5"
+                            />
+                        ) : (
+                            // Someone else's photo: their label still shows, it
+                            // just isn't an input. An empty one renders nothing
+                            // rather than an editable-looking placeholder.
+                            item.caption && (
+                                <p className="w-full text-lg text-black py-0.5">{item.caption}</p>
+                            )
+                        )}
                         <p className="text-sm text-gray-500">
                             {takenAt} · by {uploader}
                             {savingCaption && <span className="text-gray-400"> · saving</span>}
@@ -198,7 +223,7 @@ export function TripMediaLightbox({
 
                     {/* Same inline confirm the reservation page uses to cancel a
                         trip — a second modal on top of this one would be worse. */}
-                    {!confirmingDelete ? (
+                    {!canModify ? null : !confirmingDelete ? (
                         <button
                             onClick={() => setConfirmingDelete(true)}
                             aria-label="Delete"

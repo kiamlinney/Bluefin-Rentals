@@ -1,6 +1,6 @@
 import {useState} from "react";
 import {cancelBooking} from "@/lib/db.ts";
-import {businessDateKey, businessWallClockTime} from "@/lib/dates.ts";
+import {buildCheckoutSearch} from "@/lib/checkout-search.ts";
 import {CalendarDays, MapPin} from "lucide-react";
 import {Link} from "@tanstack/react-router";
 
@@ -11,39 +11,15 @@ export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any,
     const [initialCancel, setInitialCancel] = useState(false)
     const [confirmCancel, setConfirmCancel] = useState(false)
 
-    const start = new Date(booking.start_time)
-    const end = new Date(booking.end_time)
-
-    // Resuming a pending checkout has to rebuild the exact search params the car
-    // page would have produced, which means reversing wallClockToUtcIso rather
-    // than slicing the stored timestamp.
-    //
-    // `start_time.split('T')[0]` took the UTC day and `start.getHours()` took the
-    // browser's clock, and neither is the day or the hour on the reservation: a
-    // 10pm Central return is 03:00Z the next day, so the split handed checkout an
-    // endDate one day late. That was survivable only because createCheckoutSession
-    // short-circuits on bookingId and returns the stored booking untouched — but
-    // if the pending row has since been swept, it falls through and books the
-    // wrong range for real.
-    const checkoutParams = {
-        startDate: businessDateKey(start),
-        endDate: businessDateKey(end),
-        startTime: businessWallClockTime(start),
-        endTime: businessWallClockTime(end),
-        totalDays: Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)),
-        subtotal: booking.total_price,
-        pickupLocation: booking.pickup_location,
-    }
+    // Resuming a pending checkout rebuilds the search params the car page would
+    // have produced. Shared with the trip page's unpaid state — see
+    // buildCheckoutSearch for why it can't just slice the stored timestamp.
+    const checkoutParams = buildCheckoutSearch(booking)
 
     const handleCancel = async () => {
         setConfirmCancel(true);
         try {
-            await cancelBooking({
-                data: {
-                    bookingId: booking.id,
-                    paymentIntentId: booking.stripe_payment_intent_id,
-                }
-            });
+            await cancelBooking({ data: { bookingId: booking.id } });
             window.location.reload(); // Refreshing page
         } catch (err) {
             alert("Failed to cancel trip. Please contact support.");
@@ -54,7 +30,19 @@ export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any,
     }
 
     return (
-        <div className={`flex flex-col md:flex-row gap-6 bg-gray-200 border border-gray-800 rounded-2xl p-6 transition-all ${!isUpcoming && 'opacity-80'}`}>
+        // `relative` anchors the full-card link below. The card can't itself be
+        // an <a>: it holds a cancel button and a checkout link, and nesting
+        // those inside an anchor breaks both keyboard and screen reader
+        // behaviour. The overlay-plus-raised-controls arrangement keeps one
+        // large click target without that nesting.
+        <div className={`relative flex flex-col md:flex-row gap-6 bg-gray-200 border border-gray-800 rounded-2xl p-6 transition-all focus-within:ring-2 focus-within:ring-emerald-700 hover:border-black ${!isUpcoming && 'opacity-80'}`}>
+
+            <Link
+                to="/trips/$bookingId"
+                params={{ bookingId: booking.id }}
+                aria-label={`${car.year} ${car.make} ${car.model}, ${formatDate(booking.start_time)} to ${formatDate(booking.end_time)}`}
+                className="absolute inset-0 z-0 rounded-2xl focus:outline-none"
+            />
 
             {/* Car Image */}
             <div className="w-full rounded-lg md:w-48 h-32 flex-shrink-0">
@@ -92,22 +80,11 @@ export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any,
                         <MapPin size={14} /> {booking.pickup_location}
                     </div>
 
-                    {/* Only show "View Receipt" for confirmed trips */}
-                    <div className="mt-2">
-                        {booking.status === 'confirmed' && (
-                            <Link
-                                to="/booking-confirmed"
-                                search={{ bookingId: booking.id }}
-                                className="text-sm font-semibold text-black hover:text-gray-600 transition-colors"
-                            >
-                                View Receipt →
-                            </Link>
-                        )}
-                    </div>
-
                 </div>
 
-                <div className="flex justify-between items-end mt-4 pt-4 border-t border-[#2a4a1e]">
+                {/* z-10 lifts these above the full-card link overlay so they keep
+                    their own click targets instead of navigating to the trip. */}
+                <div className="relative z-10 flex justify-between items-end mt-4 pt-4 border-t border-[#2a4a1e]">
                     <div>
                         <p className="text-xs mt-2 text-black">Total Paid</p>
                         <p className="font-bold text-black">${booking.total_price}</p>

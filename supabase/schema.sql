@@ -442,7 +442,7 @@ CREATE POLICY "Admins can manage turo bookings" ON "public"."turo_bookings" TO "
 
 
 
-CREATE POLICY "Admins have full access" ON "public"."bookings" USING ((("auth"."jwt"() ->> 'email'::"text") = ANY (ARRAY['bluefinbiz@gmail.com'::"text", 'liamjkinney@gmail.com'::"text"])));
+CREATE POLICY "bookings_admin_all" ON "public"."bookings" TO "authenticated" USING ("public"."is_admin"()) WITH CHECK ("public"."is_admin"());
 
 
 

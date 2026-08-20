@@ -52,13 +52,14 @@ export function PaymentStep({
         // redirect: 'if_required' handles 3D Secure inline when possible.
         // return_url is the fallback for cards that require a full browser
         // redirect for 3DS — Stripe sends the user back here after authentication.
-        // Without it, those payments fail silently with no error shown. The
-        // booking-confirmed page handles checking the PaymentIntent status on arrival.
+        // Without it, those payments fail silently with no error shown. The trip
+        // page re-checks the PaymentIntent against Stripe on arrival, so a guest
+        // coming back through this path never has to trust the row's status.
         const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
             elements,
             redirect: 'if_required',
             confirmParams: {
-                return_url: `${window.location.origin}/booking-confirmed?bookingId=${bookingId}`,
+                return_url: `${window.location.origin}/trips/${bookingId}?booked=1`,
             },
         })
 
@@ -82,7 +83,11 @@ export function PaymentStep({
                         paymentIntentId: paymentIntent.id,
                     }
                 })
-                void navigate({ to: '/booking-confirmed', search: { bookingId } })
+                void navigate({
+                    to: '/trips/$bookingId',
+                    params: { bookingId },
+                    search: { booked: '1' },
+                })
             } catch (e: unknown) {
                 // Payment went through on Stripe's side but the DB update failed.
                 // The webhook (payment_intent.succeeded) will catch this as a backup
@@ -175,7 +180,7 @@ export function PaymentStep({
                 {processing ? 'Processing payment...' : `Book trip · $${subtotal.toFixed(2)}`}
             </button>
 
-            <p className="text-center text-gray-500 text-xs mt-3">Secured by Stripe</p>
+            {/*<p className="text-center text-gray-500 text-xs mt-3">Secured by Stripe</p>*/}
         </form>
     )
 }

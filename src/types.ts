@@ -34,14 +34,23 @@ export type BookingWithRelations = Booking & {
     profiles: Pick<Profile, 'id' | 'full_name' | 'email'>
 }
 
-// getBookingById (db.ts:623):
-//     .select('*, cars(*), profiles(*), trip_media(count)')
-// Wider than the above on two counts: the whole profile row, plus an aggregate.
+// getBookingById and getTripForGuest:
+//     .select(`*, cars(*), profiles(${BOOKING_PROFILE_COLUMNS}), trip_media(count)`)
+// Wider than the above on two counts: more profile columns, plus an aggregate.
 // PostgREST returns `trip_media(count)` as an array holding a single { count }
 // object, which is why the read site is `booking.trip_media?.[0]?.count ?? 0`.
+//
+// The Pick<> below must stay in step with BOOKING_PROFILE_COLUMNS in db.ts. It
+// used to be the whole `Profile`, because the query used to be `profiles(*)` —
+// which meant the renter's date of birth, home address, and Stripe identity
+// session id were serialized into the page on every load, none of them read by
+// anything that renders.
 export type BookingWithDetails = Booking & {
     cars: Car
-    profiles: Profile
+    profiles: Pick<
+        Profile,
+        'id' | 'full_name' | 'email' | 'phone' | 'num_trips' | 'created_at' | 'identity_verified'
+    >
     trip_media: { count: number }[]
 }
 
