@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { CarFront, Check, Plane } from 'lucide-react'
 import { cancelBooking, getTripForGuest, type TripPaymentState } from '@/lib/db'
 import { buildCheckoutSearch } from '@/lib/checkout-search'
+import { carSlug } from '@/lib/slug'
 import {
     formatBusinessDate,
     formatBusinessTime,
@@ -107,8 +108,8 @@ function TripPage() {
                                 </span>
                             </div>
                             <Link
-                                to="/fleet/$carId"
-                                params={{ carId: car.id.toString() }}
+                                to="/fleet/$carSlug"
+                                params={{ carSlug: carSlug(car) }}
                                 className="text-sm font-semibold text-emerald-700 hover:underline"
                             >
                                 View car details
@@ -280,8 +281,9 @@ function PaymentSection({
                     car's page, or get in touch if you think this is wrong.
                 </p>
                 <Link
-                    to="/fleet/$carId"
-                    params={{ carId: booking.car_id.toString() }}
+                    to="/fleet/$carSlug"
+                    // Only the id is on hand here; the route redirects to the slug.
+                    params={{ carSlug: booking.car_id.toString() }}
                     className="inline-block mt-4 text-sm font-semibold text-red-900 hover:underline"
                 >
                     Back to the car →

@@ -6,6 +6,7 @@ import {
     useLocation
 } from '@tanstack/react-router'
 import Navbar from "../components/Navbar.tsx";
+import Footer from "../components/Footer.tsx";
 import type { ReactNode } from "react";
 import { getUserWithProfile } from "../lib/auth.ts";
 import '../index.css'
@@ -70,6 +71,7 @@ function RootComponent() {
         <RootDocument>
             {!isBareShell && <Navbar user={user}/>}
             <Outlet />
+            {!isBareShell && <Footer />}
             {/* Devtools disabled to prevent potential overlay intercepting clicks */}
             {null}
         </RootDocument>

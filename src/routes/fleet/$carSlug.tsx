@@ -1,4 +1,4 @@
-import {createFileRoute, Link, useNavigate} from "@tanstack/react-router"
+import {createFileRoute, Link, notFound, redirect, useNavigate} from "@tanstack/react-router"
 import { getCarById } from "@/lib/db.ts";
 import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { z } from "zod";
@@ -38,6 +38,8 @@ import { TripCalendar } from "@/components/TripCalendar.tsx";
 import { PriceBreakdown } from "@/components/PriceBreakdown.tsx";
 import { PickupLocationPicker } from "@/components/PickupLocationPicker.tsx";
 import { DEFAULT_PICKUP, resolvePickup, type PickupSelection } from "@/lib/pickup.ts";
+import { carSlug, parseCarIdFromSlug } from "@/lib/slug.ts";
+import { absoluteUrl } from "@/lib/site.ts";
 
 // Optional because most visitors arrive without dates. `.catch(undefined)` so a
 // hand-mangled URL renders an empty picker instead of an error boundary.
@@ -47,16 +49,35 @@ const carSearchSchema = z.object({
     end: z.string().regex(DATE_KEY).optional().catch(undefined),
 })
 
-export const Route = createFileRoute("/fleet/$carId")({
+export const Route = createFileRoute("/fleet/$carSlug")({
     validateSearch: carSearchSchema,
     loader: async ({ params }) => {
-        const car = await getCarById({ data: params.carId })
+        const carId = parseCarIdFromSlug(params.carSlug)
+        if (!carId) throw notFound()
+
+        const car = await getCarById({ data: carId })
+
+        // One car, one indexable URL. A bare id or a stale name still resolves,
+        // then permanently redirects to the current spelling.
+        const canonical = carSlug(car)
+        if (params.carSlug !== canonical) {
+            throw redirect({
+                to: "/fleet/$carSlug",
+                params: { carSlug: canonical },
+                search: (prev) => prev,
+                statusCode: 301,
+            })
+        }
+
         const user = await getUser().catch(() => null)
         return { car, user }
     },
 
     // Meta tag generation to optimize SEO
     head: ({ loaderData }) => ({
+        links: loaderData
+            ? [{ rel: "canonical", href: absoluteUrl(`/fleet/${carSlug(loaderData.car)}`) }]
+            : [],
         scripts: [
             {
                 type: "application/ld+json",
@@ -214,7 +235,8 @@ const formatTriggerDate = (d: Date) => d.toLocaleDateString("en-US");
 
 function CarDetails() {
     const { car, user } = Route.useLoaderData()
-    const { carId } = Route.useParams()
+    // The rest of the page works in ids; the slug is only ever a URL concern.
+    const carId = String(car.id)
     const search = Route.useSearch()
     const navigate = useNavigate()
     const [showGallery, setShowGallery] = useState(false);
@@ -887,8 +909,8 @@ function CarDetails() {
                                         // arrives from the search bar comes back to empty calendars.
                                         search={{
                                             redirect: search.start && search.end
-                                                ? `/fleet/${carId}?start=${search.start}&end=${search.end}`
-                                                : `/fleet/${carId}`,
+                                                ? `/fleet/${carSlug(car)}?start=${search.start}&end=${search.end}`
+                                                : `/fleet/${carSlug(car)}`,
                                         }}
                                         className="block w-full py-3 bg-gray-900 shadow-lg text-white rounded-full font-medium hover:scale-101 transition-colors"
                                     >

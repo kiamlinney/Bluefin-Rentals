@@ -4,6 +4,8 @@ import { getCars, getAvailableCars } from "@/lib/db.ts";
 import { SearchBar } from "@/components/SearchBar";
 import { addDays, wallClockToUtcIso } from "@/lib/pricing.ts";
 import { Car } from "@/types.ts";
+import { absoluteUrl } from '@/lib/site'
+import { seoMeta } from '@/lib/business'
 
 type FleetSearch = {
     location?: 'MSP' | 'stpaul-mpls'
@@ -21,6 +23,15 @@ const asDateKey = (v: unknown): string | undefined =>
     typeof v === 'string' && DATE_KEY.test(v) ? v : undefined
 
 export const Route = createFileRoute('/fleet/')({
+    head: () => ({
+        meta: seoMeta({
+            title: 'Our Fleet | Cars for Rent in Saint Paul & Minneapolis',
+            description:
+                'Browse every car available from BlueFin Rentals in the Twin Cities — sedans, hybrids, and SUVs with daily pricing and instant online booking.',
+            path: '/fleet',
+        }),
+        links: [{ rel: 'canonical', href: absoluteUrl('/fleet') }],
+    }),
     validateSearch: (search: Record<string, unknown>): FleetSearch => {
         return {
             location: search?.location === 'stpaul-mpls' ? 'stpaul-mpls' : 'MSP',

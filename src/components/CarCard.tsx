@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { Car } from "../types";
+import { carSlug } from "../lib/slug";
 
 // Dates come in as a prop rather than via useSearch so the card stays usable
 // outside the fleet route, and so the hand-off is visible at the call site.
@@ -8,8 +9,8 @@ type CarCardSearch = { start?: string; end?: string }
 const CarCard = ({ car, search } : { car : Car; search?: CarCardSearch }) => {
     return (
         <Link
-            to="/fleet/$carId"
-            params={{ carId: car.id.toString() }}
+            to="/fleet/$carSlug"
+            params={{ carSlug: carSlug(car) }}
             // Carries the search bar's dates into the booking widget so the
             // customer doesn't re-pick dates they already picked. TanStack drops
             // undefined values, so a dateless fleet page still links to /fleet/3.

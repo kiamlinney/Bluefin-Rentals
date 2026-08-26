@@ -20,7 +20,8 @@ export function CheckoutHeader({ carId }: { carId: string }) {
         if (window.history.length > 1) {
             router.history.back()
         } else {
-            void navigate({ to: '/fleet/$carId', params: { carId } })
+            // Only the id is on hand here; the route redirects to the slug.
+            void navigate({ to: '/fleet/$carSlug', params: { carSlug: carId } })
         }
     }
 

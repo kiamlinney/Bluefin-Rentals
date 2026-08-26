@@ -45,7 +45,7 @@
 }
 
 body {
-    @apply bg-[#152110] text-gray-200; /* #0d150a */
+    @apply bg-[#152110] text-gray-200; /* #0d150a , #faf9e8 (cream) or #fffef5 */
 }
 
 .admin-shell {
