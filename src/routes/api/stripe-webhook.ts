@@ -2,6 +2,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
+import { notifyAdminBookingConfirmed } from '../../lib/booking-email'
 
 export const Route = createFileRoute('/api/stripe-webhook')({
     server: {
@@ -68,6 +69,12 @@ export const Route = createFileRoute('/api/stripe-webhook')({
                                 return new Response('Booking not yet available', { status: 500 })
                             }
                             console.log(`Booking confirmed for PaymentIntent: ${pi.id}`)
+                            // Called from both this case and charge.succeeded
+                            // below, because either can arrive first. The claim
+                            // inside it makes the duplicate call a no-op, and it
+                            // never throws, so a Gmail outage can't push this
+                            // handler into the 500 path and start retries.
+                            await notifyAdminBookingConfirmed(supabaseAdmin, rows[0]!.id)
                             break
                         }
                         case 'payment_intent.payment_failed': {
@@ -112,6 +119,7 @@ export const Route = createFileRoute('/api/stripe-webhook')({
                                 return new Response('Booking not yet available (charge)', { status: 500 })
                             }
                             console.log(`Booking confirmed via charge for PaymentIntent: ${piId}`)
+                            await notifyAdminBookingConfirmed(supabaseAdmin, rows[0]!.id)
                             break
                         }
                         case 'identity.verification_session.verified': {

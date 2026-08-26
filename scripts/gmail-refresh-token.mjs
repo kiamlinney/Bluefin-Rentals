@@ -1,6 +1,7 @@
-// One-off local helper to mint a fresh GMAIL_REFRESH_TOKEN when Gmail sync
-// starts failing with "invalid_grant" (the old refresh token expired/was
-// revoked). Not part of the app — run manually with:
+// One-off local helper to mint a fresh GMAIL_REFRESH_TOKEN — either when Gmail
+// sync starts failing with "invalid_grant" (the old refresh token expired/was
+// revoked), or when the scopes below change and the stored token predates them.
+// Not part of the app — run manually with:
 //
 //   node scripts/gmail-refresh-token.mjs
 //
@@ -27,7 +28,13 @@ const oauth2Client = new google.auth.OAuth2(GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET
 const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline', // required to get a refresh_token back at all
     prompt: 'consent',      // forces re-consent so Google issues a NEW refresh_token
-    scope: ['https://www.googleapis.com/auth/gmail.readonly'],
+    // readonly for syncTuroBookings, send for the admin booking email
+    // (src/lib/email.ts). Both, not either: a token minted with only one of
+    // them breaks the other feature with "insufficient authentication scopes".
+    scope: [
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/gmail.send',
+    ],
 })
 
 const server = http.createServer(async (req, res) => {

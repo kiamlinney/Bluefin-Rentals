@@ -1,5 +1,5 @@
 import {createFileRoute, useRouter} from '@tanstack/react-router'
-import {getConfirmedBookings, inspectTuroEmail, syncTuroBookings} from '@/lib/db'
+import {getConfirmedBookings, inspectTuroEmail, syncTuroBookings, sendTestBookingEmail} from '@/lib/db'
 import { TripCard } from 'src/components/admin/TripCard.tsx'
 import type { BookingWithRelations } from '@/types.ts'
 import { businessDateKey, formatBusinessDate, isBusinessToday } from '@/lib/dates'
@@ -142,6 +142,45 @@ export const Route = createFileRoute('/admin/trips/booked')({
 //     )
 // }
 
+// Sends the admin "trip is booked" email for a booking that already exists, so
+// the template can be checked without paying for a trip. Ignores
+// admin_notified_at, so the same booking can be re-sent as many times as needed.
+function SendTestBookingEmailButton({ bookings }: { bookings: BookingWithRelations[] }) {
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+    const [sent, setSent] = useState(false)
+
+    async function handleClick() {
+        // Defaulted to the first booking on the page — the common case is
+        // "send me whatever's at the top", and any other id can be pasted in.
+        const answer = window.prompt('Booking id to send the admin email for', bookings[0]?.id ?? '')
+        if (typeof answer !== 'string' || !answer.trim()) return
+
+        setLoading(true)
+        setError(null)
+        setSent(false)
+        try {
+            await sendTestBookingEmail({ data: { bookingId: answer.trim() } })
+            setSent(true)
+        } catch (e: any) {
+            console.error(e)
+            setError(e?.message || 'Send failed — see server logs')
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    return (
+        <div className="space-y-2 mb-6">
+            <button onClick={handleClick} className="px-3 py-2 border rounded">
+                {loading ? 'Sending…' : 'Send test booking email'}
+            </button>
+            {sent && <div className="text-green-700 text-sm">Sent — check the inbox.</div>}
+            {error && <div className="text-red-600 text-sm">{error}</div>}
+        </div>
+    )
+}
+
 function groupBookingsByDate(bookings: BookingWithRelations[]): DateGroup[] {
     const now = new Date();
 
@@ -223,6 +262,7 @@ function BookedPage() {
                 <h1 className="mb-8 text-3xl text-black font-bold">Booked</h1>
                 {/*< SyncTuroBookingsButton />*/}
                 {/*< InspectTuroEmailPanel />*/}
+                <SendTestBookingEmailButton bookings={bookings} />
                 {bookings.length === 0 ? (
                     <div className="">
                         <h2 className="text-xl font-bold mb-2">No bookings yet!</h2>

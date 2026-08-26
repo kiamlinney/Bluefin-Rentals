@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       bookings: {
         Row: {
+          admin_notified_at: string | null
           car_id: number
           created_at: string
           end_time: string
@@ -30,6 +31,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          admin_notified_at?: string | null
           car_id: number
           created_at?: string
           end_time: string
@@ -44,6 +46,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          admin_notified_at?: string | null
           car_id?: number
           created_at?: string
           end_time?: string
