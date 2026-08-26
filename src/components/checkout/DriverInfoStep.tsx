@@ -46,12 +46,25 @@ function FieldError({ message }: { message?: string }) {
     return <p className="text-xs text-red-600 mt-1.5">{message}</p>
 }
 
+// Also used outside checkout, by /profile/edit — it is the only form that
+// writes these eight columns, and duplicating its validation would mean two
+// places to keep in step. The heading and button label are props so the page
+// can say "Edit profile" / "Save changes"; the defaults are the checkout
+// wording, so the checkout call site is unchanged.
 export function DriverInfoStep({
     existingProfile,
     onComplete,
+    heading = 'Primary driver',
+    description = 'Required once — future bookings reuse it.',
+    submitLabel = 'Continue to ID verification',
+    showIdVerificationNote = true,
 }: {
     existingProfile: Awaited<ReturnType<typeof getProfile>>
     onComplete: () => void
+    heading?: string
+    description?: string
+    submitLabel?: string
+    showIdVerificationNote?: boolean
 }) {
     const [form, setForm] = useState({
         fullName:    existingProfile?.full_name     ?? '',
@@ -112,10 +125,8 @@ export function DriverInfoStep({
 
     return (
         <div>
-            <h2 className="text-2xl font-bold text-gray-900">Primary driver</h2>
-            <p className="text-gray-500 text-sm mt-1 mb-6">
-                Required once — future bookings reuse it.
-            </p>
+            <h2 className="text-2xl font-bold text-gray-900">{heading}</h2>
+            <p className="text-gray-500 text-sm mt-1 mb-6">{description}</p>
 
             <div className="space-y-5">
                 {/* One field rather than first/last: profiles stores a single
@@ -233,13 +244,18 @@ export function DriverInfoStep({
                     </div>
                 </div>
 
-                <div className="flex gap-3 items-start bg-blue-50 rounded-xl p-4">
-                    <Info size={18} className="text-blue-600 flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-blue-900">
-                        Next you'll verify your ID with a photo of your license — it takes
-                        about a minute, and only has to be done once.
-                    </p>
-                </div>
+                {/* Only true inside checkout, where ID verification is the next
+                    step. On /profile/edit there is no next step, and the renter
+                    may already be verified. */}
+                {showIdVerificationNote && (
+                    <div className="flex gap-3 items-start bg-blue-50 rounded-xl p-4">
+                        <Info size={18} className="text-blue-600 flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-blue-900">
+                            Next you'll verify your ID with a photo of your license — it takes
+                            about a minute, and only has to be done once.
+                        </p>
+                    </div>
+                )}
             </div>
 
             {submitError && <p className="text-red-600 text-sm mt-4">{submitError}</p>}
@@ -249,7 +265,7 @@ export function DriverInfoStep({
                 disabled={saving}
                 className="mt-6 w-full py-3.5 bg-[#152110] hover:bg-[#1d2f17] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors cursor-pointer"
             >
-                {saving ? 'Saving...' : 'Continue to ID verification'}
+                {saving ? 'Saving...' : submitLabel}
             </button>
         </div>
     )

@@ -9,7 +9,10 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
+import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as FaqRouteImport } from './routes/faq'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AboutRouteImport } from './routes/about'
@@ -18,24 +21,40 @@ import { Route as R403RouteImport } from './routes/403'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as FleetIndexRouteImport } from './routes/fleet/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
-import { Route as FleetCarIdRouteImport } from './routes/fleet/$carId'
+import { Route as FleetCarSlugRouteImport } from './routes/fleet/$carSlug'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe-webhook'
 import { Route as AdminCalendarRouteImport } from './routes/admin/calendar'
 import { Route as AuthedProfileRouteImport } from './routes/_authed.profile'
 import { Route as AuthedMyBookingsRouteImport } from './routes/_authed.my-bookings'
+import { Route as AdminUserUserIdRouteImport } from './routes/admin/user.$userId'
 import { Route as AdminTripsHistoryRouteImport } from './routes/admin/trips/history'
 import { Route as AdminTripsBookedRouteImport } from './routes/admin/trips/booked'
 import { Route as AdminReservationBookingIdRouteImport } from './routes/admin/reservation.$bookingId'
 import { Route as AdminBusinessRatingsReviewsRouteImport } from './routes/admin/business/ratings-reviews'
 import { Route as AdminBusinessEarningsRouteImport } from './routes/admin/business/earnings'
-import { Route as AdminBusinessClaimsRouteImport } from './routes/admin/business/claims'
 import { Route as AuthedTripsBookingIdRouteImport } from './routes/_authed.trips.$bookingId'
+import { Route as AuthedProfileEditRouteImport } from './routes/_authed.profile_.edit'
 import { Route as AuthedCheckoutCarIdRouteImport } from './routes/_authed.checkout.$carId'
 import { Route as AuthedTripsBookingIdPhotosRouteImport } from './routes/_authed.trips.$bookingId_.photos'
 
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
+  id: '/robots.txt',
+  path: '/robots.txt',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FaqRoute = FaqRouteImport.update({
+  id: '/faq',
+  path: '/faq',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ContactRoute = ContactRouteImport.update({
@@ -77,9 +96,9 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AdminRoute,
 } as any)
-const FleetCarIdRoute = FleetCarIdRouteImport.update({
-  id: '/fleet/$carId',
-  path: '/fleet/$carId',
+const FleetCarSlugRoute = FleetCarSlugRouteImport.update({
+  id: '/fleet/$carSlug',
+  path: '/fleet/$carSlug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
@@ -101,6 +120,11 @@ const AuthedMyBookingsRoute = AuthedMyBookingsRouteImport.update({
   id: '/my-bookings',
   path: '/my-bookings',
   getParentRoute: () => AuthedRoute,
+} as any)
+const AdminUserUserIdRoute = AdminUserUserIdRouteImport.update({
+  id: '/user/$userId',
+  path: '/user/$userId',
+  getParentRoute: () => AdminRoute,
 } as any)
 const AdminTripsHistoryRoute = AdminTripsHistoryRouteImport.update({
   id: '/trips/history',
@@ -129,14 +153,14 @@ const AdminBusinessEarningsRoute = AdminBusinessEarningsRouteImport.update({
   path: '/business/earnings',
   getParentRoute: () => AdminRoute,
 } as any)
-const AdminBusinessClaimsRoute = AdminBusinessClaimsRouteImport.update({
-  id: '/business/claims',
-  path: '/business/claims',
-  getParentRoute: () => AdminRoute,
-} as any)
 const AuthedTripsBookingIdRoute = AuthedTripsBookingIdRouteImport.update({
   id: '/trips/$bookingId',
   path: '/trips/$bookingId',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedProfileEditRoute = AuthedProfileEditRouteImport.update({
+  id: '/profile_/edit',
+  path: '/profile/edit',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedCheckoutCarIdRoute = AuthedCheckoutCarIdRouteImport.update({
@@ -157,22 +181,26 @@ export interface FileRoutesByFullPath {
   '/about': typeof AboutRoute
   '/admin': typeof AdminRouteWithChildren
   '/contact': typeof ContactRoute
+  '/faq': typeof FaqRoute
   '/login': typeof LoginRoute
+  '/robots.txt': typeof RobotsDottxtRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/my-bookings': typeof AuthedMyBookingsRoute
   '/profile': typeof AuthedProfileRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
-  '/fleet/$carId': typeof FleetCarIdRoute
+  '/fleet/$carSlug': typeof FleetCarSlugRoute
   '/admin/': typeof AdminIndexRoute
   '/fleet/': typeof FleetIndexRoute
   '/checkout/$carId': typeof AuthedCheckoutCarIdRoute
+  '/profile/edit': typeof AuthedProfileEditRoute
   '/trips/$bookingId': typeof AuthedTripsBookingIdRoute
-  '/admin/business/claims': typeof AdminBusinessClaimsRoute
   '/admin/business/earnings': typeof AdminBusinessEarningsRoute
   '/admin/business/ratings-reviews': typeof AdminBusinessRatingsReviewsRoute
   '/admin/reservation/$bookingId': typeof AdminReservationBookingIdRoute
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
+  '/admin/user/$userId': typeof AdminUserUserIdRoute
   '/trips/$bookingId/photos': typeof AuthedTripsBookingIdPhotosRoute
 }
 export interface FileRoutesByTo {
@@ -180,22 +208,26 @@ export interface FileRoutesByTo {
   '/403': typeof R403Route
   '/about': typeof AboutRoute
   '/contact': typeof ContactRoute
+  '/faq': typeof FaqRoute
   '/login': typeof LoginRoute
+  '/robots.txt': typeof RobotsDottxtRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/my-bookings': typeof AuthedMyBookingsRoute
   '/profile': typeof AuthedProfileRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
-  '/fleet/$carId': typeof FleetCarIdRoute
+  '/fleet/$carSlug': typeof FleetCarSlugRoute
   '/admin': typeof AdminIndexRoute
   '/fleet': typeof FleetIndexRoute
   '/checkout/$carId': typeof AuthedCheckoutCarIdRoute
+  '/profile/edit': typeof AuthedProfileEditRoute
   '/trips/$bookingId': typeof AuthedTripsBookingIdRoute
-  '/admin/business/claims': typeof AdminBusinessClaimsRoute
   '/admin/business/earnings': typeof AdminBusinessEarningsRoute
   '/admin/business/ratings-reviews': typeof AdminBusinessRatingsReviewsRoute
   '/admin/reservation/$bookingId': typeof AdminReservationBookingIdRoute
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
+  '/admin/user/$userId': typeof AdminUserUserIdRoute
   '/trips/$bookingId/photos': typeof AuthedTripsBookingIdPhotosRoute
 }
 export interface FileRoutesById {
@@ -206,22 +238,26 @@ export interface FileRoutesById {
   '/about': typeof AboutRoute
   '/admin': typeof AdminRouteWithChildren
   '/contact': typeof ContactRoute
+  '/faq': typeof FaqRoute
   '/login': typeof LoginRoute
+  '/robots.txt': typeof RobotsDottxtRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authed/my-bookings': typeof AuthedMyBookingsRoute
   '/_authed/profile': typeof AuthedProfileRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
-  '/fleet/$carId': typeof FleetCarIdRoute
+  '/fleet/$carSlug': typeof FleetCarSlugRoute
   '/admin/': typeof AdminIndexRoute
   '/fleet/': typeof FleetIndexRoute
   '/_authed/checkout/$carId': typeof AuthedCheckoutCarIdRoute
+  '/_authed/profile_/edit': typeof AuthedProfileEditRoute
   '/_authed/trips/$bookingId': typeof AuthedTripsBookingIdRoute
-  '/admin/business/claims': typeof AdminBusinessClaimsRoute
   '/admin/business/earnings': typeof AdminBusinessEarningsRoute
   '/admin/business/ratings-reviews': typeof AdminBusinessRatingsReviewsRoute
   '/admin/reservation/$bookingId': typeof AdminReservationBookingIdRoute
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
+  '/admin/user/$userId': typeof AdminUserUserIdRoute
   '/_authed/trips/$bookingId_/photos': typeof AuthedTripsBookingIdPhotosRoute
 }
 export interface FileRouteTypes {
@@ -232,22 +268,26 @@ export interface FileRouteTypes {
     | '/about'
     | '/admin'
     | '/contact'
+    | '/faq'
     | '/login'
+    | '/robots.txt'
+    | '/sitemap.xml'
     | '/my-bookings'
     | '/profile'
     | '/admin/calendar'
     | '/api/stripe-webhook'
-    | '/fleet/$carId'
+    | '/fleet/$carSlug'
     | '/admin/'
     | '/fleet/'
     | '/checkout/$carId'
+    | '/profile/edit'
     | '/trips/$bookingId'
-    | '/admin/business/claims'
     | '/admin/business/earnings'
     | '/admin/business/ratings-reviews'
     | '/admin/reservation/$bookingId'
     | '/admin/trips/booked'
     | '/admin/trips/history'
+    | '/admin/user/$userId'
     | '/trips/$bookingId/photos'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -255,22 +295,26 @@ export interface FileRouteTypes {
     | '/403'
     | '/about'
     | '/contact'
+    | '/faq'
     | '/login'
+    | '/robots.txt'
+    | '/sitemap.xml'
     | '/my-bookings'
     | '/profile'
     | '/admin/calendar'
     | '/api/stripe-webhook'
-    | '/fleet/$carId'
+    | '/fleet/$carSlug'
     | '/admin'
     | '/fleet'
     | '/checkout/$carId'
+    | '/profile/edit'
     | '/trips/$bookingId'
-    | '/admin/business/claims'
     | '/admin/business/earnings'
     | '/admin/business/ratings-reviews'
     | '/admin/reservation/$bookingId'
     | '/admin/trips/booked'
     | '/admin/trips/history'
+    | '/admin/user/$userId'
     | '/trips/$bookingId/photos'
   id:
     | '__root__'
@@ -280,22 +324,26 @@ export interface FileRouteTypes {
     | '/about'
     | '/admin'
     | '/contact'
+    | '/faq'
     | '/login'
+    | '/robots.txt'
+    | '/sitemap.xml'
     | '/_authed/my-bookings'
     | '/_authed/profile'
     | '/admin/calendar'
     | '/api/stripe-webhook'
-    | '/fleet/$carId'
+    | '/fleet/$carSlug'
     | '/admin/'
     | '/fleet/'
     | '/_authed/checkout/$carId'
+    | '/_authed/profile_/edit'
     | '/_authed/trips/$bookingId'
-    | '/admin/business/claims'
     | '/admin/business/earnings'
     | '/admin/business/ratings-reviews'
     | '/admin/reservation/$bookingId'
     | '/admin/trips/booked'
     | '/admin/trips/history'
+    | '/admin/user/$userId'
     | '/_authed/trips/$bookingId_/photos'
   fileRoutesById: FileRoutesById
 }
@@ -306,19 +354,43 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   AdminRoute: typeof AdminRouteWithChildren
   ContactRoute: typeof ContactRoute
+  FaqRoute: typeof FaqRoute
   LoginRoute: typeof LoginRoute
+  RobotsDottxtRoute: typeof RobotsDottxtRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
-  FleetCarIdRoute: typeof FleetCarIdRoute
+  FleetCarSlugRoute: typeof FleetCarSlugRoute
   FleetIndexRoute: typeof FleetIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/robots.txt': {
+      id: '/robots.txt'
+      path: '/robots.txt'
+      fullPath: '/robots.txt'
+      preLoaderRoute: typeof RobotsDottxtRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/faq': {
+      id: '/faq'
+      path: '/faq'
+      fullPath: '/faq'
+      preLoaderRoute: typeof FaqRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/contact': {
@@ -377,11 +449,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/fleet/$carId': {
-      id: '/fleet/$carId'
-      path: '/fleet/$carId'
-      fullPath: '/fleet/$carId'
-      preLoaderRoute: typeof FleetCarIdRouteImport
+    '/fleet/$carSlug': {
+      id: '/fleet/$carSlug'
+      path: '/fleet/$carSlug'
+      fullPath: '/fleet/$carSlug'
+      preLoaderRoute: typeof FleetCarSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/stripe-webhook': {
@@ -411,6 +483,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/my-bookings'
       preLoaderRoute: typeof AuthedMyBookingsRouteImport
       parentRoute: typeof AuthedRoute
+    }
+    '/admin/user/$userId': {
+      id: '/admin/user/$userId'
+      path: '/user/$userId'
+      fullPath: '/admin/user/$userId'
+      preLoaderRoute: typeof AdminUserUserIdRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/admin/trips/history': {
       id: '/admin/trips/history'
@@ -447,18 +526,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminBusinessEarningsRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/admin/business/claims': {
-      id: '/admin/business/claims'
-      path: '/business/claims'
-      fullPath: '/admin/business/claims'
-      preLoaderRoute: typeof AdminBusinessClaimsRouteImport
-      parentRoute: typeof AdminRoute
-    }
     '/_authed/trips/$bookingId': {
       id: '/_authed/trips/$bookingId'
       path: '/trips/$bookingId'
       fullPath: '/trips/$bookingId'
       preLoaderRoute: typeof AuthedTripsBookingIdRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/profile_/edit': {
+      id: '/_authed/profile_/edit'
+      path: '/profile/edit'
+      fullPath: '/profile/edit'
+      preLoaderRoute: typeof AuthedProfileEditRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/checkout/$carId': {
@@ -482,6 +561,7 @@ interface AuthedRouteChildren {
   AuthedMyBookingsRoute: typeof AuthedMyBookingsRoute
   AuthedProfileRoute: typeof AuthedProfileRoute
   AuthedCheckoutCarIdRoute: typeof AuthedCheckoutCarIdRoute
+  AuthedProfileEditRoute: typeof AuthedProfileEditRoute
   AuthedTripsBookingIdRoute: typeof AuthedTripsBookingIdRoute
   AuthedTripsBookingIdPhotosRoute: typeof AuthedTripsBookingIdPhotosRoute
 }
@@ -490,6 +570,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedMyBookingsRoute: AuthedMyBookingsRoute,
   AuthedProfileRoute: AuthedProfileRoute,
   AuthedCheckoutCarIdRoute: AuthedCheckoutCarIdRoute,
+  AuthedProfileEditRoute: AuthedProfileEditRoute,
   AuthedTripsBookingIdRoute: AuthedTripsBookingIdRoute,
   AuthedTripsBookingIdPhotosRoute: AuthedTripsBookingIdPhotosRoute,
 }
@@ -500,23 +581,23 @@ const AuthedRouteWithChildren =
 interface AdminRouteChildren {
   AdminCalendarRoute: typeof AdminCalendarRoute
   AdminIndexRoute: typeof AdminIndexRoute
-  AdminBusinessClaimsRoute: typeof AdminBusinessClaimsRoute
   AdminBusinessEarningsRoute: typeof AdminBusinessEarningsRoute
   AdminBusinessRatingsReviewsRoute: typeof AdminBusinessRatingsReviewsRoute
   AdminReservationBookingIdRoute: typeof AdminReservationBookingIdRoute
   AdminTripsBookedRoute: typeof AdminTripsBookedRoute
   AdminTripsHistoryRoute: typeof AdminTripsHistoryRoute
+  AdminUserUserIdRoute: typeof AdminUserUserIdRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminCalendarRoute: AdminCalendarRoute,
   AdminIndexRoute: AdminIndexRoute,
-  AdminBusinessClaimsRoute: AdminBusinessClaimsRoute,
   AdminBusinessEarningsRoute: AdminBusinessEarningsRoute,
   AdminBusinessRatingsReviewsRoute: AdminBusinessRatingsReviewsRoute,
   AdminReservationBookingIdRoute: AdminReservationBookingIdRoute,
   AdminTripsBookedRoute: AdminTripsBookedRoute,
   AdminTripsHistoryRoute: AdminTripsHistoryRoute,
+  AdminUserUserIdRoute: AdminUserUserIdRoute,
 }
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
@@ -528,9 +609,12 @@ const rootRouteChildren: RootRouteChildren = {
   AboutRoute: AboutRoute,
   AdminRoute: AdminRouteWithChildren,
   ContactRoute: ContactRoute,
+  FaqRoute: FaqRoute,
   LoginRoute: LoginRoute,
+  RobotsDottxtRoute: RobotsDottxtRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
-  FleetCarIdRoute: FleetCarIdRoute,
+  FleetCarSlugRoute: FleetCarSlugRoute,
   FleetIndexRoute: FleetIndexRoute,
 }
 export const routeTree = rootRouteImport

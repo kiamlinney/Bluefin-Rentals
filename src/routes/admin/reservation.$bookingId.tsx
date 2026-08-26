@@ -3,6 +3,8 @@ import {cancelBooking, getBookingById} from "@/lib/db.ts";
 import {formatBusinessDate, formatBusinessTime, getRelativeTimeString} from "@/lib/dates.ts";
 import { Plane, CarFront, Check, X} from 'lucide-react';
 import {useState} from "react";
+import {displayName, formatPhone} from "@/lib/profile.ts";
+import {carSlug} from "@/lib/slug.ts";
 
 export const Route = createFileRoute('/admin/reservation/$bookingId')({
     loader: async ({ params }) => {
@@ -12,29 +14,13 @@ export const Route = createFileRoute('/admin/reservation/$bookingId')({
     component: ReservationDetailsPage,
 })
 
-// Renders a stored phone number as +1 (XXX) XXX-XXXX when it really is a 10-digit
-// US number, and otherwise hands back whatever was stored, untouched. Returns
-// null when there's no number at all, so the caller shows "Not provided".
-//
-// The +1 lives in here rather than in the JSX because it's only true for numbers
-// we actually recognized — prefixing it onto an unrecognized string would invent
-// a country code for a number that may already carry a different one.
-function formatPhone(phone: string | null): string | null {
-    if (!phone) return null
-    const digits = phone.replace(/\D/g, '')
-    // 11 digits starting with 1 is a US number with the country code typed in.
-    const local = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
-    if (local.length !== 10) return phone
-    return `+1 (${local.slice(0, 3)}) ${local.slice(3, 6)}-${local.slice(6)}`
-}
-
 function ReservationDetailsPage() {
     const { booking } = Route.useLoaderData()
     const car = booking.cars
     const profile = booking.profiles
-    // Matches TripCard's fallback chain so the same renter reads the same way on
-    // the trip list and on this page.
-    const renterName = profile?.full_name ?? profile?.email?.split('@')[0] ?? 'Guest'
+    // Shared with the trip list and the profile pages, so the same renter reads
+    // the same way everywhere.
+    const renterName = displayName(profile)
 
     const isPastTrip = booking.status === 'completed' || booking.status === 'canceled'
 
@@ -102,8 +88,8 @@ function ReservationDetailsPage() {
                                 {car.year} {car.make} {car.model}
                             </h2>
                             <Link
-                                to="/fleet/$carId"
-                                params={{ carId: car.id.toString() }}
+                                to="/fleet/$carSlug"
+                                params={{ carSlug: carSlug(car) }}
                                 className="text-s font-semibold text-emerald-700 hover:underline cursor-pointer">
                                 View car details
                             </Link>
@@ -275,11 +261,24 @@ function ReservationDetailsPage() {
                         {/* Renter Profile */}
                         <div className="border border-gray-200 rounded-xl p-5 bg-white shadow-sm space-y-4">
                             <div className="flex items-center gap-3">
-                                <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold text-lg">
+                                {/* Avatar and name link separately rather than
+                                    wrapping the whole block, so the trips and
+                                    joined lines stay non-interactive. */}
+                                <Link
+                                    to="/admin/user/$userId"
+                                    params={{ userId: profile.id }}
+                                    className="w-12 h-12 shrink-0 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors flex items-center justify-center text-gray-500 font-bold text-lg"
+                                >
                                     {renterName[0]?.toUpperCase() ?? 'G'}
-                                </div>
+                                </Link>
                                 <div>
-                                    <h4 className="font-bold text-gray-900">{renterName}</h4>
+                                    <Link
+                                        to="/admin/user/$userId"
+                                        params={{ userId: profile.id }}
+                                        className="font-bold text-gray-900 hover:underline"
+                                    >
+                                        {renterName}
+                                    </Link>
                                     {(profile.num_trips ?? 0) > 0 && (
                                         <p className="text-s text-gray-500">{profile.num_trips} trips</p>
                                     )}
@@ -325,6 +324,8 @@ function ReservationDetailsPage() {
 
                             </div>
                         </div>
+
+                        <p className="text-center text-xs text-black font-semibold uppercase">reservation #{booking.id}</p>
                     </div>
 
                 </div>

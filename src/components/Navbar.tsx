@@ -66,6 +66,14 @@ const Navbar = ({ user }: { user: any | null }) => {
                                 </div>
 
 
+                                <Link
+                                    to="/profile"
+                                    onClick={() => setIsOpen(false)}
+                                    className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
+                                >
+                                    View Profile
+                                </Link>
+
                                 {user?.is_admin ? (
                                     <Link
                                         to="/admin"

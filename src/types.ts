@@ -54,6 +54,34 @@ export type BookingWithDetails = Booking & {
     trip_media: { count: number }[]
 }
 
+// getUserProfile:
+//     .select(PROFILE_VIEW_COLUMNS)
+// The profile pages (/profile and /admin/user/$userId) read one profile row
+// directly rather than through a booking. Same reasoning as above for the
+// narrow Pick<>: `is_admin`, `stripe_identity_session_id` and the home address
+// are all columns on this table that nothing here renders, and the guest page
+// ships its payload to the browser. Keep this in step with PROFILE_VIEW_COLUMNS
+// in db.ts.
+export type UserProfileView = Pick<
+    Profile,
+    | 'id'
+    | 'full_name'
+    | 'email'
+    | 'phone'
+    | 'date_of_birth'
+    | 'num_trips'
+    | 'created_at'
+    | 'identity_verified'
+>
+
+// getUserTripHistory:
+//     .select('id, start_time, end_time, status, cars(id, year, make, model)')
+// The admin profile page lists a renter's trips as links back to the matching
+// reservation, so it needs neither the full booking row nor the full car row.
+export type UserTripSummary = Pick<Booking, 'id' | 'start_time' | 'end_time' | 'status'> & {
+    cars: Pick<Car, 'id' | 'year' | 'make' | 'model'>
+}
+
 // getTripMedia (db.ts:1479) and recordTripMedia (db.ts:1582):
 //     .select('*, profiles:uploaded_by(full_name)')
 // This join is aliased — the result key is `profiles` but the FK it follows is

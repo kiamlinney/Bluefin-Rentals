@@ -26,6 +26,11 @@ import {
     type UnavailabilityRow,
 } from './availability'
 import { businessDateKey, formatBusinessDateTime } from './dates'
+import {
+    BOOKING_EMAIL_SELECT,
+    notifyAdminBookingConfirmed,
+    sendBookingConfirmedEmail,
+} from './booking-email'
 
 // Fetches all cars that are available
 export const getCars = createServerFn({ method: 'GET' })
@@ -809,7 +814,44 @@ export const confirmBooking = createServerFn({ method: 'POST' })
             .single()
 
         if (error) throw new Error(error.message)
+
+        // The third confirmation path, so it notifies too. Whichever of the
+        // three gets here first sends; the others find the claim taken and do
+        // nothing. Never throws, so a mail failure can't fail the confirmation.
+        await notifyAdminBookingConfirmed(supabaseAdmin, data.bookingId)
+
         return booking
+    })
+
+// Re-sends the admin booking email for an existing booking, ignoring
+// admin_notified_at. Exists so the template can be checked without paying for a
+// trip. Admin-only and checked here rather than at the route: server functions
+// are callable directly.
+export const sendTestBookingEmail = createServerFn({ method: 'POST' })
+    .inputValidator((input: { bookingId: string }) => input)
+    .handler(async ({ data }) => {
+        const supabase = getSupabaseServerClient()
+        const authResult = await supabase.auth.getUser()
+        const user = authResult.data.user
+        if (!user) throw new Error('Not authenticated')
+
+        const { data: profile } = await supabase
+            .from('profiles').select('is_admin').eq('id', user.id).single()
+        if (!profile?.is_admin) throw new Error('Not authorized')
+
+        const supabaseAdmin = getServiceRoleClient()
+        const { data: booking, error } = await supabaseAdmin
+            .from('bookings')
+            .select(BOOKING_EMAIL_SELECT)
+            .eq('id', data.bookingId)
+            .single()
+
+        if (error || !booking) throw new Error('Booking not found')
+
+        // Unlike notifyAdminBookingConfirmed this one throws, so a broken
+        // refresh token or malformed template surfaces to whoever is testing.
+        await sendBookingConfirmedEmail(booking as any)
+        return { sent: true }
     })
 
 // The paymentIntentId the caller used to pass is gone on purpose. This function
@@ -1044,6 +1086,79 @@ export const getProfile = createServerFn({ method: 'GET' })
     })
 
 // ---- Profile ----------------------------------------------------------------------------
+
+// What the profile pages read. Deliberately narrower than `*`: is_admin, the
+// home address and stripe_identity_session_id are all on this table and none of
+// them are rendered, and the guest page serializes whatever comes back into the
+// browser. Keep in step with UserProfileView in src/types.ts.
+const PROFILE_VIEW_COLUMNS =
+    'id, full_name, email, phone, date_of_birth, num_trips, created_at, identity_verified'
+
+// Fetches one profile for the user profile pages. Two callers with different
+// rights: the admin page at /admin/user/$userId reads anyone, the guest page at
+// /profile reads only the caller.
+//
+// RLS already draws that line (profiles_select_owner_or_admin in schema.sql),
+// but the check below is not redundant — server functions are callable directly,
+// not just through a loader, and a policy that silently returns zero rows is a
+// worse failure than an explicit throw.
+export const getUserProfile = createServerFn({ method: 'GET' })
+    .inputValidator((userId: string) => userId)
+    .handler(async ({ data: userId }) => {
+        const supabase = getSupabaseServerClient()
+        const authResult = await supabase.auth.getUser()
+        const user = authResult.data.user
+        if (!user) throw new Error('Not authenticated')
+
+        const { data: viewer } = await supabase
+            .from('profiles')
+            .select('is_admin')
+            .eq('id', user.id)
+            .single()
+
+        const isAdminViewer = Boolean(viewer?.is_admin)
+        if (!isAdminViewer && userId !== user.id) throw new Error('Not authorized')
+
+        const { data, error } = await supabase
+            .from('profiles')
+            .select(PROFILE_VIEW_COLUMNS)
+            .eq('id', userId)
+            .maybeSingle()
+
+        if (error) throw new Error(error.message)
+        if (!data) throw new Error('User not found')
+
+        return { profile: data, isAdminViewer }
+    })
+
+// Every booking a given user has made, newest first, for the trip history list
+// on the admin profile page. Admin-only: the guest profile page never calls it,
+// and /my-bookings already covers a user's view of their own trips.
+export const getUserTripHistory = createServerFn({ method: 'GET' })
+    .inputValidator((userId: string) => userId)
+    .handler(async ({ data: userId }) => {
+        const supabase = getSupabaseServerClient()
+        const authResult = await supabase.auth.getUser()
+        const user = authResult.data.user
+        if (!user) throw new Error('Not authenticated')
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('is_admin')
+            .eq('id', user.id)
+            .single()
+
+        if (!profile?.is_admin) throw new Error('Not authorized')
+
+        const { data, error } = await supabase
+            .from('bookings')
+            .select('id, start_time, end_time, status, cars(id, year, make, model)')
+            .eq('user_id', userId)
+            .order('start_time', { ascending: false })
+
+        if (error) throw new Error(error.message)
+        return data || []
+    })
 
 // Saves driver info to the profile.
 // Uses upsert so it works whether the row exists or not.

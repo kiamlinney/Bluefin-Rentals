@@ -23,6 +23,7 @@ import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe-webhoo
 import { Route as AdminCalendarRouteImport } from './routes/admin/calendar'
 import { Route as AuthedProfileRouteImport } from './routes/_authed.profile'
 import { Route as AuthedMyBookingsRouteImport } from './routes/_authed.my-bookings'
+import { Route as AdminUserUserIdRouteImport } from './routes/admin/user.$userId'
 import { Route as AdminTripsHistoryRouteImport } from './routes/admin/trips/history'
 import { Route as AdminTripsBookedRouteImport } from './routes/admin/trips/booked'
 import { Route as AdminReservationBookingIdRouteImport } from './routes/admin/reservation.$bookingId'
@@ -30,6 +31,7 @@ import { Route as AdminBusinessRatingsReviewsRouteImport } from './routes/admin/
 import { Route as AdminBusinessEarningsRouteImport } from './routes/admin/business/earnings'
 import { Route as AdminBusinessClaimsRouteImport } from './routes/admin/business/claims'
 import { Route as AuthedTripsBookingIdRouteImport } from './routes/_authed.trips.$bookingId'
+import { Route as AuthedProfileEditRouteImport } from './routes/_authed.profile_.edit'
 import { Route as AuthedCheckoutCarIdRouteImport } from './routes/_authed.checkout.$carId'
 import { Route as AuthedTripsBookingIdPhotosRouteImport } from './routes/_authed.trips.$bookingId_.photos'
 
@@ -102,6 +104,11 @@ const AuthedMyBookingsRoute = AuthedMyBookingsRouteImport.update({
   path: '/my-bookings',
   getParentRoute: () => AuthedRoute,
 } as any)
+const AdminUserUserIdRoute = AdminUserUserIdRouteImport.update({
+  id: '/user/$userId',
+  path: '/user/$userId',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminTripsHistoryRoute = AdminTripsHistoryRouteImport.update({
   id: '/trips/history',
   path: '/trips/history',
@@ -139,6 +146,11 @@ const AuthedTripsBookingIdRoute = AuthedTripsBookingIdRouteImport.update({
   path: '/trips/$bookingId',
   getParentRoute: () => AuthedRoute,
 } as any)
+const AuthedProfileEditRoute = AuthedProfileEditRouteImport.update({
+  id: '/profile_/edit',
+  path: '/profile/edit',
+  getParentRoute: () => AuthedRoute,
+} as any)
 const AuthedCheckoutCarIdRoute = AuthedCheckoutCarIdRouteImport.update({
   id: '/checkout/$carId',
   path: '/checkout/$carId',
@@ -166,6 +178,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/fleet/': typeof FleetIndexRoute
   '/checkout/$carId': typeof AuthedCheckoutCarIdRoute
+  '/profile/edit': typeof AuthedProfileEditRoute
   '/trips/$bookingId': typeof AuthedTripsBookingIdRoute
   '/admin/business/claims': typeof AdminBusinessClaimsRoute
   '/admin/business/earnings': typeof AdminBusinessEarningsRoute
@@ -173,6 +186,7 @@ export interface FileRoutesByFullPath {
   '/admin/reservation/$bookingId': typeof AdminReservationBookingIdRoute
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
+  '/admin/user/$userId': typeof AdminUserUserIdRoute
   '/trips/$bookingId/photos': typeof AuthedTripsBookingIdPhotosRoute
 }
 export interface FileRoutesByTo {
@@ -189,6 +203,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/fleet': typeof FleetIndexRoute
   '/checkout/$carId': typeof AuthedCheckoutCarIdRoute
+  '/profile/edit': typeof AuthedProfileEditRoute
   '/trips/$bookingId': typeof AuthedTripsBookingIdRoute
   '/admin/business/claims': typeof AdminBusinessClaimsRoute
   '/admin/business/earnings': typeof AdminBusinessEarningsRoute
@@ -196,6 +211,7 @@ export interface FileRoutesByTo {
   '/admin/reservation/$bookingId': typeof AdminReservationBookingIdRoute
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
+  '/admin/user/$userId': typeof AdminUserUserIdRoute
   '/trips/$bookingId/photos': typeof AuthedTripsBookingIdPhotosRoute
 }
 export interface FileRoutesById {
@@ -215,6 +231,7 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/fleet/': typeof FleetIndexRoute
   '/_authed/checkout/$carId': typeof AuthedCheckoutCarIdRoute
+  '/_authed/profile_/edit': typeof AuthedProfileEditRoute
   '/_authed/trips/$bookingId': typeof AuthedTripsBookingIdRoute
   '/admin/business/claims': typeof AdminBusinessClaimsRoute
   '/admin/business/earnings': typeof AdminBusinessEarningsRoute
@@ -222,6 +239,7 @@ export interface FileRoutesById {
   '/admin/reservation/$bookingId': typeof AdminReservationBookingIdRoute
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
+  '/admin/user/$userId': typeof AdminUserUserIdRoute
   '/_authed/trips/$bookingId_/photos': typeof AuthedTripsBookingIdPhotosRoute
 }
 export interface FileRouteTypes {
@@ -241,6 +259,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/fleet/'
     | '/checkout/$carId'
+    | '/profile/edit'
     | '/trips/$bookingId'
     | '/admin/business/claims'
     | '/admin/business/earnings'
@@ -248,6 +267,7 @@ export interface FileRouteTypes {
     | '/admin/reservation/$bookingId'
     | '/admin/trips/booked'
     | '/admin/trips/history'
+    | '/admin/user/$userId'
     | '/trips/$bookingId/photos'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -264,6 +284,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/fleet'
     | '/checkout/$carId'
+    | '/profile/edit'
     | '/trips/$bookingId'
     | '/admin/business/claims'
     | '/admin/business/earnings'
@@ -271,6 +292,7 @@ export interface FileRouteTypes {
     | '/admin/reservation/$bookingId'
     | '/admin/trips/booked'
     | '/admin/trips/history'
+    | '/admin/user/$userId'
     | '/trips/$bookingId/photos'
   id:
     | '__root__'
@@ -289,6 +311,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/fleet/'
     | '/_authed/checkout/$carId'
+    | '/_authed/profile_/edit'
     | '/_authed/trips/$bookingId'
     | '/admin/business/claims'
     | '/admin/business/earnings'
@@ -296,6 +319,7 @@ export interface FileRouteTypes {
     | '/admin/reservation/$bookingId'
     | '/admin/trips/booked'
     | '/admin/trips/history'
+    | '/admin/user/$userId'
     | '/_authed/trips/$bookingId_/photos'
   fileRoutesById: FileRoutesById
 }
@@ -412,6 +436,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedMyBookingsRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/admin/user/$userId': {
+      id: '/admin/user/$userId'
+      path: '/user/$userId'
+      fullPath: '/admin/user/$userId'
+      preLoaderRoute: typeof AdminUserUserIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/trips/history': {
       id: '/admin/trips/history'
       path: '/trips/history'
@@ -461,6 +492,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedTripsBookingIdRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/profile_/edit': {
+      id: '/_authed/profile_/edit'
+      path: '/profile/edit'
+      fullPath: '/profile/edit'
+      preLoaderRoute: typeof AuthedProfileEditRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/_authed/checkout/$carId': {
       id: '/_authed/checkout/$carId'
       path: '/checkout/$carId'
@@ -482,6 +520,7 @@ interface AuthedRouteChildren {
   AuthedMyBookingsRoute: typeof AuthedMyBookingsRoute
   AuthedProfileRoute: typeof AuthedProfileRoute
   AuthedCheckoutCarIdRoute: typeof AuthedCheckoutCarIdRoute
+  AuthedProfileEditRoute: typeof AuthedProfileEditRoute
   AuthedTripsBookingIdRoute: typeof AuthedTripsBookingIdRoute
   AuthedTripsBookingIdPhotosRoute: typeof AuthedTripsBookingIdPhotosRoute
 }
@@ -490,6 +529,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedMyBookingsRoute: AuthedMyBookingsRoute,
   AuthedProfileRoute: AuthedProfileRoute,
   AuthedCheckoutCarIdRoute: AuthedCheckoutCarIdRoute,
+  AuthedProfileEditRoute: AuthedProfileEditRoute,
   AuthedTripsBookingIdRoute: AuthedTripsBookingIdRoute,
   AuthedTripsBookingIdPhotosRoute: AuthedTripsBookingIdPhotosRoute,
 }
@@ -506,6 +546,7 @@ interface AdminRouteChildren {
   AdminReservationBookingIdRoute: typeof AdminReservationBookingIdRoute
   AdminTripsBookedRoute: typeof AdminTripsBookedRoute
   AdminTripsHistoryRoute: typeof AdminTripsHistoryRoute
+  AdminUserUserIdRoute: typeof AdminUserUserIdRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
@@ -517,6 +558,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminReservationBookingIdRoute: AdminReservationBookingIdRoute,
   AdminTripsBookedRoute: AdminTripsBookedRoute,
   AdminTripsHistoryRoute: AdminTripsHistoryRoute,
+  AdminUserUserIdRoute: AdminUserUserIdRoute,
 }
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
