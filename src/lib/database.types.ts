@@ -17,12 +17,20 @@ export type Database = {
       bookings: {
         Row: {
           admin_notified_at: string | null
+          booking_rate: Database["public"]["Enums"]["booking_rate"]
+          cancel_notified_at: string | null
+          canceled_at: string | null
+          canceled_by: string | null
+          cancellation_reason: string | null
           car_id: number
           created_at: string
           end_time: string
           id: string
           miles_driven: number | null
           pickup_location: string
+          price_quote: Json | null
+          refund_id: string | null
+          refunded_amount: number | null
           start_time: string
           status: Database["public"]["Enums"]["booking_status"]
           stripe_payment_intent_id: string | null
@@ -32,12 +40,20 @@ export type Database = {
         }
         Insert: {
           admin_notified_at?: string | null
+          booking_rate?: Database["public"]["Enums"]["booking_rate"]
+          cancel_notified_at?: string | null
+          canceled_at?: string | null
+          canceled_by?: string | null
+          cancellation_reason?: string | null
           car_id: number
           created_at?: string
           end_time: string
           id?: string
           miles_driven?: number | null
           pickup_location: string
+          price_quote?: Json | null
+          refund_id?: string | null
+          refunded_amount?: number | null
           start_time: string
           status?: Database["public"]["Enums"]["booking_status"]
           stripe_payment_intent_id?: string | null
@@ -47,12 +63,20 @@ export type Database = {
         }
         Update: {
           admin_notified_at?: string | null
+          booking_rate?: Database["public"]["Enums"]["booking_rate"]
+          cancel_notified_at?: string | null
+          canceled_at?: string | null
+          canceled_by?: string | null
+          cancellation_reason?: string | null
           car_id?: number
           created_at?: string
           end_time?: string
           id?: string
           miles_driven?: number | null
           pickup_location?: string
+          price_quote?: Json | null
+          refund_id?: string | null
+          refunded_amount?: number | null
           start_time?: string
           status?: Database["public"]["Enums"]["booking_status"]
           stripe_payment_intent_id?: string | null
@@ -151,6 +175,7 @@ export type Database = {
         Row: {
           color: string | null
           created_at: string | null
+          distance_fee: number | null
           features: Json | null
           fuel_type: string | null
           gallery_images: string[] | null
@@ -171,6 +196,7 @@ export type Database = {
         Insert: {
           color?: string | null
           created_at?: string | null
+          distance_fee?: number | null
           features?: Json | null
           fuel_type?: string | null
           gallery_images?: string[] | null
@@ -191,6 +217,7 @@ export type Database = {
         Update: {
           color?: string | null
           created_at?: string | null
+          distance_fee?: number | null
           features?: Json | null
           fuel_type?: string | null
           gallery_images?: string[] | null
@@ -381,11 +408,13 @@ export type Database = {
         Args: { target_booking_id: string }
         Returns: boolean
       }
+      expire_stale_pending_bookings: { Args: never; Returns: undefined }
       get_available_cars: {
         Args: { end_ts: string; start_ts: string }
         Returns: {
           color: string | null
           created_at: string | null
+          distance_fee: number | null
           features: Json | null
           fuel_type: string | null
           gallery_images: string[] | null
@@ -420,12 +449,14 @@ export type Database = {
       is_admin: { Args: never; Returns: boolean }
     }
     Enums: {
+      booking_rate: "non-refundable" | "refundable"
       booking_status:
         | "pending"
         | "confirmed"
         | "failed"
         | "canceled"
         | "completed"
+        | "expired"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -553,12 +584,14 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      booking_rate: ["non-refundable", "refundable"],
       booking_status: [
         "pending",
         "confirmed",
         "failed",
         "canceled",
         "completed",
+        "expired",
       ],
     },
   },

@@ -38,6 +38,14 @@ import { TripCalendar } from "@/components/TripCalendar.tsx";
 import { PriceBreakdown } from "@/components/PriceBreakdown.tsx";
 import { PickupLocationPicker } from "@/components/PickupLocationPicker.tsx";
 import { DEFAULT_PICKUP, resolvePickup, type PickupSelection } from "@/lib/pickup.ts";
+import { DEFAULT_BOOKING_RATE } from "@/lib/booking-rate.ts";
+import {
+    MILES_INCLUDED_PER_DAY,
+    distanceFeeForTrip,
+    formatMiles,
+    maxDistanceFee,
+    milesIncluded,
+} from "@/lib/distance.ts";
 import { carSlug, parseCarIdFromSlug } from "@/lib/slug.ts";
 import { absoluteUrl } from "@/lib/site.ts";
 
@@ -473,6 +481,14 @@ function CarDetails() {
     const totalDays = quote.billableDays;
     const subtotal = quote.total;
 
+    // Falls as the trip lengthens, because it's derived from the trip's average
+    // daily price — see src/lib/distance.ts. With no dates picked this is the
+    // car's stored ceiling, which is what the undated copy below quotes.
+    const distanceFee = useMemo(
+        () => distanceFeeForTrip(car, quote, Number(car.price_per_day)),
+        [car, quote],
+    );
+
     // Which days can't host a start, and which can't host an end
     const unselectableStartDays = useMemo<DateSpan[]>(() => {
         const spans: DateSpan[] = [];
@@ -593,6 +609,9 @@ function CarDetails() {
                 pickupKind: pickup.kind,
                 pickupId: pickup.kind === 'listed' ? pickup.id : undefined,
                 pickupAddress: pickup.kind === 'delivery' ? pickup.address : undefined,
+                // Seeded, not chosen: the rate is picked on the checkout page.
+                // `subtotal` above is the anchor-rate total, so the two agree.
+                bookingRate: DEFAULT_BOOKING_RATE,
             }
         })
     }
@@ -923,7 +942,33 @@ function CarDetails() {
 
                         <div className="mt-4 space-y-4 relative">
                             <p className="text-lg font-bold">Cancellation policy</p>
-                            <p className="text-lg font-bold">Distance included</p>
+
+                            {/* Sits outside the `user ?` branch above, so a
+                                logged-out visitor sees it too — they have no
+                                booking widget and therefore no dates, which is
+                                exactly the undated case handled below. */}
+                            <div className="space-y-3">
+                                <p className="text-lg font-bold">Distance included</p>
+                                <div className="flex items-start gap-3">
+                                    <Gauge size={22} className="flex-shrink-0 mt-0.5" />
+                                    <div>
+                                        <p className="text-base">
+                                            {totalDays > 0
+                                                ? `${formatMiles(milesIncluded(totalDays))} mi`
+                                                : `${MILES_INCLUDED_PER_DAY} miles / day`}
+                                        </p>
+                                        {/* "from" only while undated: the rate
+                                            can still drop once a range is
+                                            picked, never rise. */}
+                                        <p className="text-sm text-gray-400 mt-0.5">
+                                            {totalDays > 0
+                                                ? `$${distanceFee.toFixed(2)}/mi fee for additional miles driven`
+                                                : `from $${maxDistanceFee(car).toFixed(2)}/mi for additional miles driven`}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
                             <p className="text-lg font-bold">Insurance & protection</p>
                         </div>
                     </div>

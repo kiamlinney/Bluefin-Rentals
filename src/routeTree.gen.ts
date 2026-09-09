@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
+import { Route as PoliciesRouteImport } from './routes/policies'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as FaqRouteImport } from './routes/faq'
 import { Route as ContactRouteImport } from './routes/contact'
@@ -21,6 +22,9 @@ import { Route as R403RouteImport } from './routes/403'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as FleetIndexRouteImport } from './routes/fleet/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as PoliciesTermsRouteImport } from './routes/policies/terms'
+import { Route as PoliciesPrivacyRouteImport } from './routes/policies/privacy'
+import { Route as PoliciesCancellationRouteImport } from './routes/policies/cancellation'
 import { Route as FleetCarSlugRouteImport } from './routes/fleet/$carSlug'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe-webhook'
 import { Route as AdminCalendarRouteImport } from './routes/admin/calendar'
@@ -45,6 +49,11 @@ const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
 const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
   id: '/robots.txt',
   path: '/robots.txt',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PoliciesRoute = PoliciesRouteImport.update({
+  id: '/policies',
+  path: '/policies',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -95,6 +104,21 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AdminRoute,
+} as any)
+const PoliciesTermsRoute = PoliciesTermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
+  getParentRoute: () => PoliciesRoute,
+} as any)
+const PoliciesPrivacyRoute = PoliciesPrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => PoliciesRoute,
+} as any)
+const PoliciesCancellationRoute = PoliciesCancellationRouteImport.update({
+  id: '/cancellation',
+  path: '/cancellation',
+  getParentRoute: () => PoliciesRoute,
 } as any)
 const FleetCarSlugRoute = FleetCarSlugRouteImport.update({
   id: '/fleet/$carSlug',
@@ -183,6 +207,7 @@ export interface FileRoutesByFullPath {
   '/contact': typeof ContactRoute
   '/faq': typeof FaqRoute
   '/login': typeof LoginRoute
+  '/policies': typeof PoliciesRouteWithChildren
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/my-bookings': typeof AuthedMyBookingsRoute
@@ -190,6 +215,9 @@ export interface FileRoutesByFullPath {
   '/admin/calendar': typeof AdminCalendarRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
   '/fleet/$carSlug': typeof FleetCarSlugRoute
+  '/policies/cancellation': typeof PoliciesCancellationRoute
+  '/policies/privacy': typeof PoliciesPrivacyRoute
+  '/policies/terms': typeof PoliciesTermsRoute
   '/admin/': typeof AdminIndexRoute
   '/fleet/': typeof FleetIndexRoute
   '/checkout/$carId': typeof AuthedCheckoutCarIdRoute
@@ -210,6 +238,7 @@ export interface FileRoutesByTo {
   '/contact': typeof ContactRoute
   '/faq': typeof FaqRoute
   '/login': typeof LoginRoute
+  '/policies': typeof PoliciesRouteWithChildren
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/my-bookings': typeof AuthedMyBookingsRoute
@@ -217,6 +246,9 @@ export interface FileRoutesByTo {
   '/admin/calendar': typeof AdminCalendarRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
   '/fleet/$carSlug': typeof FleetCarSlugRoute
+  '/policies/cancellation': typeof PoliciesCancellationRoute
+  '/policies/privacy': typeof PoliciesPrivacyRoute
+  '/policies/terms': typeof PoliciesTermsRoute
   '/admin': typeof AdminIndexRoute
   '/fleet': typeof FleetIndexRoute
   '/checkout/$carId': typeof AuthedCheckoutCarIdRoute
@@ -240,6 +272,7 @@ export interface FileRoutesById {
   '/contact': typeof ContactRoute
   '/faq': typeof FaqRoute
   '/login': typeof LoginRoute
+  '/policies': typeof PoliciesRouteWithChildren
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authed/my-bookings': typeof AuthedMyBookingsRoute
@@ -247,6 +280,9 @@ export interface FileRoutesById {
   '/admin/calendar': typeof AdminCalendarRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
   '/fleet/$carSlug': typeof FleetCarSlugRoute
+  '/policies/cancellation': typeof PoliciesCancellationRoute
+  '/policies/privacy': typeof PoliciesPrivacyRoute
+  '/policies/terms': typeof PoliciesTermsRoute
   '/admin/': typeof AdminIndexRoute
   '/fleet/': typeof FleetIndexRoute
   '/_authed/checkout/$carId': typeof AuthedCheckoutCarIdRoute
@@ -270,6 +306,7 @@ export interface FileRouteTypes {
     | '/contact'
     | '/faq'
     | '/login'
+    | '/policies'
     | '/robots.txt'
     | '/sitemap.xml'
     | '/my-bookings'
@@ -277,6 +314,9 @@ export interface FileRouteTypes {
     | '/admin/calendar'
     | '/api/stripe-webhook'
     | '/fleet/$carSlug'
+    | '/policies/cancellation'
+    | '/policies/privacy'
+    | '/policies/terms'
     | '/admin/'
     | '/fleet/'
     | '/checkout/$carId'
@@ -297,6 +337,7 @@ export interface FileRouteTypes {
     | '/contact'
     | '/faq'
     | '/login'
+    | '/policies'
     | '/robots.txt'
     | '/sitemap.xml'
     | '/my-bookings'
@@ -304,6 +345,9 @@ export interface FileRouteTypes {
     | '/admin/calendar'
     | '/api/stripe-webhook'
     | '/fleet/$carSlug'
+    | '/policies/cancellation'
+    | '/policies/privacy'
+    | '/policies/terms'
     | '/admin'
     | '/fleet'
     | '/checkout/$carId'
@@ -326,6 +370,7 @@ export interface FileRouteTypes {
     | '/contact'
     | '/faq'
     | '/login'
+    | '/policies'
     | '/robots.txt'
     | '/sitemap.xml'
     | '/_authed/my-bookings'
@@ -333,6 +378,9 @@ export interface FileRouteTypes {
     | '/admin/calendar'
     | '/api/stripe-webhook'
     | '/fleet/$carSlug'
+    | '/policies/cancellation'
+    | '/policies/privacy'
+    | '/policies/terms'
     | '/admin/'
     | '/fleet/'
     | '/_authed/checkout/$carId'
@@ -356,6 +404,7 @@ export interface RootRouteChildren {
   ContactRoute: typeof ContactRoute
   FaqRoute: typeof FaqRoute
   LoginRoute: typeof LoginRoute
+  PoliciesRoute: typeof PoliciesRouteWithChildren
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
@@ -377,6 +426,13 @@ declare module '@tanstack/react-router' {
       path: '/robots.txt'
       fullPath: '/robots.txt'
       preLoaderRoute: typeof RobotsDottxtRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/policies': {
+      id: '/policies'
+      path: '/policies'
+      fullPath: '/policies'
+      preLoaderRoute: typeof PoliciesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -448,6 +504,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRoute
+    }
+    '/policies/terms': {
+      id: '/policies/terms'
+      path: '/terms'
+      fullPath: '/policies/terms'
+      preLoaderRoute: typeof PoliciesTermsRouteImport
+      parentRoute: typeof PoliciesRoute
+    }
+    '/policies/privacy': {
+      id: '/policies/privacy'
+      path: '/privacy'
+      fullPath: '/policies/privacy'
+      preLoaderRoute: typeof PoliciesPrivacyRouteImport
+      parentRoute: typeof PoliciesRoute
+    }
+    '/policies/cancellation': {
+      id: '/policies/cancellation'
+      path: '/cancellation'
+      fullPath: '/policies/cancellation'
+      preLoaderRoute: typeof PoliciesCancellationRouteImport
+      parentRoute: typeof PoliciesRoute
     }
     '/fleet/$carSlug': {
       id: '/fleet/$carSlug'
@@ -602,6 +679,22 @@ const AdminRouteChildren: AdminRouteChildren = {
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
+interface PoliciesRouteChildren {
+  PoliciesCancellationRoute: typeof PoliciesCancellationRoute
+  PoliciesPrivacyRoute: typeof PoliciesPrivacyRoute
+  PoliciesTermsRoute: typeof PoliciesTermsRoute
+}
+
+const PoliciesRouteChildren: PoliciesRouteChildren = {
+  PoliciesCancellationRoute: PoliciesCancellationRoute,
+  PoliciesPrivacyRoute: PoliciesPrivacyRoute,
+  PoliciesTermsRoute: PoliciesTermsRoute,
+}
+
+const PoliciesRouteWithChildren = PoliciesRoute._addFileChildren(
+  PoliciesRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   R403Route: R403Route,
@@ -611,6 +704,7 @@ const rootRouteChildren: RootRouteChildren = {
   ContactRoute: ContactRoute,
   FaqRoute: FaqRoute,
   LoginRoute: LoginRoute,
+  PoliciesRoute: PoliciesRouteWithChildren,
   RobotsDottxtRoute: RobotsDottxtRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,

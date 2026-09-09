@@ -1,11 +1,31 @@
 // The "trip is booked" email the owners get when a booking is paid for.
+//
+// The chrome, tokens and primitives live in email-template.ts and are shared
+// with cancellation-email.ts — this file owns only what is specific to a
+// confirmed booking.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { sendEmail } from './email'
-import { formatBusinessDate, formatBusinessTime } from './dates'
-
-const ADMIN_RECIPIENT = process.env.ADMIN_NOTIFICATION_EMAIL || 'liamjkinney@gmail.com'
-const SITE_URL = process.env.SITE_URL || 'http://localhost:5173'
+import {
+    ADMIN_RECIPIENT,
+    INK,
+    SHORT_DATE,
+    SITE_URL,
+    button,
+    carCard,
+    carName,
+    escapeHtml,
+    firstName,
+    formatBusinessDate,
+    formatBusinessTime,
+    longDateTime,
+    money,
+    paragraph,
+    section,
+    shell,
+    statCell,
+    ACCENT,
+} from './email-template'
 
 // The service-role clients this is called with are untyped (see
 // getServiceRoleClient in db.ts and the webhook's own createClient), so the
@@ -18,92 +38,6 @@ type BookingEmailRow = {
     pickup_location: string | null
     cars: { year: number; make: string; model: string; trim: string | null; image_url: string | null } | null
     profiles: { full_name: string | null; email: string | null; phone: string | null; num_trips: number | null } | null
-}
-
-// ── Formatting helpers ───────────────────────────────────────────────────────
-
-function escapeHtml(value: string): string {
-    return value
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-}
-
-// Every booking timestamp is a wall-clock time at the Saint Paul lot, and the
-// production server's clock is UTC — src/lib/dates.ts is the only correct way
-// to render one. Never toLocaleString directly.
-const LONG_DATE: Intl.DateTimeFormatOptions = {
-    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-}
-const SHORT_DATE: Intl.DateTimeFormatOptions = {
-    month: 'numeric', day: 'numeric', year: '2-digit',
-}
-
-/** "Friday, August 21, 2026, 5:00 PM" — the phrasing in the prose paragraph. */
-function longDateTime(value: string): string {
-    return `${formatBusinessDate(value, LONG_DATE)}, ${formatBusinessTime(value)}`
-}
-
-function money(value: number | string): string {
-    return Number(value).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-}
-
-function firstName(fullName: string | null): string {
-    return fullName?.trim().split(/\s+/)[0] || 'A guest'
-}
-
-function carName(car: BookingEmailRow['cars']): string {
-    return car ? `${car.year} ${car.make} ${car.model}` : 'your car'
-}
-
-// Gmail proxies every remote image through googleusercontent and caches it
-// keyed by the source URL, ignoring cache-control. Car photos live at a stable
-// path (car_9/main.PNG), so replacing the file in the bucket does nothing for
-// anyone Gmail has already fetched it for — they keep seeing the old photo
-// forever. Stamping the send time onto the URL makes each email reference a URL
-// no proxy has seen, so the image is always current as of when it was sent.
-function cacheBusted(url: string, token: string): string {
-    return `${url}${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(token)}`
-}
-
-// ── Template ─────────────────────────────────────────────────────────────────
-
-// Tables and inline styles throughout: email clients strip <style> blocks and
-// none of them have flexbox or grid.
-const INK = '#111827'
-const MUTED = '#6b7280'
-const LINE = '#e5e7eb'
-const ACCENT = '#0f4d1c'//'#152110'//'#0f4c81'
-
-// Everything in this email is centered. text-align doesn't inherit reliably
-// through table cells in Outlook's Word engine, so each cell restates it — as
-// the align attribute (what Word actually honors) and as text-align (what
-// everything else honors). Dropping either one leaves some client left-aligned.
-function label(text: string): string {
-    return `<div style="font:600 11px/1.4 Helvetica,Arial,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:${MUTED};margin:0 0 4px;text-align:center">${escapeHtml(text)}</div>`
-}
-
-/** One cell of the TRIP START / TRIP END / YOU EARN row. */
-function statCell(name: string, top: string, bottom: string): string {
-    // Symmetric padding and an explicit third of the width: the old right-only
-    // padding made the three cells different widths, so their contents didn't
-    // line up on a shared center even once each one centered its own text.
-    return `
-        <td width="33.33%" align="center" style="padding:0 8px;vertical-align:top;text-align:center">
-            ${label(name)}
-            <div style="font:600 15px/1.4 Helvetica,Arial,sans-serif;color:${INK}">${escapeHtml(top)}</div>
-            <div style="font:400 14px/1.4 Helvetica,Arial,sans-serif;color:${MUTED}">${escapeHtml(bottom)}</div>
-        </td>`
-}
-
-/** A LOCATION / ABOUT THE GUEST block. */
-function section(name: string, bodyHtml: string): string {
-    return `
-        <tr><td align="center" style="padding:20px 0;border-top:1px solid ${LINE};text-align:center">
-            ${label(name)}
-            <div style="font:400 15px/1.6 Helvetica,Arial,sans-serif;color:${INK};text-align:center">${bodyHtml}</div>
-        </td></tr>`
 }
 
 function buildHtml(booking: BookingEmailRow): string {
@@ -122,73 +56,35 @@ function buildHtml(booking: BookingEmailRow): string {
         `${guest?.num_trips ?? 0} ${guest?.num_trips === 1 ? 'trip' : 'trips'} with BlueFin`,
     ].filter(Boolean).join('<br>')
 
-    return `<!doctype html>
-<html><body style="margin:0;padding:0;background:#f3f4f6">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6">
-<tr><td align="center" style="padding:24px 12px">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden">
-
-    <tr><td align="center" style="background:${ACCENT};padding:16px 24px;font:700 16px/1.4 Helvetica,Arial,sans-serif;color:#ffffff;text-align:center">BlueFin Rentals</td></tr>
-
+    const bodyRows = `
     <tr><td align="center" style="padding:28px 24px 0;text-align:center">
         <h1 style="margin:0 0 16px;font:700 24px/1.3 Helvetica,Arial,sans-serif;color:${INK};text-align:center">${escapeHtml(who)}'s trip is booked</h1>
-        <p style="margin:0 0 12px;font:400 15px/1.6 Helvetica,Arial,sans-serif;color:${INK};text-align:center">
-            Yippie! ${escapeHtml(who)}'s trip with your ${escapeHtml(carName(car))} is booked from
-            <strong>${escapeHtml(longDateTime(booking.start_time))}</strong> to <strong>${escapeHtml(longDateTime(booking.end_time))}.</strong>
-        </p>
-        <p style="margin:0 0 12px;font:400 15px/1.6 Helvetica,Arial,sans-serif;color:${INK};text-align:center">
-            Location: <strong>${ escapeHtml(booking.pickup_location || 'Home base')}</strong>.
-        </p>
-        <p style="margin:0 0 12px;font:400 15px/1.6 Helvetica,Arial,sans-serif;color:${INK};text-align:center">
-            Total: <strong>${escapeHtml(money(booking.total_price))}</strong>.
-        </p>
+        ${paragraph(`Yippie! ${escapeHtml(who)}'s trip with your ${escapeHtml(carName(car))} is booked from
+            <strong>${escapeHtml(longDateTime(booking.start_time))}</strong> to <strong>${escapeHtml(longDateTime(booking.end_time))}.</strong>`)}
+        ${paragraph(`Location: <strong>${escapeHtml(booking.pickup_location || 'Home base')}</strong>.`)}
+        ${paragraph(`Total: <strong>${escapeHtml(money(booking.total_price))}</strong>.`)}
     </td></tr>
-
-    <tr><td style="padding:24px 24px 0">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${LINE};border-radius:10px">
-            <tr><td align="center" style="padding:16px 16px 0;text-align:center">${label('Booked trip')}</td></tr>
-            ${car?.image_url ? `
-            <tr><td align="center" style="padding:8px 16px 0;text-align:center">
-                <img src="${escapeHtml(cacheBusted(car.image_url, sentAt))}" alt="${escapeHtml(carName(car))}" width="536"
-                     style="display:block;width:100%;max-width:536px;height:auto;border-radius:8px;margin:0 auto">
-            </td></tr>` : ''}
-            <tr><td align="center" style="padding:14px 16px 0;font:600 17px/1.4 Helvetica,Arial,sans-serif;color:${INK};text-align:center">
-                ${escapeHtml(carName(car))}
-            </td></tr>
-            <tr><td style="padding:16px">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+${carCard({
+        captionLabel: 'Booked trip',
+        car,
+        sentAt,
+        statsRowHtml: `
                     ${statCell('Trip start', formatBusinessDate(booking.start_time, SHORT_DATE), formatBusinessTime(booking.start_time).toLowerCase())}
                     ${statCell('Trip end', formatBusinessDate(booking.end_time, SHORT_DATE), formatBusinessTime(booking.end_time).toLowerCase())}
-                    ${statCell('You earn', money(booking.total_price), 'paid in full')}
-                </tr></table>
-            </td></tr>
-        </table>
-    </td></tr>
-
-    <tr><td style="padding:24px 24px 0" align="center">
-        <a href="${escapeHtml(reservationUrl)}"
-           style="display:inline-block;padding:12px 28px;background:${ACCENT};color:#ffffff;border-radius:8px;font:600 15px/1 Helvetica,Arial,sans-serif;text-decoration:none">
-            View reservation
-        </a>
-    </td></tr>
+                    ${statCell('You earn', money(booking.total_price), 'paid in full')}`,
+    })}
+    <tr><td style="padding:24px 24px 0" align="center">${button(reservationUrl, 'View reservation')}</td></tr>
 
     <tr><td style="padding:24px">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-            ${section('Reservation ID', `#${escapeHtml(booking.id.slice(0,8).toUpperCase())}`)}
+            ${section('Reservation ID', `#${escapeHtml(booking.id.slice(0, 8).toUpperCase())}`)}
             ${section('Location', escapeHtml(booking.pickup_location || 'Home base'))}
             ${section('About the guest', guestLines)}
         </table>
     </td></tr>
+`
 
-    <tr><td align="center" style="padding:0 24px 24px;font:400 12px/1.6 Helvetica,Arial,sans-serif;color:${MUTED};border-top:1px solid ${LINE};padding-top:16px;text-align:center">
-        BlueFin Rentals LLC &middot; Saint Paul, MN<br>
-        Sent automatically when a booking is paid for.
-    </td></tr>
-
-</table>
-</td></tr>
-</table>
-</body></html>`
+    return shell({ bodyRows, footerNote: 'Sent automatically when a booking is paid for.' })
 }
 
 function buildText(booking: BookingEmailRow): string {
@@ -214,11 +110,19 @@ function buildText(booking: BookingEmailRow): string {
     ].join('\n')
 }
 
-/** Exported for the admin test trigger, which re-sends an already-sent email. */
-export async function sendBookingConfirmedEmail(booking: BookingEmailRow): Promise<void> {
+/**
+ * Exported for the admin test trigger, which re-sends an already-sent email.
+ *
+ * `isTest` gates the subject prefix.
+ */
+export async function sendBookingConfirmedEmail(
+    booking: BookingEmailRow,
+    { isTest = true }: { isTest?: boolean } = {},
+): Promise<void> {
+    const who = firstName(booking.profiles?.full_name ?? null)
     await sendEmail({
         to: ADMIN_RECIPIENT,
-        subject: `TEST: BlueFin - ${firstName(booking.profiles?.full_name ?? null)}'s trip with your ${carName(booking.cars)} is booked!`,
+        subject: `${isTest ? 'TEST: ' : ''}BlueFin - ${who}'s trip with your ${carName(booking.cars)} is booked!`,
         html: buildHtml(booking),
         text: buildText(booking),
     })

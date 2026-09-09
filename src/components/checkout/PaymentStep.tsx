@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import {Link, useNavigate} from '@tanstack/react-router'
 import { PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 import { confirmBooking } from '@/lib/db'
 
@@ -161,8 +161,26 @@ export function PaymentStep({
                     className="mt-0.5 w-4 h-4 rounded border-gray-300 accent-[#152110] cursor-pointer flex-shrink-0"
                 />
                 <span className="text-sm text-gray-700">
-                    I agree to pay the total shown and to the BlueFin Rentals terms of service
-                    and cancellation policy.
+                    I agree to pay the total shown and to the BlueFin Rentals {' '}
+                    <Link
+                        to="/policies/terms"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline cursor-pointer text-green-700"
+                    >
+                        terms of service
+                    </Link>
+
+                    {' '}and{' '}
+
+                    <Link
+                        to="/policies/cancellation"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline cursor-pointer text-green-700"
+                    >
+                     cancellation policy
+                    </Link>
                 </span>
             </label>
 

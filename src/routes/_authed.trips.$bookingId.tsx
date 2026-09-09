@@ -2,8 +2,9 @@ import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { CarFront, Check, Plane } from 'lucide-react'
-import { cancelBooking, getTripForGuest, type TripPaymentState } from '@/lib/db'
+import { getTripForGuest, type TripPaymentState } from '@/lib/db'
 import { buildCheckoutSearch } from '@/lib/checkout-search'
+import type { BookingRate } from '@/lib/booking-rate'
 import { carSlug } from '@/lib/slug'
 import {
     formatBusinessDate,
@@ -40,6 +41,8 @@ const STATUS_BADGE: Record<string, string> = {
     canceled: 'bg-red-900/30 text-red-800',
     completed: 'bg-blue-900/30 text-blue-800',
     pending: 'bg-amber-300/60 text-black',
+    // Reachable directly by URL even though the trips list hides these.
+    expired: 'bg-gray-200 text-gray-600',
 }
 
 function TripPage() {
@@ -62,7 +65,6 @@ function TripPage() {
 
     const isPaid = paymentState === 'confirmed' || paymentState === 'completed'
     const showBanner = booked === '1' && paymentState === 'confirmed'
-    const canCancel = paymentState === 'confirmed' && !hasEnded
 
     return (
         <div className="min-h-screen bg-[#152110] py-24 px-4 md:px-8">
@@ -203,7 +205,10 @@ function TripPage() {
                     onRecheck={() => router.invalidate()}
                 />
 
-                {canCancel && <CancelTrip bookingId={booking.id} onCanceled={() => router.invalidate()} />}
+                {/* Cancelling lives on the my-bookings card now — one place, one
+                    dialog that can explain the refund. This page carried a second
+                    copy of the flow whose copy ("refund the full amount") stopped
+                    being true once the rate was enforced. */}
 
                 <Link
                     to="/my-bookings"
@@ -244,7 +249,9 @@ function PaymentSection({
     onRecheck,
 }: {
     paymentState: TripPaymentState
-    booking: { id: string; total_price: number; start_time: string; end_time: string; pickup_location: string; car_id: number }
+    // booking_rate is here for buildCheckoutSearch below: resuming an unpaid
+    // booking has to put the guest back on the rate it was priced at.
+    booking: { id: string; total_price: number; start_time: string; end_time: string; pickup_location: string; car_id: number; booking_rate: BookingRate }
     card: { brand: string | null; last4: string | null; receiptUrl: string | null } | null
     onRecheck: () => void
 }) {
@@ -296,9 +303,14 @@ function PaymentSection({
         return (
             <div className="bg-gray-200 border border-gray-800 rounded-2xl p-6">
                 <h3 className="font-bold text-black">This trip was canceled</h3>
+                {/* Deliberately says nothing about the amount. A cancellation
+                    refunds in full, in part, or not at all depending on the rate
+                    and the timing — this used to promise a full refund, which is
+                    now false more often than not. The cancellation email carries
+                    the actual figure. */}
                 <p className="text-sm text-gray-700 mt-1">
-                    Any charge for it has been refunded. Refunds usually land back on the card
-                    within 5–10 business days.
+                    Any refund due has been sent to your original payment method, and usually
+                    lands within 5–10 business days. Check your email for the details.
                 </p>
             </div>
         )
@@ -380,56 +392,7 @@ function ProcessingPayment({ onRecheck }: { onRecheck: () => void }) {
     )
 }
 
-// Two-step confirm rather than a window.confirm, matching the pattern on the
-// my-bookings card and the admin reservation page.
-function CancelTrip({ bookingId, onCanceled }: { bookingId: string; onCanceled: () => void }) {
-    const [asking, setAsking] = useState(false)
-    const [working, setWorking] = useState(false)
-    const [error, setError] = useState<string | null>(null)
-
-    const handleCancel = async () => {
-        setWorking(true)
-        setError(null)
-        try {
-            await cancelBooking({ data: { bookingId } })
-            onCanceled()
-        } catch {
-            setError('Could not cancel this trip. Please contact us.')
-            setWorking(false)
-            setAsking(false)
-        }
-    }
-
-    return (
-        <div className="bg-gray-200 border border-gray-800 rounded-2xl p-6">
-            {!asking ? (
-                <button
-                    onClick={() => setAsking(true)}
-                    className="text-sm font-bold text-red-700 hover:text-red-500 transition-colors cursor-pointer"
-                >
-                    Cancel this trip
-                </button>
-            ) : (
-                <div className="flex flex-wrap items-center gap-3">
-                    <span className="text-sm text-black">
-                        Cancel this trip and refund the full amount?
-                    </span>
-                    <button
-                        onClick={handleCancel}
-                        disabled={working}
-                        className="text-sm text-black bg-red-700/80 px-3 py-1 rounded-md hover:bg-red-500 border border-black disabled:opacity-50 cursor-pointer"
-                    >
-                        {working ? '...' : 'Yes, cancel'}
-                    </button>
-                    <button
-                        onClick={() => setAsking(false)}
-                        className="text-xs text-black hover:text-gray-700 cursor-pointer"
-                    >
-                        Keep it
-                    </button>
-                </div>
-            )}
-            {error && <p className="text-sm text-red-800 mt-3">{error}</p>}
-        </div>
-    )
-}
+// CancelTrip used to live here. It moved to
+// src/components/CancelTripDialog.tsx and is rendered only from the
+// my-bookings card, so there is one cancel flow rather than three copies that
+// have to be kept saying the same thing about refunds.

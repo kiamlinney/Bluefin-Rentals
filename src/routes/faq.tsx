@@ -24,7 +24,7 @@ export const Route = createFileRoute('/faq')({
 
 function Faq() {
     return (
-        <div className="max-w-3xl mx-auto px-4 py-16 mt-14">
+        <div className="max-w-3xl mx-auto px-4 py-16">
             <h1 className="text-4xl md:text-5xl tracking-tight mb-4">Frequently asked questions</h1>
             <p className="text-gray-300 mb-12">
                 Everything about booking, picking up, and returning a car in the Twin Cities. Still

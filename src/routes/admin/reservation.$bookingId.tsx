@@ -1,21 +1,36 @@
 import {createFileRoute, Link} from '@tanstack/react-router'
-import {cancelBooking, getBookingById} from "@/lib/db.ts";
-import {formatBusinessDate, formatBusinessTime, getRelativeTimeString} from "@/lib/dates.ts";
+import {cancelBooking, getBookingById, getCarPriceOverrides} from "@/lib/db.ts";
+import {
+    businessDateKey,
+    businessWallClockTime,
+    formatBusinessDate,
+    formatBusinessDateTime,
+    formatBusinessTime,
+    getRelativeTimeString,
+} from "@/lib/dates.ts";
+import {bookingRateLabel} from "@/lib/booking-rate.ts";
+import {effectiveFreeCancellationDeadline} from "@/lib/cancellation-policy.ts";
 import { Plane, CarFront, Check, X} from 'lucide-react';
 import {useState} from "react";
 import {displayName, formatPhone} from "@/lib/profile.ts";
 import {carSlug} from "@/lib/slug.ts";
+import {buildOverrideMap, calculateTripPrice} from "@/lib/pricing.ts";
+import {calculateOverage, distanceFeeForTrip, formatMiles, milesIncluded} from "@/lib/distance.ts";
 
 export const Route = createFileRoute('/admin/reservation/$bookingId')({
     loader: async ({ params }) => {
         const booking = await getBookingById({ data: params.bookingId })
-        return { booking }
+        // Sequential rather than a Promise.all: the car id only exists once the
+        // booking has come back. Needed because the mileage rate is derived from
+        // the trip's average daily price, which is override-dependent.
+        const priceOverrides = await getCarPriceOverrides({ data: String(booking.cars.id) })
+        return { booking, priceOverrides }
     },
     component: ReservationDetailsPage,
 })
 
 function ReservationDetailsPage() {
-    const { booking } = Route.useLoaderData()
+    const { booking, priceOverrides } = Route.useLoaderData()
     const car = booking.cars
     const profile = booking.profiles
     // Shared with the trip list and the profile pages, so the same renter reads
@@ -34,6 +49,43 @@ function ReservationDetailsPage() {
 
     // profiles.created_at is nullable, unlike bookings.created_at.
     const createdAt = profile.created_at ? new Date(profile.created_at) : null
+
+    // ── Mileage ──────────────────────────────────────────────────────────────
+    // The rate falls with trip length (src/lib/distance.ts), so this needs the
+    // trip's quote, not just its dates.
+    //
+    // The stored timestamps are UTC instants and calculateTripPrice wants
+    // wall-clock strings, so they go through businessDateKey/businessWallClockTime
+    // — the same pair buildCheckoutSearch uses, for the same reason. Slicing the
+    // ISO string would take the *UTC* day, which is the next day for a
+    // late-evening Central return and would bill an extra 200 miles.
+    //
+    // No pickup fee: it doesn't enter the ratio, and the row stores only the
+    // rendered location string so the selection can't be reconstructed anyway
+    // (see the known gap in src/lib/checkout-search.ts).
+    const tripQuote = calculateTripPrice({
+        startDate: businessDateKey(startDate),
+        startTime: businessWallClockTime(startDate),
+        endDate: businessDateKey(endDate),
+        endTime: businessWallClockTime(endDate),
+        basePricePerDay: Number(car.price_per_day),
+        overrides: buildOverrideMap(priceOverrides),
+    })
+
+    // What the guest was told about cancelling — and, since cancelBooking now
+    // enforces the policy, also the rule it applies. effectiveFreeCancellation-
+    // Deadline rather than freeCancellationDeadline: the raw helper doesn't
+    // know about the late-booking grace or the cap that keeps non-refundable
+    // from outlasting refundable, so on a short-lead booking it would show a
+    // later deadline than the one actually enforced.
+    const cancelDeadline = effectiveFreeCancellationDeadline(booking.booking_rate, {
+        bookedAt: new Date(booking.created_at),
+        tripStart: startDate,
+    })
+
+    const totalMilesIncluded = milesIncluded(tripQuote.billableDays)
+    const perMileFee = distanceFeeForTrip(car, tripQuote, Number(car.price_per_day))
+    const overage = calculateOverage(booking.miles_driven ?? 0, totalMilesIncluded, perMileFee)
 
     // The phone column is nullable and free-form — it's whatever the renter typed,
     // so it isn't guaranteed to be 10 digits. The old version sliced blindly,
@@ -139,8 +191,8 @@ function ReservationDetailsPage() {
                                         <p>Minneapolis−Saint Paul International Airport</p>
                                     </div>
                                 ) : (
-                                    <div className="flex items-center gap-2">
-                                        <div className="p-2 border border-gray-700 rounded-full bg-gray-50 text-gray-700">
+                                    <div className="flex items-center gap-2 text-gray-800">
+                                        <div className="p-2 border border-gray-700 rounded-full bg-gray-50">
                                             <CarFront size={20}/>
                                         </div>
                                         <p>{booking.pickup_location}</p>
@@ -152,7 +204,7 @@ function ReservationDetailsPage() {
 
                         <section className="space-y-1">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-black">Total Earnings</h3>
-                            <p className="text-lg text-gray-500">${booking.total_price}</p>
+                            <p className="text-lg text-gray-700">${booking.total_price}</p>
                             <button className="text-sm font-semibold text-emerald-700 hover:underline cursor-pointer block pt-1">
                                 View detailed receipt
                             </button>
@@ -160,21 +212,46 @@ function ReservationDetailsPage() {
 
                         <section className="space-y-1">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-black">Total Miles Included</h3>
-                            <p className="text-lg text-gray-500">- -</p>
+                            <p className="text-lg text-gray-700">{formatMiles(totalMilesIncluded)} miles</p>
+                            <p className="text-sm text-gray-500 max-w-md">
+                                {renterName?.split(' ')[0]} can be charged ${perMileFee.toFixed(2)} for every mile
+                                over the total included for the trip.
+                            </p>
                         </section>
 
                         <section className="space-y-1">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-black">Miles Driven</h3>
+                            {/* Still dashes until the odometer flow that writes
+                                miles_driven exists. */}
                             {booking.miles_driven ? (
-                                <p className="text-lg text-gray-500">{booking.miles_driven}</p>
+                                <p className="text-lg text-gray-500">{formatMiles(booking.miles_driven)} miles</p>
                             ) : (
                                 <p className="text-lg text-gray-500">- -</p>
+                            )}
+                            {/* Only when there is one — a "0 miles over" line is noise. */}
+                            {overage.milesOver > 0 && (
+                                <p className="text-sm font-semibold text-amber-700">
+                                    {formatMiles(overage.milesOver)} miles over · ${overage.amount.toFixed(2)} due
+                                </p>
                             )}
                         </section>
 
                         <section className="space-y-1">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-black">Cancellation Policy</h3>
-                            <p className="text-lg text-gray-500">- -</p>
+                            <p className="text-lg text-gray-700">{bookingRateLabel(booking.booking_rate)}</p>
+                            {/* The deadline is stated as a datetime rather than
+                                "24 hours after booking", because it isn't always
+                                24 hours: a trip booked close to its own start
+                                gets a shorter window, and non-refundable is
+                                capped so it can't outlast refundable. */}
+                            <p className="text-sm text-gray-500 max-w-md">
+                                {new Date() < cancelDeadline
+                                    ? `Free cancellation until ${formatBusinessDateTime(cancelDeadline)}.`
+                                    : `Free cancellation ended ${formatBusinessDateTime(cancelDeadline)}.`}
+                                {booking.booking_rate === 'refundable'
+                                    ? ' After that, a cancellation fee of one day (or half a day on trips of two days or less) is retained.'
+                                    : ' After that, no refund is issued.'}
+                            </p>
                         </section>
 
                         <section className="space-y-1">
@@ -234,21 +311,33 @@ function ReservationDetailsPage() {
                                                 Cancel Trip
                                             </button>
                                         ) : (
-                                            <div className="flex items-center gap-3 rounded-lg">
-                                                <span className="text-s text-black">Are you sure?</span>
-                                                <button
-                                                    onClick={handleCancel}
-                                                    disabled={confirmCancel}
-                                                    className="text-s text-black bg-red-700/80 px-3 py-1 rounded-md hover:bg-red-500 border border-black disabled:opacity-50 cursor-pointer"
-                                                >
-                                                    {confirmCancel ? '...' : 'Yes'}
-                                                </button>
-                                                <button
-                                                    onClick={() => setInitialCancel(false)}
-                                                    className="text-xs text-black hover:text-gray-700 cursor-pointer"
-                                                >
-                                                    Back
-                                                </button>
+                                            <div className="flex flex-col items-end gap-2 w-full">
+                                                {/* A host-initiated cancellation always refunds
+                                                    in full — the guest's rate and the free
+                                                    cancellation window govern what *they* get
+                                                    back when *they* cancel, and neither applies
+                                                    when the decision is ours. Spelled out because
+                                                    the button sits next to a booking whose page
+                                                    shows a non-refundable policy right above it. */}
+                                                <span className="text-xs text-gray-700 text-right">
+                                                    Cancel and refund the guest <strong>in full</strong>?
+                                                    This ignores the {bookingRateLabel(booking.booking_rate).toLowerCase()} policy.
+                                                </span>
+                                                <div className="flex items-center gap-3">
+                                                    <button
+                                                        onClick={handleCancel}
+                                                        disabled={confirmCancel}
+                                                        className="text-s text-black bg-red-700/80 px-3 py-1 rounded-md hover:bg-red-500 border border-black disabled:opacity-50 cursor-pointer"
+                                                    >
+                                                        {confirmCancel ? '...' : 'Yes'}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setInitialCancel(false)}
+                                                        className="text-xs text-black hover:text-gray-700 cursor-pointer"
+                                                    >
+                                                        Back
+                                                    </button>
+                                                </div>
                                             </div>
                                         )}
                                     </div>

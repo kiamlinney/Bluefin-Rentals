@@ -96,6 +96,56 @@ export const Route = createFileRoute('/api/stripe-webhook')({
                             if (error) console.warn('Failed to mark booking as canceled:', error.message)
                             break
                         }
+                        // A refund is not final when refunds.create returns. It can
+                        // reverse afterwards — a closed card, a bank rejection — and
+                        // until now nothing told the database that, so a booking
+                        // could show a refund that never actually landed.
+                        //
+                        // Reconciled from the charge rather than trusted from our own
+                        // write: charge.amount_refunded is Stripe's running total in
+                        // cents across every refund on that charge, so it stays right
+                        // even for a refund issued from the dashboard by hand.
+                        case 'charge.refunded': {
+                            const charge = event.data.object as Stripe.Charge
+                            const piId = (charge.payment_intent as string) || undefined
+                            if (!piId) {
+                                console.warn('charge.refunded missing payment_intent id')
+                                break
+                            }
+                            const { error } = await supabaseAdmin
+                                .from('bookings')
+                                .update({ refunded_amount: charge.amount_refunded / 100 })
+                                .eq('stripe_payment_intent_id', piId)
+                            if (error) console.warn('Failed to record refund amount:', error.message)
+                            else console.log(`Refund recorded for PaymentIntent ${piId}: ${charge.amount_refunded / 100}`)
+                            break
+                        }
+                        // The reversal case. Stripe sends this when a refund that had
+                        // been accepted later fails, which means the money came back
+                        // to us and the guest never got it. Deliberately loud: the
+                        // booking stays canceled — the trip really is off — but
+                        // somebody has to settle up with the guest by hand, and
+                        // nothing else in the system will notice.
+                        case 'refund.failed':
+                        case 'charge.refund.updated': {
+                            const refund = event.data.object as Stripe.Refund
+                            if (refund.status === 'failed' || refund.status === 'canceled') {
+                                const piId = (refund.payment_intent as string) || undefined
+                                console.error(
+                                    `[refund] REFUND ${refund.status.toUpperCase()} for PaymentIntent ${piId} ` +
+                                    `(refund ${refund.id}, ${(refund.amount ?? 0) / 100}, reason: ${refund.failure_reason ?? 'unknown'}). ` +
+                                    `The guest has NOT been paid — settle this manually.`,
+                                )
+                                if (piId) {
+                                    const { error } = await supabaseAdmin
+                                        .from('bookings')
+                                        .update({ refunded_amount: null })
+                                        .eq('stripe_payment_intent_id', piId)
+                                    if (error) console.warn('Failed to clear refunded_amount:', error.message)
+                                }
+                            }
+                            break
+                        }
                         case 'charge.succeeded': {
                             // Some flows deliver charge.succeeded slightly before/after PI events.
                             // Use it as a backup to confirm the booking.

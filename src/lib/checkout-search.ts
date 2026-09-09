@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { businessDateKey, businessWallClockTime } from './dates'
+import type { BookingRate } from './booking-rate.ts'
 
 // Zod validates that the URL search params are exactly the right shape
 // before the loader or component even runs. If a param is missing or
@@ -37,6 +38,15 @@ export const checkoutSearchSchema = z.object({
     pickupKind: z.enum(['home', 'listed', 'delivery']).catch('home'),
     pickupId: z.string().optional().catch(undefined),
     pickupAddress: z.string().optional().catch(undefined),
+    // Chosen on the checkout page itself, not the car page, but it lives in the
+    // URL anyway so the selection survives a refresh mid-checkout and so
+    // buildCheckoutSearch below can restore it when resuming a pending booking.
+    //
+    // Same .catch reasoning as pickupKind: a mangled link falls back to the
+    // anchor rate, the one option that can never overcharge. Editing this param
+    // by hand changes the price, but only to a price the radio button offers
+    // anyway — and the server re-derives the charge from it either way.
+    bookingRate: z.enum(['non-refundable', 'refundable']).catch('non-refundable'),
     // bookingId is optional — only present when resuming an existing
     // pending booking rather than creating a fresh one
     bookingId: z.string().optional(),
@@ -64,6 +74,9 @@ export type CheckoutSearch = z.infer<typeof checkoutSearchSchema>
  * delivery booking therefore falls back to home-base pickup via the
  * `.catch('home')` above. Fixing it needs the structured selection persisted on
  * the row; it is not something this function can recover.
+ *
+ * `booking_rate` has no such gap — it is persisted, so a resumed booking
+ * comes back on the rate it was priced at rather than snapping to the default.
  */
 export function buildCheckoutSearch(booking: {
     id: string
@@ -71,6 +84,7 @@ export function buildCheckoutSearch(booking: {
     end_time: string
     total_price: number
     pickup_location: string
+    booking_rate: BookingRate
 }): CheckoutSearch {
     const start = new Date(booking.start_time)
     const end = new Date(booking.end_time)
@@ -86,6 +100,7 @@ export function buildCheckoutSearch(booking: {
         pickupKind: 'home',
         pickupId: undefined,
         pickupAddress: undefined,
+        bookingRate: booking.booking_rate,
         bookingId: booking.id,
     }
 }

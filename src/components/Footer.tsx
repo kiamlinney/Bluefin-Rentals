@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { BUSINESS, OPENING_HOURS, to12Hour } from "@/lib/business.ts";
+import { POLICY_PAGES } from "@/lib/policies.ts";
 
 // Every public page links to every other one from here, which is how crawlers
 // reach pages the navbar doesn't list (FAQ) and how visitors find the hours.
@@ -48,8 +49,18 @@ const Footer = () => {
             </div>
 
             <div className="border-t-[0.5px] border-gray-400">
-                <div className="max-w-6xl mx-auto px-6 py-5 text-xs text-gray-400">
-                    © {year} {BUSINESS.legalName}. All rights reserved.
+                <div className="max-w-6xl mx-auto px-6 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-gray-400">
+                    <span>© {year} {BUSINESS.legalName}. All rights reserved.</span>
+                    {/* In the bottom bar rather than a fifth column: the grid
+                        above is full, and this is where legal links are looked
+                        for anyway. */}
+                    <ul className="flex flex-wrap gap-x-5 gap-y-2">
+                        {POLICY_PAGES.map(({ path, label }) => (
+                            <li key={path}>
+                                <Link to={path} className="hover:text-white">{label}</Link>
+                            </li>
+                        ))}
+                    </ul>
                 </div>
             </div>
         </footer>

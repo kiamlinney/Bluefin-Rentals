@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { createClient } from '@supabase/supabase-js'
 import { absoluteUrl } from '@/lib/site'
 import { carSlug } from '@/lib/slug'
+import { POLICY_PAGES } from '@/lib/policies'
 
 // This page is like the table of contents, its job is discovery
 
@@ -13,6 +14,13 @@ const STATIC_PAGES: SitemapEntry[] = [
     { path: '/faq', changefreq: 'monthly', priority: '0.6' },
     { path: '/about', changefreq: 'monthly', priority: '0.5' },
     { path: '/contact', changefreq: 'monthly', priority: '0.5' },
+    // Legal pages: indexable but low priority — they exist to be found when
+    // looked for, not to rank.
+    ...POLICY_PAGES.map(({ path }) => ({
+        path,
+        changefreq: 'yearly',
+        priority: '0.3',
+    })),
 ]
 
 function xmlEscape(value: string): string {

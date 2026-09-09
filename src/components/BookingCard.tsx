@@ -1,33 +1,28 @@
 import {useState} from "react";
-import {cancelBooking} from "@/lib/db.ts";
 import {buildCheckoutSearch} from "@/lib/checkout-search.ts";
 import {CalendarDays, MapPin} from "lucide-react";
-import {Link} from "@tanstack/react-router";
+import {Link, useRouter} from "@tanstack/react-router";
+import {CancelTripDialog} from "@/components/CancelTripDialog.tsx";
 
 export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any, formatDate: any, isUpcoming: boolean }) {
     const car = booking.cars
     const projectID = "fmueikfpthimanfrituz"
+    const router = useRouter()
 
-    const [initialCancel, setInitialCancel] = useState(false)
-    const [confirmCancel, setConfirmCancel] = useState(false)
+    // One flag, where there used to be two pieces of state shared between the
+    // confirmed and pending cancel blocks — which meant opening either one armed
+    // both. They can't both render today, but nothing enforced that.
+    const [cancelling, setCancelling] = useState(false)
 
     // Resuming a pending checkout rebuilds the search params the car page would
     // have produced. Shared with the trip page's unpaid state — see
     // buildCheckoutSearch for why it can't just slice the stored timestamp.
     const checkoutParams = buildCheckoutSearch(booking)
 
-    const handleCancel = async () => {
-        setConfirmCancel(true);
-        try {
-            await cancelBooking({ data: { bookingId: booking.id } });
-            window.location.reload(); // Refreshing page
-        } catch (err) {
-            alert("Failed to cancel trip. Please contact support.");
-            setConfirmCancel(false);
-        } finally {
-            setConfirmCancel(false);
-        }
-    }
+    // This is the only place a guest can cancel. The trip detail page used to
+    // carry its own copy of this flow and no longer does.
+    const cancelButtonClass =
+        "text-sm font-bold text-red-700 hover:text-red-500 transition-colors cursor-pointer"
 
     return (
         // `relative` anchors the full-card link below. The card can't itself be
@@ -93,61 +88,17 @@ export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any,
                     {/* Only show Cancel Trip option if status is confirmed and the dates have not past */}
                     {(booking.status === 'confirmed') && (new Date(booking.end_time) >= new Date()) && (
                         <div className="flex flex-col items-end">
-                            {!initialCancel ? (
-                                <button
-                                    onClick={() => setInitialCancel(true)}
-                                    className="text-sm font-bold text-red-700 hover:text-red-500 transition-colors cursor-pointer"
-                                >
-                                    Cancel Trip
-                                </button>
-                            ) : (
-                                <div className="flex items-center gap-3 rounded-lg">
-                                    <span className="text-xs text-black">Are you sure?</span>
-                                    <button
-                                        onClick={handleCancel}
-                                        disabled={confirmCancel}
-                                        className="text-xs text-black bg-red-700/80 px-3 py-1 rounded-md hover:bg-red-500 border border-black disabled:opacity-50 cursor-pointer"
-                                    >
-                                        {confirmCancel ? '...' : 'Yes'}
-                                    </button>
-                                    <button
-                                        onClick={() => setInitialCancel(false)}
-                                        className="text-xs text-black hover:text-gray-700 cursor-pointer"
-                                    >
-                                        Back
-                                    </button>
-                                </div>
-                            )}
+                            <button onClick={() => setCancelling(true)} className={cancelButtonClass}>
+                                Cancel Trip
+                            </button>
                         </div>
                     )}
 
                     {booking.status === 'pending' && (
-                        <div className="flex flex-row gap-x-4">
-                            {!initialCancel ? (
-                                <button
-                                    onClick={() => setInitialCancel(true)}
-                                    className="text-sm font-bold text-red-700 hover:text-red-500 transition-colors cursor-pointer"
-                                >
-                                    Cancel
-                                </button>
-                            ) : (
-                                <div className="flex items-center gap-3 rounded-lg">
-                                    <span className="text-xs text-black">Are you sure?</span>
-                                    <button
-                                        onClick={handleCancel}
-                                        disabled={confirmCancel}
-                                        className="text-xs text-black bg-red-700/90 px-3 py-1 rounded-md hover:bg-red-500 border border-black disabled:opacity-50 cursor-pointer"
-                                    >
-                                        {confirmCancel ? '...' : 'Yes'}
-                                    </button>
-                                    <button
-                                        onClick={() => setInitialCancel(false)}
-                                        className="text-xs text-black hover:text-gray-700 cursor-pointer"
-                                    >
-                                        Back
-                                    </button>
-                                </div>
-                            )}
+                        <div className="flex flex-row gap-x-4 items-center">
+                            <button onClick={() => setCancelling(true)} className={cancelButtonClass}>
+                                Cancel
+                            </button>
 
                             <Link
                                 to="/checkout/$carId"
@@ -162,6 +113,21 @@ export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any,
 
                 </div>
             </div>
+
+            {cancelling && (
+                <CancelTripDialog
+                    bookingId={booking.id}
+                    totalPaid={Number(booking.total_price)}
+                    onClose={() => setCancelling(false)}
+                    onCanceled={() => {
+                        setCancelling(false)
+                        // invalidate() rather than the reload this used to do —
+                        // the loader refetches and the card re-renders in place,
+                        // keeping scroll position and any other open state.
+                        router.invalidate()
+                    }}
+                />
+            )}
         </div>
     )
 }

@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { loadStripe } from '@stripe/stripe-js'
 import {
@@ -15,6 +15,8 @@ import {
 } from '@/lib/pricing'
 import { resolvePickup, type PickupSelection } from '@/lib/pickup'
 import { checkoutSearchSchema, type Step } from '@/lib/checkout-search'
+import type { BookingRate } from '@/lib/booking-rate'
+import { BookingRateSection } from '@/components/checkout/BookingRateSection'
 import { CheckoutHeader } from '@/components/checkout/CheckoutHeader'
 import { StepIndicator } from '@/components/checkout/StepIndicator'
 import { TripSummaryCard } from '@/components/checkout/TripSummaryCard'
@@ -93,6 +95,7 @@ function CheckoutPage() {
     const { car, profile: initialProfile, priceOverrides } = Route.useLoaderData()
     const { carId } = Route.useParams()
     const search = Route.useSearch()
+    const navigate = useNavigate()
 
     // currentProfile is kept in local state so that completing steps 1 and 2
     // can optimistically update the profile without a full page reload or
@@ -156,7 +159,11 @@ function CheckoutPage() {
 
     const overrides = useMemo(() => buildOverrideMap(priceOverrides), [priceOverrides])
 
-    const quote = useMemo(() => calculateTripPrice({
+    // Both rates are quoted, not just the selected one: the booking-rate radio
+    // prints a price against each option, and quoting them through the same
+    // function with the same inputs is what guarantees they differ only by the
+    // rate. Pure arithmetic, no I/O, so doing it twice costs nothing.
+    const quoteFor = useMemo(() => (bookingRate: BookingRate) => calculateTripPrice({
         startDate: search.startDate.slice(0, 10),
         startTime: search.startTime,
         endDate: search.endDate.slice(0, 10),
@@ -167,29 +174,64 @@ function CheckoutPage() {
         overrides,
         pickupFee: resolvedPickup.fee,
         pickupFeeLabel: resolvedPickup.feeLabel,
+        bookingRate,
     }), [search.startDate, search.startTime, search.endDate, search.endTime, car.price_per_day, overrides, resolvedPickup])
+
+    const quote = useMemo(() => quoteFor(search.bookingRate), [quoteFor, search.bookingRate])
+
+    const rateTotals = useMemo(() => ({
+        'non-refundable': quoteFor('non-refundable').total,
+        refundable: quoteFor('refundable').total,
+    }), [quoteFor])
+
+    // The rate lives in the URL so it survives a refresh mid-checkout. `replace`
+    // so toggling the radio doesn't stack history entries the back button then
+    // has to walk through.
+    const setBookingRate = (bookingRate: BookingRate) => {
+        void navigate({ to: '.', search: (prev) => ({ ...prev, bookingRate }), replace: true })
+    }
 
     // The price the server actually charged. createCheckoutSession recomputes the
     // real total and returns it, and that's the number shown everywhere once it
     // arrives. Before then the local quote stands in — computed from the same
     // override rows the server reads, unlike search.subtotal, which is only a
     // hint travelling through an address bar the customer can edit.
-    const [serverTotal, setServerTotal] = useState<number | null>(null)
-    const displayTotal = serverTotal ?? quote.total
+    // Held with the rate it was quoted for, not as a bare number. A total alone
+    // outlives the choice that produced it: switching rates left the previous
+    // rate's figure on screen — it wins over `quote` — until the refetch landed,
+    // and if the server declined to re-price it never went away at all.
+    const [serverQuote, setServerQuote] = useState<
+        { total: number; bookingRate: BookingRate } | null
+    >(null)
+
+    // Only trusted while it still describes the selected rate; otherwise the
+    // local quote stands in, which is computed from the same override rows the
+    // server reads and lands on the same number.
+    const displayTotal =
+        serverQuote && serverQuote.bookingRate === search.bookingRate
+            ? serverQuote.total
+            : quote.total
 
     // Prevents double-invocation from React Strict Mode. In development, React
     // deliberately calls effects twice to surface bugs; without a guard, two
     // PaymentIntents and two pending booking rows would be created. The ref
     // persists across re-renders without causing them.
     //
-    // It stores the mode it ran for rather than a bare boolean, so switching
-    // between Pay now and Pay over time still refetches — the same protection,
-    // one notch less blunt.
-    const initializedFor = useRef<PaymentMode | null>(null)
+    // It stores what it ran for rather than a bare boolean, so changing any
+    // input that changes the PaymentIntent refetches — the same protection, one
+    // notch less blunt.
+    //
+    // Both keys are load-bearing and for different reasons. paymentMode decides
+    // which payment methods the intent allows; bookingRate decides its *amount*.
+    // Leaving the rate out is the worst bug available here: the radio would
+    // move, the summary would update, and Stripe would quietly charge the
+    // previous rate's total.
+    const initializedFor = useRef<string | null>(null)
+    const initKey = `${paymentMode}:${search.bookingRate}`
 
     useEffect(() => {
-        if (step !== 'payment' || initializedFor.current === paymentMode) return
-        initializedFor.current = paymentMode
+        if (step !== 'payment' || initializedFor.current === initKey) return
+        initializedFor.current = initKey
 
         const init = async () => {
             setIsLoading(true)
@@ -219,11 +261,25 @@ function CheckoutPage() {
                         pickupAddress: search.pickupAddress,
                         bookingId: search.bookingId,
                         paymentMode,
+                        bookingRate: search.bookingRate,
                     }
                 })
                 setClientSecret(result.clientSecret)
                 setBookingId(result.bookingId)
-                setServerTotal(result.totalPrice)
+                setServerQuote({ total: result.totalPrice, bookingRate: result.bookingRate })
+
+                // The server has the last word on which rate this booking is
+                // actually on. It can decline to change one — a resumed booking
+                // reached by id can't be safely re-priced — and when it does,
+                // the radio has to move back rather than advertise terms the
+                // booking doesn't have.
+                if (result.bookingRate !== search.bookingRate) {
+                    void navigate({
+                        to: '.',
+                        search: (prev) => ({ ...prev, bookingRate: result.bookingRate }),
+                        replace: true,
+                    })
+                }
             } catch (e: unknown) {
                 const message = e instanceof Error ? e.message : 'Failed to initialize payment'
                 setPaymentError(message)
@@ -232,7 +288,7 @@ function CheckoutPage() {
             }
         }
         void init()
-    }, [step, paymentMode])
+    }, [step, initKey])
 
     return (
         // bg-white overrides the site-wide dark green on <body> (src/index.css).
@@ -269,6 +325,20 @@ function CheckoutPage() {
                                 setCurrentProfile(prev => ({ ...prev, identity_verified: true } as typeof prev))
                                 setStep('payment')
                             }}
+                        />
+                    )}
+
+                    {step === 'payment' && (
+                        <BookingRateSection
+                            value={search.bookingRate}
+                            onChange={setBookingRate}
+                            tripStart={new Date(
+                                wallClockToUtcIso(search.startDate.slice(0, 10), search.startTime),
+                            )}
+                            totals={rateTotals}
+                            // Switching mid-fetch would race two
+                            // createCheckoutSession calls against one another.
+                            disabled={isLoading}
                         />
                     )}
 

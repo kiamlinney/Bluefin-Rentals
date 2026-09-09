@@ -320,4 +320,8 @@ const STATUS_BADGE: Record<string, string> = {
     completed: 'bg-gray-700/20 text-gray-700',
     canceled: 'bg-red-100 text-red-700',
     pending: 'bg-amber-300/60 text-black',
+    // Filtered out of this list by getUserBookings, but the map is keyed by a
+    // string and a missing entry renders an unstyled badge — so it's here for
+    // whatever reaches it by another route.
+    expired: 'bg-gray-200 text-gray-600',
 }

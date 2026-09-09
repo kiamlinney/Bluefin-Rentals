@@ -141,6 +141,22 @@ export function PriceBreakdown({
                             </div>
                         )}
 
+                        {/* The refundable premium. Missing from this list until
+                            now, which meant that on a refundable booking the
+                            rows visibly didn't add up to the total underneath
+                            them — the 10% was in the number on the card and
+                            nowhere on the receipt explaining it. */}
+                        {quote.refundableSurchargeAmount > 0 && (
+                            <div className={rowClass}>
+                                <span className="text-gray-700">
+                                    {quote.refundableSurchargeLabel}
+                                </span>
+                                <span className="font-medium text-gray-900 tabular-nums">
+                                    +{formatMoney(quote.refundableSurchargeAmount)}
+                                </span>
+                            </div>
+                        )}
+
                         {/* Last row before the total, and the only one with no
                             percentage next to it — both on purpose.
 

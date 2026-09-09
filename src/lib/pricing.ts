@@ -14,6 +14,12 @@
 // a 10pm pickup would resolve to the *next* day there and charge the wrong
 // price override. String math has no such failure mode.
 
+import {
+    DEFAULT_BOOKING_RATE,
+    REFUNDABLE_SURCHARGE,
+    type BookingRate,
+} from './booking-rate.ts'
+
 export const BUSINESS_TIMEZONE = 'America/Chicago'
 
 // ── Config ───────────────────────────────────────────────────────────────────
@@ -32,6 +38,7 @@ export const DISCOUNT_TIERS: DiscountTier[] = [
     { minDays: 14, percent: 0.15, label: '2-week discount' },
     { minDays: 7,  percent: 0.10, label: 'Weekly discount' },
     { minDays: 3,  percent: 0.05, label: '3-day discount' },
+
 ]
 
 // Stacks on top of the tier above rather than replacing it, and is taken off
@@ -228,6 +235,11 @@ export type TripQuote = {
     surchargePercent: number
     surchargeLabel: string | null
     surchargeAmount: number
+    // Which cancellation terms the trip was priced under, and what the flexible
+    // option cost. Zero (and null) for the non-refundable anchor rate.
+    bookingRate: BookingRate
+    refundableSurchargeAmount: number
+    refundableSurchargeLabel: string | null
     // A flat amount for delivering the car, added last and never discounted.
     pickupFee: number
     pickupFeeLabel: string | null
@@ -247,6 +259,11 @@ export type TripQuoteInput = {
     // working untouched, defaulting to the free case.
     pickupFee?: number
     pickupFeeLabel?: string | null
+    // Optional for the same reason pickupFee is: every existing caller — and
+    // any request still in flight across a deploy — keeps working untouched and
+    // gets the anchor rate, which is what the site charged before the choice
+    // existed. Never silently upgrades anyone to the pricier option.
+    bookingRate?: BookingRate
 }
 
 const EMPTY_QUOTE: TripQuote = {
@@ -262,6 +279,10 @@ const EMPTY_QUOTE: TripQuote = {
     surchargePercent: 0,
     surchargeLabel: null,
     surchargeAmount: 0,
+    // Same reasoning as pickupFee below — no trip, so nothing to make flexible.
+    bookingRate: DEFAULT_BOOKING_RATE,
+    refundableSurchargeAmount: 0,
+    refundableSurchargeLabel: null,
     // Zero rather than the caller's pickupFee on purpose: EMPTY_QUOTE is returned
     // when there's no trip yet (no dates, or a non-positive duration), and a
     // $140 delivery line under a $0 total would be a price for nothing.
@@ -300,6 +321,7 @@ export function calculateTripPrice(input: TripQuoteInput): TripQuote {
         today = todayInBusinessTz(),
         pickupFee: rawPickupFee = 0,
         pickupFeeLabel = null,
+        bookingRate = DEFAULT_BOOKING_RATE,
     } = input
 
     if (!startDate || !endDate) return EMPTY_QUOTE
@@ -359,6 +381,16 @@ export function calculateTripPrice(input: TripQuoteInput): TripQuote {
     // up to the number on the card.
     const pickupFee = roundMoney(rawPickupFee)
 
+    // What the trip itself costs, before the flat delivery charge. This is the
+    // base the refundable premium is a percentage *of*.
+    const tripPrice = subtotal - discountAmount - extraDiscountAmount + surchargeAmount
+    
+    // Excluded from that base, deliberately: the pickup fee
+    const isRefundable = bookingRate === 'refundable'
+    const refundableSurchargeAmount = isRefundable
+        ? roundMoney(tripPrice * REFUNDABLE_SURCHARGE.percent)
+        : 0
+
     return {
         days,
         billableDays,
@@ -372,12 +404,17 @@ export function calculateTripPrice(input: TripQuoteInput): TripQuote {
         surchargePercent,
         surchargeLabel: isSameDay ? SAME_DAY_SURCHARGE.label : null,
         surchargeAmount,
+        bookingRate,
+        refundableSurchargeAmount,
+        // Labelled only when there's something to charge, so the breakdown can
+        // gate its row on the amount — same convention as pickupFeeLabel.
+        refundableSurchargeLabel: refundableSurchargeAmount > 0
+            ? REFUNDABLE_SURCHARGE.label
+            : null,
         pickupFee,
         // Only labelled when there's actually something to charge, so the
         // breakdown can gate its row on the amount and never render a $0 line.
         pickupFeeLabel: pickupFee > 0 ? pickupFeeLabel : null,
-        total: roundMoney(
-            subtotal - discountAmount - extraDiscountAmount + surchargeAmount + pickupFee,
-        ),
+        total: roundMoney(tripPrice + refundableSurchargeAmount + pickupFee),
     }
 }

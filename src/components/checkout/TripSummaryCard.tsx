@@ -3,22 +3,20 @@ import type { TripQuote } from '@/lib/pricing.ts'
 import { timeToMinutes } from '@/lib/pricing.ts'
 import { formatDateKey, formatMinutesOfDay } from '@/lib/dates.ts'
 import type { CheckoutSearch } from '@/lib/checkout-search.ts'
+import { distanceFeeForTrip, formatMiles, milesIncluded } from '@/lib/distance.ts'
 import type { Car } from '@/types.ts'
 
-// ── Placeholders ──────────────────────────────────────────────────────────────
+// ── Placeholder ───────────────────────────────────────────────────────────────
 //
-// Neither of these is real yet, and neither is part of any charge. The Trip
-// total below is `total`, which is the server's quote — the exact amount the
-// PaymentIntent is created for. Sales tax is printed at $0.00 rather than
-// omitted so the row exists and has an obvious home once a rate is settled on;
-// the mileage allowance is a flat number for the same reason.
+// Sales tax isn't real yet, and isn't part of any charge. The Trip total below
+// is `total`, which is the server's quote — the exact amount the PaymentIntent
+// is created for. It's printed at $0.00 rather than omitted so the row exists
+// and has an obvious home once a rate is settled on.
 //
-// If sales tax is ever made real it belongs in calculateTripPrice
-// (src/lib/pricing.ts), not here, so that the widget, the server quote, the
-// PaymentIntent and bookings.total_price all move together.
+// If it's ever made real it belongs in calculateTripPrice (src/lib/pricing.ts),
+// not here, so that the widget, the server quote, the PaymentIntent and
+// bookings.total_price all move together.
 const PLACEHOLDER_SALES_TAX = 0
-const PLACEHOLDER_DISTANCE_MILES = 600
-const PLACEHOLDER_PER_MILE_FEE = 0.31
 
 const formatMoney = (amount: number): string => `$${amount.toFixed(2)}`
 
@@ -143,20 +141,30 @@ export function TripSummaryCard({
                     />
                 )}
 
+                {quote.refundableSurchargeAmount > 0 && (
+                    <Row
+                        label={quote.refundableSurchargeLabel}
+                        value={`+${formatMoney(quote.refundableSurchargeAmount)}`}
+                    />
+                )}
+
                 {quote.pickupFee > 0 && (
                     <Row label={quote.pickupFeeLabel} value={`+${formatMoney(quote.pickupFee)}`} />
                 )}
 
                 <Row label="Sales tax" value={formatMoney(PLACEHOLDER_SALES_TAX)} />
 
+                {/* Not a price line — it sits below Sales tax and above the
+                    Trip total divider, and never enters the total. The overage
+                    is settled after the trip against a real odometer reading. */}
                 <div>
                     <Row
                         label="Distance included"
-                        value={`${PLACEHOLDER_DISTANCE_MILES} miles`}
+                        value={`${formatMiles(milesIncluded(quote.billableDays))} miles`}
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                        ${PLACEHOLDER_PER_MILE_FEE.toFixed(2)} / mile will be charged for miles
-                        driven over this allotment.
+                        ${distanceFeeForTrip(car, quote, Number(car.price_per_day)).toFixed(2)} /
+                        mile will be charged for miles driven over this allotment.
                     </p>
                 </div>
             </div>
