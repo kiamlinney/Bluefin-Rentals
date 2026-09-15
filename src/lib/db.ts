@@ -25,6 +25,9 @@ import { geocodeAddresses } from './geocode'
 import {
     MIN_LEAD_TIME_HOURS,
     TURNAROUND_HOURS,
+    buildAvailabilityMap,
+    startableDayCount,
+    toOccupiedSpans,
     type UnavailabilityRow,
 } from './availability'
 import { businessDateKey, formatBusinessDateTime } from './dates'
@@ -70,8 +73,32 @@ export const getBookedDates = createServerFn({ method: 'GET' })
     .inputValidator((carId: string) => carId)
     .handler(async ({ data: carId }) => {
         const supabase = getSupabaseServerClient();
-        const carIdNum = parseInt(carId, 10)
+        const viewerId = (await supabase.auth.getUser()).data.user?.id
+        return loadUnavailabilityRows(supabase, createServiceRoleClient(), parseInt(carId, 10), viewerId)
+    });
 
+// This endpoint is public (no auth check), so car_blocked_dates and
+// turo_bookings — both admin-only tables under RLS — are read with the
+// service-role client. Only start/end are selected, never renter_name.
+function createServiceRoleClient() {
+    return createClient(
+        process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { persistSession: false, autoRefreshToken: false } }
+    )
+}
+
+// Everything that makes one car unavailable, tagged by source. It's the question
+// both the booking calendar (getBookedDates) and the homepage's featured cars
+// (getFeaturedCars) ask, and it lives in one place so the two can't disagree
+// about which dates are open. The clients are passed in so getFeaturedCars can
+// reuse one pair across every car rather than opening a pair per car.
+async function loadUnavailabilityRows(
+    supabase: ReturnType<typeof getSupabaseServerClient>,
+    supabaseAdmin: ReturnType<typeof createServiceRoleClient>,
+    carIdNum: number,
+    viewerId: string | undefined,
+): Promise<UnavailabilityRow[]> {
         const { data, error } = await supabase
             .rpc('get_car_unavailability', { car_id_param: carIdNum });
 
@@ -79,15 +106,6 @@ export const getBookedDates = createServerFn({ method: 'GET' })
             console.error("Error fetching booked dates:", error);
             return [];
         }
-
-        // This endpoint is public (no auth check), so car_blocked_dates and
-        // turo_bookings — both admin-only tables under RLS — are read with the
-        // service-role client. Only start/end are selected, never renter_name.
-        const supabaseAdmin = createClient(
-            process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
-            process.env.SUPABASE_SERVICE_ROLE_KEY!,
-            { auth: { persistSession: false, autoRefreshToken: false } }
-        )
 
         // get_car_unavailability returns `confirmed` bookings only, but
         // assertCarIsAvailable also refuses a range held by a live `pending`
@@ -106,7 +124,6 @@ export const getBookedDates = createServerFn({ method: 'GET' })
         // and greying out the dates a customer is in the middle of booking
         // would read as the car being taken by someone else.
         const holdCutoff = new Date(Date.now() - PENDING_HOLD_MS).toISOString()
-        const viewerId = (await supabase.auth.getUser()).data.user?.id
 
         let heldQuery = supabaseAdmin
             .from('bookings')
@@ -162,6 +179,50 @@ export const getBookedDates = createServerFn({ method: 'GET' })
                 end_date: b.end_date,
             })),
         ] satisfies UnavailabilityRow[];
+}
+
+const FEATURED_CAR_COUNT = 3
+const FEATURED_WINDOW_DAYS = 7
+
+// The homepage's featured cars: the ones that could be picked up on the most of
+// the next FEATURED_WINDOW_DAYS days (ties go to the cheaper car), then shown
+// cheapest first. Availability goes through loadUnavailabilityRows and the
+// calendar's own availability map, so a car featured as open is open on the car
+// page too — holds, Turo trips, admin blocks and turnaround all included.
+export const getFeaturedCars = createServerFn({ method: 'GET' })
+    .handler(async () => {
+        const supabase = getSupabaseServerClient()
+        const { data: cars, error } = await supabase
+            .from('cars')
+            .select('*')
+            .eq('is_available', true)
+
+        if (error) throw new Error(error.message)
+        if (!cars || cars.length === 0) return []
+
+        const supabaseAdmin = createServiceRoleClient()
+        const viewerId = (await supabase.auth.getUser()).data.user?.id
+        const now = new Date()
+        const todayKey = todayInBusinessTz(now)
+        const price = (car: (typeof cars)[number]) => Number(car.price_per_day)
+        // id breaks price ties. 
+        const cheaper = (a: (typeof cars)[number], b: (typeof cars)[number]) =>
+            price(a) - price(b) || a.id - b.id
+
+        const ranked = await Promise.all(
+            cars.map(async car => {
+                const rows = await loadUnavailabilityRows(supabase, supabaseAdmin, car.id, viewerId)
+                const map = buildAvailabilityMap(toOccupiedSpans(rows))
+                return { car, openDays: startableDayCount(map, todayKey, FEATURED_WINDOW_DAYS, now) }
+            }),
+        )
+
+        return ranked
+            .filter(r => r.openDays > 0)
+            .sort((a, b) => b.openDays - a.openDays || cheaper(a.car, b.car))
+            .slice(0, FEATURED_CAR_COUNT)
+            .map(r => r.car)
+            .sort(cheaper)
     });
 
 // Per-day price overrides for one car, used by the booking widget to quote a
@@ -2016,6 +2077,16 @@ export const syncTuroBookings = createServerFn({ method: 'POST' })
                 // without depending on subject-line wording.
                 const notificationName = headerValue('Notification-Name')
 
+                // Reminders (ReservationReminderLongTerm, "X has an upcoming trip
+                // with your Y") repeat what the booking email already said. Storing
+                // them is how one trip used to end up with two rows, so they're
+                // skipped before any parsing. Matched by prefix in case Turo has
+                // short-term variants alongside the long-term one.
+                if (notificationName?.startsWith('ReservationReminder')) {
+                    results.skipped++
+                    continue
+                }
+
                 if (notificationName === 'CancelledReservationOwner') {
                     // Cancellations carry the same Reservation-ID header as the
                     // original booking email, which is what ties the two together
@@ -2106,30 +2177,83 @@ export const syncTuroBookings = createServerFn({ method: 'POST' })
                 const subject = message.data.payload?.headers
                     ?.find((h: any) => h.name === 'Subject')?.value ?? ''
 
-                const renterMatch = subject.match(/^(.+?)[\u2019']s trip with your/)
+                // "Zachary's trip with your …" on a booking email, "Zachary has
+                // changed their trip with your …" on an AutoApprovedTripChangeHost.
+                const renterMatch = subject.match(/^(.+?)(?:[\u2019']s trip with your| has changed their trip with your)/)
                 const renterName = renterMatch?.[1]?.trim() ?? null
 
                 // ── Parse reservation ID ──────────────────────────────────────
-                const reservationMatch = body.match(/Reservation ID #(\d+)/)
-                const turoTripId = reservationMatch?.[1] ?? null
+                // The Reservation-ID header first — every Turo trip email checked
+                // carries it — with the body text as the fallback, same as the
+                // cancellation path above.
+                const turoTripId =
+                    headerValue('Reservation-ID') ?? body.match(/Reservation ID #(\d+)/)?.[1] ?? null
 
-                // ── Insert into turo_bookings ─────────────────────────────────
-                // gmail_message_id has a UNIQUE constraint so a second insert
-                // of the same email is rejected at the DB level — safe to retry
+                // When Turo sent this email. internalDate is Gmail's receive time
+                // in epoch milliseconds.
+                const emailSentAt = new Date(Number(message.data.internalDate)).toISOString()
+
+                const row = {
+                    car_id: matchedCar.id,
+                    gmail_message_id: messageId,
+                    renter_name: renterName,
+                    start_time: startTime,
+                    end_time: endTime,
+                    turo_trip_id: turoTripId,
+                    raw_subject: subject || null,
+                    email_sent_at: emailSentAt,
+                }
+
+                // ── One row per trip ──────────────────────────────────────────
+                // Turo emails about a trip more than once, so the row is keyed on
+                // turo_trip_id (unique) and the most recently SENT email wins. That
+                // is what lets a changed trip replace its original dates instead of
+                // blocking the car on both. Send time is compared rather than
+                // trusting processing order: Gmail returns messages in no promised
+                // order, and a catch-up run can meet a change before the booking
+                // it modifies.
+                if (turoTripId) {
+                    const { data: current, error: lookupError } = await supabase
+                        .from('turo_bookings')
+                        .select('id, email_sent_at, renter_name')
+                        .eq('turo_trip_id', turoTripId)
+                        .maybeSingle()
+
+                    if (lookupError) {
+                        results.errors.push(`${messageId}: ${lookupError.message}`)
+                        continue
+                    }
+
+                    if (current) {
+                        const currentSentAt = current.email_sent_at ? new Date(current.email_sent_at).getTime() : -Infinity
+                        if (currentSentAt >= new Date(emailSentAt).getTime()) {
+                            // An older email about a trip already stored from a newer one.
+                            results.skipped++
+                            continue
+                        }
+
+                        const { error: updateError } = await supabase
+                            .from('turo_bookings')
+                            // Keep a name already on file if this email's subject didn't yield one.
+                            .update({ ...row, renter_name: renterName ?? current.renter_name })
+                            .eq('id', current.id)
+
+                        if (updateError) {
+                            results.errors.push(`${messageId}: ${updateError.message}`)
+                        } else {
+                            results.synced++
+                        }
+                        continue
+                    }
+                }
+
+                // A new trip. A unique violation here means another sync run
+                // inserted the same email or trip in the meantime — nothing to do.
                 const { error } = await supabase
                     .from('turo_bookings')
-                    .insert({
-                        car_id: matchedCar.id,
-                        gmail_message_id: messageId,
-                        renter_name: renterName,
-                        start_time: startTime,
-                        end_time: endTime,
-                        turo_trip_id: turoTripId,
-                        raw_subject: subject || null
-                    })
+                    .insert(row)
 
                 if (error) {
-                    // Unique constraint violation = already synced, just skip
                     if (error.code === '23505') {
                         results.skipped++
                     } else {

@@ -254,6 +254,23 @@ export function latestEndMinutesFor(dateKey: string, map: AvailabilityMap): numb
     return latest < BUSINESS_OPEN_MINUTES ? null : latest
 }
 
+// How many of the `days` days starting at `fromKey` could host the start of a
+// new trip. Used to rank cars by near-term availability (the homepage's
+// featured cars), and built on earliestStartMinutesFor so it applies exactly the
+// turnaround and lead-time rules the calendar does.
+export function startableDayCount(
+    map: AvailabilityMap,
+    fromKey: string,
+    days: number,
+    now: Date = new Date(),
+): number {
+    let count = 0
+    for (let i = 0; i < days; i++) {
+        if (earliestStartMinutesFor(addDays(fromKey, i), map, now) !== null) count++
+    }
+    return count
+}
+
 // ── Whole-trip validation ────────────────────────────────────────────────────
 
 // Every calendar day a trip touches, start and end INCLUSIVE.
