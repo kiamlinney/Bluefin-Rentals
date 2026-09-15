@@ -24,7 +24,7 @@ function EditProfilePage() {
     const navigate = useNavigate()
 
     return (
-        <div className="min-h-screen bg-[#152110] py-24 px-4 md:px-8">
+        <div className="min-h-screen py-24 px-4 md:px-8">
             <div className="max-w-2xl mx-auto space-y-6">
                 <Link
                     to="/profile"
@@ -34,7 +34,7 @@ function EditProfilePage() {
                     Back to profile
                 </Link>
 
-                <div className="bg-gray-200 border border-gray-800 rounded-2xl p-8">
+                <div className="bg-surface border border-line rounded-2xl p-8">
                     <DriverInfoStep
                         existingProfile={profile}
                         heading="Edit profile"

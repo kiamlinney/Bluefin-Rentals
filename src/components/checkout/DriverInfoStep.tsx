@@ -28,16 +28,16 @@ const REQUIRED: { field: FormField; message: string }[] = [
     { field: 'zip', message: 'Enter your ZIP code' },
 ]
 
-const labelClass = 'block text-sm font-medium text-gray-900 mb-1.5'
-const helpClass = 'text-xs text-gray-500 mt-1.5'
+const labelClass = 'block text-sm font-medium text-ink mb-1.5'
+const helpClass = 'text-xs text-muted mt-1.5'
 
 function inputClass(hasError: boolean): string {
     return cn(
-        'w-full bg-white border rounded-lg px-3 py-2.5 text-gray-900 text-sm',
-        'placeholder:text-gray-400 focus:outline-none transition-colors',
+        'w-full bg-surface border rounded-lg px-3 py-2.5 text-ink text-sm',
+        'placeholder:text-ink-400 focus:outline-none transition-colors',
         hasError
             ? 'border-red-500 focus:border-red-500'
-            : 'border-gray-300 hover:border-gray-400 focus:border-[#152110]',
+            : 'border-line hover:border-ink-400 focus:border-brand',
     )
 }
 
@@ -125,8 +125,8 @@ export function DriverInfoStep({
 
     return (
         <div>
-            <h2 className="text-2xl font-bold text-gray-900">{heading}</h2>
-            <p className="text-gray-500 text-sm mt-1 mb-6">{description}</p>
+            <h2 className="text-2xl font-bold text-ink">{heading}</h2>
+            <p className="text-muted text-sm mt-1 mb-6">{description}</p>
 
             <div className="space-y-5">
                 {/* One field rather than first/last: profiles stores a single
@@ -163,7 +163,7 @@ export function DriverInfoStep({
                     <div className="flex">
                         {/* shrink-0 + nowrap: without them the flex row squeezes
                             this down to the width of "US" and wraps the "+1". */}
-                        <span className="inline-flex items-center shrink-0 whitespace-nowrap px-3 rounded-l-lg border border-r-0 border-gray-300 bg-gray-50 text-sm text-gray-600">
+                        <span className="inline-flex items-center shrink-0 whitespace-nowrap px-3 rounded-l-lg border border-r-0 border-line bg-subtle text-sm text-muted">
                             US +1
                         </span>
                         <input
@@ -263,7 +263,7 @@ export function DriverInfoStep({
             <button
                 onClick={handleSubmit}
                 disabled={saving}
-                className="mt-6 w-full py-3.5 bg-[#152110] hover:bg-[#1d2f17] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors cursor-pointer"
+                className="mt-6 w-full py-3.5 bg-brand hover:bg-pine-800 disabled:opacity-50 disabled:cursor-not-allowed text-on-brand font-semibold rounded-xl transition-colors cursor-pointer"
             >
                 {saving ? 'Saving...' : submitLabel}
             </button>

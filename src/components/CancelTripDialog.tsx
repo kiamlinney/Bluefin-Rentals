@@ -21,8 +21,8 @@ import type { RefundOutcome } from '@/lib/cancellation-policy.ts'
 const MAX_REASON = 500
 
 const inputClass =
-    'w-full bg-white border border-gray-300 rounded-lg px-3 py-2.5 text-gray-900 text-sm ' +
-    'placeholder:text-gray-400 focus:outline-none focus:border-[#152110] hover:border-gray-400 transition-colors resize-none'
+    'w-full bg-surface border border-line rounded-lg px-3 py-2.5 text-ink text-sm ' +
+    'placeholder:text-ink-400 focus:outline-none focus:border-brand hover:border-ink-400 transition-colors resize-none'
 
 /** The money sentence. Deliberately blunt when the answer is "nothing". */
 function RefundSummary({ outcome, totalPaid }: { outcome: RefundOutcome; totalPaid: number }) {
@@ -30,9 +30,9 @@ function RefundSummary({ outcome, totalPaid }: { outcome: RefundOutcome; totalPa
 
     if (outcome.kind === 'full') {
         return (
-            <div className="rounded-lg border border-[#3a7d2c] bg-[#3a7d2c]/10 px-4 py-3">
-                <p className="text-sm font-bold text-[#2a4a1e]">You'll be refunded {fmt(outcome.refundAmount)}</p>
-                <p className="text-xs text-gray-700 mt-1">
+            <div className="rounded-lg border border-pine-500 bg-pine-500/10 px-4 py-3">
+                <p className="text-sm font-bold text-pine-700">You'll be refunded {fmt(outcome.refundAmount)}</p>
+                <p className="text-xs text-muted mt-1">
                     This trip is within its free cancellation window, so you get the full amount back.
                 </p>
             </div>
@@ -42,11 +42,11 @@ function RefundSummary({ outcome, totalPaid }: { outcome: RefundOutcome; totalPa
     if (outcome.kind === 'partial') {
         return (
             <div className="rounded-lg border border-amber-600 bg-amber-50 px-4 py-3">
-                <p className="text-sm font-bold text-gray-900">You'll be refunded {fmt(outcome.refundAmount)}</p>
-                <p className="text-xs text-gray-700 mt-1">
+                <p className="text-sm font-bold text-ink">You'll be refunded {fmt(outcome.refundAmount)}</p>
+                <p className="text-xs text-muted mt-1">
                     This trip is past its free cancellation window, so a cancellation fee is kept.
                 </p>
-                <dl className="mt-3 space-y-1 border-t border-amber-600/40 pt-2 text-xs text-gray-800">
+                <dl className="mt-3 space-y-1 border-t border-amber-600/40 pt-2 text-xs text-ink">
                     <div className="flex justify-between">
                         <dt>Trip total</dt>
                         <dd className="tabular-nums">{fmt(totalPaid)}</dd>
@@ -56,12 +56,12 @@ function RefundSummary({ outcome, totalPaid }: { outcome: RefundOutcome; totalPa
                         <dd className="tabular-nums">−{fmt(outcome.cancellationFee)}</dd>
                     </div>
                     {outcome.retainedPremium > 0 && (
-                        <div className="flex justify-between text-gray-600">
+                        <div className="flex justify-between text-muted">
                             <dt>Refundable rate</dt>
                             <dd className="tabular-nums">−{fmt(outcome.retainedPremium)}</dd>
                         </div>
                     )}
-                    <div className="flex justify-between font-bold text-gray-900 border-t border-amber-600/40 pt-1">
+                    <div className="flex justify-between font-bold text-ink border-t border-amber-600/40 pt-1">
                         <dt>Refunded</dt>
                         <dd className="tabular-nums">{fmt(outcome.refundAmount)}</dd>
                     </div>
@@ -74,7 +74,7 @@ function RefundSummary({ outcome, totalPaid }: { outcome: RefundOutcome; totalPa
     return (
         <div className="rounded-lg border border-red-700 bg-red-50 px-4 py-3">
             <p className="text-sm font-bold text-red-800">You will not be refunded</p>
-            <p className="text-xs text-gray-700 mt-1">
+            <p className="text-xs text-muted mt-1">
                 {outcome.reason === 'after-trip-start'
                     ? 'This trip has already started, so no refund is issued if you cancel.'
                     : outcome.reason === 'non-refundable'
@@ -162,20 +162,20 @@ export function CancelTripDialog({
             onClick={e => { if (e.target === e.currentTarget && !working) onClose() }}
         >
             <div
-                className="w-full max-w-md bg-white text-black rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+                className="w-full max-w-md bg-surface text-ink rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="cancel-trip-title"
             >
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-                    <h2 id="cancel-trip-title" className="text-lg font-bold text-gray-900">Cancel this trip?</h2>
+                <div className="flex items-center justify-between px-6 py-4 border-b border-line">
+                    <h2 id="cancel-trip-title" className="text-lg font-bold text-ink">Cancel this trip?</h2>
                     <button
                         onClick={onClose}
                         disabled={working}
                         aria-label="Close"
-                        className="p-1.5 -mr-1.5 rounded-full hover:bg-gray-100 transition-colors cursor-pointer disabled:opacity-50"
+                        className="p-1.5 -mr-1.5 rounded-full hover:bg-subtle transition-colors cursor-pointer disabled:opacity-50"
                     >
-                        <X size={20} className="text-gray-600" />
+                        <X size={20} className="text-muted" />
                     </button>
                 </div>
 
@@ -183,30 +183,30 @@ export function CancelTripDialog({
                     {loadError ? (
                         <p className="text-sm text-red-700">{loadError}</p>
                     ) : !preview ? (
-                        <p className="text-sm text-gray-500">Working out your refund…</p>
+                        <p className="text-sm text-muted">Working out your refund…</p>
                     ) : (
                         <>
                             {preview.wasCharged ? (
                                 <RefundSummary outcome={preview.outcome} totalPaid={totalPaid} />
                             ) : (
-                                <div className="rounded-lg border border-gray-300 bg-gray-50 px-4 py-3">
-                                    <p className="text-sm font-bold text-gray-900">Nothing has been charged</p>
-                                    <p className="text-xs text-gray-700 mt-1">
+                                <div className="rounded-lg border border-line bg-subtle px-4 py-3">
+                                    <p className="text-sm font-bold text-ink">Nothing has been charged</p>
+                                    <p className="text-xs text-muted mt-1">
                                         This booking was never paid for, so there's nothing to refund.
                                     </p>
                                 </div>
                             )}
 
                             {preview.outcome.estimated && preview.wasCharged && (
-                                <p className="text-xs text-gray-500">
+                                <p className="text-xs text-muted">
                                     This booking predates itemised pricing, so the refund above is calculated
                                     from the trip total.
                                 </p>
                             )}
 
                             <div>
-                                <label htmlFor="cancel-reason" className="block text-sm font-medium text-gray-900 mb-1.5">
-                                    Reason for cancelling <span className="text-gray-500 font-normal">(optional)</span>
+                                <label htmlFor="cancel-reason" className="block text-sm font-medium text-ink mb-1.5">
+                                    Reason for cancelling <span className="text-muted font-normal">(optional)</span>
                                 </label>
                                 <textarea
                                     id="cancel-reason"
@@ -218,7 +218,7 @@ export function CancelTripDialog({
                                     placeholder="Let us know what happened — this goes straight to us."
                                     className={inputClass}
                                 />
-                                <p className="text-xs text-gray-400 mt-1 text-right">
+                                <p className="text-xs text-ink-400 mt-1 text-right">
                                     {reason.length}/{MAX_REASON}
                                 </p>
                             </div>
@@ -228,11 +228,11 @@ export function CancelTripDialog({
                     )}
                 </div>
 
-                <div className="border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
+                <div className="border-t border-line px-6 py-4 flex justify-end gap-3">
                     <button
                         onClick={onClose}
                         disabled={working}
-                        className="px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer disabled:opacity-50"
+                        className="px-4 py-2.5 rounded-lg text-sm font-semibold text-muted hover:bg-subtle transition-colors cursor-pointer disabled:opacity-50"
                     >
                         Keep my trip
                     </button>

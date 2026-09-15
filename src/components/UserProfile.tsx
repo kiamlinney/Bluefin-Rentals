@@ -39,11 +39,8 @@ export function UserProfile({
         : null
 
     const tripCount = profile.num_trips ?? 0
-
-    // The guest page sits in a gray-200 card on the dark site background, where
-    // a gray-100 circle nearly disappears; the admin page is on white, where a
-    // white circle would.
-    const avatarBg = isSelf ? 'bg-white' : 'bg-gray-100'
+    
+    const avatarBg = 'bg-subtle'
 
     // There are no email_verified / phone_verified columns — "verified" here
     // means the column holds a value. phone defaults to '' rather than null, so
@@ -61,14 +58,14 @@ export function UserProfile({
                     (TripCard, SelectionPanel, Navbar, the reservation page), so
                     this is one too rather than the generic glyph. */}
                 <div
-                    className={`w-24 h-24 rounded-full ${avatarBg} flex items-center justify-center text-gray-500 font-bold text-3xl`}
+                    className={`w-24 h-24 rounded-full ${avatarBg} flex items-center justify-center text-muted font-bold text-3xl`}
                 >
                     {name[0]?.toUpperCase() ?? 'G'}
                 </div>
 
-                <h1 className="mt-8 text-5xl font-bold tracking-tight text-black">{name}</h1>
+                <h1 className="mt-8 text-5xl font-bold tracking-tight text-ink">{name}</h1>
 
-                <p className="mt-2 text-lg text-gray-600">
+                <p className="mt-2 text-lg text-muted">
                     {tripCount > 0 && (
                         <span>{tripCount} trip{tripCount === 1 ? '' : 's'}{joined && ' • '}</span>
                     )}
@@ -76,7 +73,7 @@ export function UserProfile({
                 </p>
 
                 <section className="mt-10">
-                    <h2 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                    <h2 className="text-xs font-bold uppercase tracking-wider text-muted">
                         Verified info
                     </h2>
 
@@ -99,7 +96,7 @@ export function UserProfile({
                     </div>
 
                     {isSelf && !allVerified && (
-                        <p className="mt-4 max-w-sm text-sm text-gray-500">
+                        <p className="mt-4 max-w-sm text-sm text-muted">
                             Build trust by verifying your contact information.
                         </p>
                     )}
@@ -107,7 +104,7 @@ export function UserProfile({
 
                 {!isSelf && (
                     <section className="mt-10">
-                        <h2 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                        <h2 className="text-xs font-bold uppercase tracking-wider text-muted">
                             Contact
                         </h2>
                         <dl className="mt-4 space-y-3 max-w-sm">
@@ -141,7 +138,7 @@ export function UserProfile({
                     <div className="flex justify-end">
                         <Link
                             to="/profile/edit"
-                            className="inline-block px-5 py-2.5 bg-[#152110] hover:bg-[#1d2f17] text-white font-bold rounded-xl text-sm transition-colors"
+                            className="inline-block px-5 py-2.5 bg-brand hover:bg-pine-800 text-on-brand font-bold rounded-xl text-sm transition-colors"
                         >
                             Edit profile
                         </Link>
@@ -152,24 +149,24 @@ export function UserProfile({
                     nothing behind it — no query, no data. When reviews land,
                     the empty state below becomes the zero-reviews branch. */}
                 <section className={isSelf ? 'mt-16' : ''}>
-                    <h2 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                    <h2 className="text-xs font-bold uppercase tracking-wider text-muted">
                         Reviews
                     </h2>
 
                     <div className="mt-4 flex items-start gap-4">
                         <div
-                            className={`w-14 h-14 shrink-0 rounded-full ${avatarBg} flex items-center justify-center text-gray-400 font-bold text-lg`}
+                            className={`w-14 h-14 shrink-0 rounded-full ${avatarBg} flex items-center justify-center text-ink-400 font-bold text-lg`}
                         >
                             {name[0]?.toUpperCase() ?? 'G'}
                         </div>
                         <div>
                             <div className="flex gap-0.5">
                                 {Array.from({ length: 5 }, (_, i) => (
-                                    <Star key={i} size={16} className="text-gray-300 fill-gray-300" />
+                                    <Star key={i} size={16} className="text-line fill-line" />
                                 ))}
                             </div>
-                            <p className="mt-1 font-bold text-black">No reviews yet</p>
-                            <p className="text-gray-600">
+                            <p className="mt-1 font-bold text-ink">No reviews yet</p>
+                            <p className="text-muted">
                                 {tripCount > 0
                                     ? `${tripCount} trip${tripCount === 1 ? '' : 's'} completed`
                                     : `${firstName} hasn't made a review yet.`}
@@ -197,13 +194,13 @@ function VerifiedRow({
 }) {
     return (
         <div className="flex items-center justify-between gap-4">
-            <span className="text-gray-800">{label}</span>
+            <span className="text-ink">{label}</span>
             {verified ? (
-                <Check size={18} className="text-emerald-700 shrink-0" />
+                <Check size={18} className="text-pine-500 shrink-0" />
             ) : action ? (
                 action
             ) : (
-                <span className="flex items-center gap-1.5 text-sm text-gray-500 shrink-0">
+                <span className="flex items-center gap-1.5 text-sm text-muted shrink-0">
                     Not verified
                     <X size={18} className="text-red-800" />
                 </span>
@@ -215,8 +212,8 @@ function VerifiedRow({
 function ContactRow({ label, value }: { label: string; value: string | null }) {
     return (
         <div className="flex items-center justify-between gap-4">
-            <dt className="text-gray-800">{label}</dt>
-            <dd className={value ? 'text-gray-900 font-medium' : 'text-gray-500'}>
+            <dt className="text-ink">{label}</dt>
+            <dd className={value ? 'text-ink font-medium' : 'text-muted'}>
                 {value ?? 'Not provided'}
             </dd>
         </div>
@@ -227,7 +224,7 @@ function EditProfileLink({ label }: { label: string }) {
     return (
         <Link
             to="/profile/edit"
-            className="text-sm font-semibold text-emerald-700 hover:underline shrink-0"
+            className="text-sm font-semibold text-pine-500 hover:underline shrink-0"
         >
             {label}
         </Link>
@@ -257,7 +254,7 @@ function VerifyIdLink() {
             <button
                 onClick={handleClick}
                 disabled={loading}
-                className="text-sm font-semibold text-emerald-700 hover:underline disabled:opacity-50 cursor-pointer"
+                className="text-sm font-semibold text-pine-500 hover:underline disabled:opacity-50 cursor-pointer"
             >
                 {loading ? 'Loading...' : 'Verify ID'}
             </button>
@@ -269,12 +266,12 @@ function VerifyIdLink() {
 function TripHistory({ trips }: { trips: UserTripSummary[] }) {
     return (
         <section className="mt-10">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-muted">
                 Trip history
             </h2>
 
             {trips.length === 0 ? (
-                <p className="mt-4 text-gray-500">No trips yet</p>
+                <p className="mt-4 text-muted">No trips yet</p>
             ) : (
                 <ul className="mt-4 space-y-2 max-w-md">
                     {trips.map(trip => {
@@ -285,14 +282,14 @@ function TripHistory({ trips }: { trips: UserTripSummary[] }) {
                                 <Link
                                     to="/admin/reservation/$bookingId"
                                     params={{ bookingId: trip.id }}
-                                    className="flex items-center justify-between gap-4 border border-gray-200 rounded-lg px-4 py-3 hover:border-gray-300 hover:shadow-sm transition-all"
+                                    className="flex items-center justify-between gap-4 border border-line rounded-lg px-4 py-3 hover:border-ink-400 hover:shadow-sm transition-all"
                                 >
                                     <div>
-                                        <p className="font-semibold text-black">
+                                        <p className="font-semibold text-ink">
                                             {car.year} {car.make} {car.model}
                                         </p>
                                         <p
-                                            className={`text-sm text-gray-500 ${isCanceled ? 'line-through' : ''}`}
+                                            className={`text-sm text-muted ${isCanceled ? 'line-through' : ''}`}
                                         >
                                             {formatBusinessDate(trip.start_time)} –{' '}
                                             {formatBusinessDate(trip.end_time)}

@@ -8,10 +8,10 @@ export function RadioDot({ checked }: { checked: boolean }) {
     return (
         <span
             className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
-                checked ? 'border-[#152110]' : 'border-gray-400'
+                checked ? 'border-brand' : 'border-ink-400'
             }`}
         >
-            {checked && <span className="w-2.5 h-2.5 rounded-full bg-[#152110]" />}
+            {checked && <span className="w-2.5 h-2.5 rounded-full bg-brand" />}
         </span>
     )
 }

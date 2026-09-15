@@ -19,7 +19,7 @@ function PoliciesLayout() {
     return (
         <div className="max-w-6xl mx-auto px-4 py-16">
             <h1 className="text-4xl md:text-5xl tracking-tight">Legal matters</h1>
-            <hr className="my-8 border-gray-700" />
+            <hr className="my-8 border-line" />
 
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-12 items-start">
                 <div className="min-w-0">
@@ -28,7 +28,7 @@ function PoliciesLayout() {
 
                 {/* Sticky on the page's own scroll — these documents are long
                     and the nav shouldn't scroll away from them. */}
-                <aside className="lg:sticky lg:top-24 rounded-2xl border-[0.5px] border-gray-300 p-6">
+                <aside className="lg:sticky lg:top-24 rounded-2xl border border-line bg-surface p-6">
                     <h2 className="text-lg font-bold mb-4">Terms and policies</h2>
                     <nav>
                         <ul className="space-y-1">
@@ -36,14 +36,10 @@ function PoliciesLayout() {
                                 <li key={path}>
                                     <Link
                                         to={path}
-                                        className="block rounded-lg px-3 py-2 text-gray-300 hover:bg-white/5 transition-colors"
-                                        // activeProps rather than reading the
-                                        // pathname: the router already knows
-                                        // which child is rendering.
-                                        activeProps={{
-                                            className:
-                                                'block rounded-lg px-3 py-2 bg-white/10 text-white font-medium',
-                                        }}
+                                        className="block rounded-lg px-3 py-2 transition-colors"
+                                        
+                                        activeProps={{ className: 'bg-subtle text-ink font-medium' }}
+                                        inactiveProps={{ className: 'text-muted hover:bg-subtle' }}
                                     >
                                         {label}
                                     </Link>

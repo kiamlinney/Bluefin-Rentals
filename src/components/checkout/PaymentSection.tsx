@@ -45,9 +45,9 @@ export function PaymentSection({
                 secret, which remounts the whole Elements tree. Keeping the
                 chooser above that boundary means it doesn't flicker as the new
                 PaymentIntent is fetched. */}
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">Choose when to pay</h2>
+            <h2 className="text-2xl font-bold text-ink mb-4">Choose when to pay</h2>
 
-            <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-200 shadow-sm">
+            <div className="bg-surface border border-line rounded-2xl divide-y divide-line shadow-sm">
                 {OPTIONS.map(({ mode, label, description }) => (
                     <label
                         key={mode}
@@ -63,17 +63,17 @@ export function PaymentSection({
                         />
                         <RadioDot checked={paymentMode === mode} />
                         <div>
-                            <span className="text-gray-900 font-medium">{label}</span>
-                            <p className="text-sm text-gray-500 mt-1">{description}</p>
+                            <span className="text-ink font-medium">{label}</span>
+                            <p className="text-sm text-muted mt-1">{description}</p>
                         </div>
                     </label>
                 ))}
             </div>
 
-            <h2 className="text-2xl font-bold text-gray-900 mt-8 mb-4">Payment</h2>
+            <h2 className="text-2xl font-bold text-ink mt-8 mb-4">Payment</h2>
 
             {isLoading && (
-                <div className="text-gray-500 text-center py-8 text-sm">
+                <div className="text-muted text-center py-8 text-sm">
                     Preparing payment...
                 </div>
             )}

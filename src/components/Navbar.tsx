@@ -1,10 +1,70 @@
-import { Link, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { Link, useLocation, useRouter } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { logoutUser } from "@/lib/auth.ts";
+
+const NAV_HEIGHT = 56; // h-14
 
 const Navbar = ({ user }: { user: any | null }) => {
     const [isOpen, setIsOpen] = useState(false);
     const router = useRouter();
+    const { pathname } = useLocation();
+
+    // On a page with a full-bleed hero, the navbar sits transparent with white
+    // text over it, and turns solid once the page's content scrolls up to meet
+    // it.
+    // Every other page gets the solid navbar from the start.
+    //
+    // The initial value is derived from the pathname rather than the DOM so the
+    // server renders the right variant — otherwise the homepage would flash a
+    // solid bar over the video until hydration.
+    const hasHero = pathname === "/";
+    // Derived rather than stored, so the navbar goes transparent in the same
+    // render the URL changes. 
+    const [pastHero, setPastHero] = useState(false);
+    const overHero = hasHero && !pastHero;
+
+    useEffect(() => {
+        if (!hasHero) {
+            // Reset on the way out, so the next visit starts transparent.
+            setPastHero(false);
+            return;
+        }
+        const selector = "[data-nav-solid-from]";
+        let frame = 0;
+        const update = () => {
+            frame = 0;
+            const trigger = document.querySelector(selector);
+            if (!trigger) return;
+            setPastHero(trigger.getBoundingClientRect().top <= NAV_HEIGHT);
+        };
+        const onScroll = () => {
+            if (!frame) frame = requestAnimationFrame(update);
+        };
+
+        // On a client-side navigation this effect runs as soon as the URL
+        // changes, before the homepage has rendered the element it measures.
+        // Checking once then would find nothing, so wait for it to appear.
+        let observer: MutationObserver | null = null;
+        if (!document.querySelector(selector)) {
+            observer = new MutationObserver(() => {
+                if (!document.querySelector(selector)) return;
+                observer?.disconnect();
+                observer = null;
+                update();
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+        }
+
+        update();
+        window.addEventListener("scroll", onScroll, { passive: true });
+        window.addEventListener("resize", onScroll);
+        return () => {
+            observer?.disconnect();
+            cancelAnimationFrame(frame);
+            window.removeEventListener("scroll", onScroll);
+            window.removeEventListener("resize", onScroll);
+        };
+    }, [hasHero]);
 
     const navLinks = [
         { name: "fleet", to: "/fleet" },
@@ -25,12 +85,17 @@ const Navbar = ({ user }: { user: any | null }) => {
     }
 
     return (
-        <nav className="top-0 w-full z-50 flex items-center justify-between px-8 py-2 border-b-[0.5px] border-gray-400 absolute">
+        <nav
+            className={`sticky top-0 h-14 w-full z-50 flex items-center justify-between px-8 border-b-[0.5px] transition-colors duration-300 ${
+                overHero
+                    ? "bg-transparent border-white/25 text-white"
+                    : "bg-page/90 backdrop-blur-md border-line text-ink"
+            }`}
+        >
             {/* Logo Section */}
-
             <Link to="/" className="hover:opacity-60 transition-opacity">
-                <p className="text-3xl text-gradient2">
-                    <span className="font-bold text-white">Bluefin </span>Rentals
+                <p className="text-3xl">
+                    <span className="font-bold">Bluefin </span>Rentals
                 </p>
             </Link>
 
@@ -41,7 +106,7 @@ const Navbar = ({ user }: { user: any | null }) => {
                         key={link.to}
                         to={link.to}
                         className="text-xl hover:scale-105 font-medium transition-colors"
-                        activeProps={{ className: "border-b-2 border-gray-300" }}
+                        activeProps={{ className: "border-b-2 border-current" }}
                     >
                         {link.name}
                     </Link>
@@ -52,24 +117,24 @@ const Navbar = ({ user }: { user: any | null }) => {
                     <div className="relative">
                         <button
                             onClick={() => setIsOpen(!isOpen)}
-                            className="w-10 h-10 rounded-full bg-gray-300 text-white flex items-center justify-center font-bold hover:bg-gray-700 transition-colors cursor-pointer"
+                            className="w-10 h-10 rounded-full bg-brand text-on-brand flex items-center justify-center font-bold hover:bg-pine-800 transition-colors cursor-pointer"
                         >
                             {user.email?.[0].toUpperCase()}
                         </button>
 
                         {/* Dropdown Menu */}
                         {isOpen && (
-                            <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-50 origin-top-right">
-                                <div className="px-4 py-2 border-b border-gray-100 mb-1">
-                                    <p className="text-xs text-gray-500">Signed in as</p>
-                                    <p className="text-sm font-semibold truncate text-gray-900">{user.email}</p>
+                            <div className="absolute top-full right-0 mt-2 w-48 bg-surface text-ink rounded-lg shadow-xl border border-line py-2 z-50 origin-top-right">
+                                <div className="px-4 py-2 border-b border-line mb-1">
+                                    <p className="text-xs text-muted">Signed in as</p>
+                                    <p className="text-sm font-semibold truncate">{user.email}</p>
                                 </div>
 
 
                                 <Link
                                     to="/profile"
                                     onClick={() => setIsOpen(false)}
-                                    className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
+                                    className="block px-4 py-2 text-sm hover:bg-subtle cursor-pointer"
                                 >
                                     View Profile
                                 </Link>
@@ -78,7 +143,7 @@ const Navbar = ({ user }: { user: any | null }) => {
                                     <Link
                                         to="/admin"
                                         onClick={() => setIsOpen(false)}
-                                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
+                                        className="block px-4 py-2 text-sm hover:bg-subtle cursor-pointer"
                                     >
                                         Admin Page
                                     </Link>
@@ -86,7 +151,7 @@ const Navbar = ({ user }: { user: any | null }) => {
                                     <Link
                                         to="/my-bookings"
                                         onClick={() => setIsOpen(false)}
-                                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
+                                        className="block px-4 py-2 text-sm hover:bg-subtle cursor-pointer"
                                     >
                                         My Bookings
                                     </Link>
@@ -110,7 +175,12 @@ const Navbar = ({ user }: { user: any | null }) => {
                         )}
                     </div>
                 ) : (
-                    <Link to="/login" className="secondary-button bg-white w-fit font-semibold text-xs">
+                    <Link
+                        to="/login"
+                        className={`secondary-button w-fit font-semibold text-xs ${
+                            overHero ? "bg-white text-ink border-white hover:bg-cream-100" : ""
+                        }`}
+                    >
                         Sign Up
                     </Link>
                 )}

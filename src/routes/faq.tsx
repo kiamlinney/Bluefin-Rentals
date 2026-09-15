@@ -26,27 +26,27 @@ function Faq() {
     return (
         <div className="max-w-3xl mx-auto px-4 py-16">
             <h1 className="text-4xl md:text-5xl tracking-tight mb-4">Frequently asked questions</h1>
-            <p className="text-gray-300 mb-12">
+            <p className="text-muted mb-12">
                 Everything about booking, picking up, and returning a car in the Twin Cities. Still
                 stuck?{' '}
-                <Link to="/contact" className="underline hover:text-gray-200">
+                <Link to="/contact" className="underline hover:text-ink">
                     Get in touch
                 </Link>
                 .
             </p>
 
-            <dl className="divide-y divide-gray-700">
+            <dl className="divide-y divide-line">
                 {FAQS.map(({ question, answer }) => (
                     <div key={question} className="py-6">
-                        <dt className="text-lg font-semibold text-gray-100 mb-2">{question}</dt>
-                        <dd className="text-gray-300 leading-relaxed">{answer}</dd>
+                        <dt className="text-lg font-semibold mb-2">{question}</dt>
+                        <dd className="text-muted leading-relaxed">{answer}</dd>
                     </div>
                 ))}
             </dl>
 
-            <div className="mt-12 rounded-2xl border-[0.5px] border-gray-300 p-6">
+            <div className="mt-12 rounded-2xl border border-line bg-surface p-6">
                 <h2 className="text-xl font-semibold mb-2">Ready to book?</h2>
-                <p className="text-gray-300 mb-4">
+                <p className="text-muted mb-4">
                     Browse the fleet and pick your dates — most cars can be on the road within a few
                     hours.
                 </p>

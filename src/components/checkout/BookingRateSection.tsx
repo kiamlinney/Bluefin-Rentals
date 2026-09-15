@@ -56,9 +56,9 @@ export function BookingRateSection({
 
     return (
         <div className="mb-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">Booking rate</h2>
+            <h2 className="text-2xl font-bold text-ink mb-4">Booking rate</h2>
 
-            <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-200 shadow-sm">
+            <div className="bg-surface border border-line rounded-2xl divide-y divide-line shadow-sm">
                 {(['non-refundable', 'refundable'] as const).map((rate) => {
                     const checked = value === rate
                     return (
@@ -80,17 +80,17 @@ export function BookingRateSection({
 
                             <div className="flex-1 min-w-0">
                                 <div className="flex justify-between items-baseline gap-4">
-                                    <span className="text-gray-900 font-medium">
+                                    <span className="text-ink font-medium">
                                         {bookingRateLabel(rate)}
                                     </span>
-                                    <span className="font-bold text-gray-900 tabular-nums whitespace-nowrap">
+                                    <span className="font-bold text-ink tabular-nums whitespace-nowrap">
                                         {formatMoney(totals[rate])}
                                     </span>
                                 </div>
 
                                 {rate === 'non-refundable' ? (
                                     <>
-                                        <p className="text-sm text-gray-500 mt-1">
+                                        <p className="text-sm text-muted mt-1">
                                             {shortWindow ? (
                                                 <>
                                                     Cancel for free until{' '}
@@ -112,7 +112,7 @@ export function BookingRateSection({
                                                 e.stopPropagation()
                                                 setShowInfo(true)
                                             }}
-                                            className="mt-1.5 text-sm text-gray-700 underline hover:no-underline cursor-pointer"
+                                            className="mt-1.5 text-sm text-muted underline hover:no-underline cursor-pointer"
                                         >
                                             Learn more
                                         </button>
@@ -121,7 +121,7 @@ export function BookingRateSection({
                                     // No "$0 due now" claim here: checkout charges
                                     // in full on the next step, and deferred
                                     // payment doesn't exist yet.
-                                    <p className="text-sm text-gray-500 mt-1">
+                                    <p className="text-sm text-muted mt-1">
                                         Cancel for free before{' '}
                                         {formatBusinessDate(refundableDeadline, {
                                             month: 'short',

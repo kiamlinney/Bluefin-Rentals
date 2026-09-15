@@ -49,27 +49,27 @@ export function PriceBreakdown({
             onClick={onClose}
         >
             <div
-                className="w-full max-w-md bg-white text-black rounded-2xl shadow-2xl overflow-hidden"
+                className="w-full max-w-md bg-surface text-ink rounded-2xl shadow-2xl overflow-hidden"
                 // Clicks inside the card must not bubble up to the backdrop's
                 // close handler.
                 onClick={(e) => e.stopPropagation()}
             >
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-line">
                     <div>
-                        <h2 className="text-lg font-bold text-gray-900">Price details</h2>
-                        <p className="text-xs text-gray-500 mt-0.5">{title}</p>
+                        <h2 className="text-lg font-bold">Price details</h2>
+                        <p className="text-xs text-muted mt-0.5">{title}</p>
                     </div>
                     <button
                         onClick={onClose}
                         aria-label="Close price details"
-                        className="p-1.5 -mr-1.5 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
+                        className="p-1.5 -mr-1.5 rounded-full hover:bg-subtle transition-colors cursor-pointer"
                     >
-                        <X size={20} className="text-gray-600" />
+                        <X size={20} className="text-muted" />
                     </button>
                 </div>
 
                 <div className="px-6 py-4">
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
+                    <p className="text-xs font-semibold text-muted uppercase tracking-widest mb-3">
                         {quote.billableDays} {quote.billableDays === 1 ? "day" : "days"}
                     </p>
 
@@ -77,10 +77,10 @@ export function PriceBreakdown({
                     <div className="max-h-64 overflow-y-auto pr-1 space-y-1.5">
                         {quote.days.map((day) => (
                             <div key={day.date} className={rowClass}>
-                                <span className="text-gray-700">
+                                <span className="text-muted">
                                     {formatDayLabel(day.date)}
                                     {day.isOverride && (
-                                        <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-[#3a7d2c]">
+                                        <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-pine-500">
                                             Special rate
                                         </span>
                                     )}
@@ -88,7 +88,7 @@ export function PriceBreakdown({
                                 <span
                                     className={cn(
                                         "font-medium tabular-nums",
-                                        day.isOverride ? "text-[#2a4a1e] font-semibold" : "text-gray-900"
+                                        day.isOverride ? "text-pine-700 font-semibold" : "text-ink"
                                     )}
                                 >
                                     {formatMoney(day.price)}
@@ -97,20 +97,20 @@ export function PriceBreakdown({
                         ))}
                     </div>
 
-                    <div className="mt-4 pt-4 border-t border-gray-200 space-y-2">
+                    <div className="mt-4 pt-4 border-t border-line space-y-2">
                         <div className={rowClass}>
-                            <span className="text-gray-700">Subtotal</span>
-                            <span className="font-medium text-gray-900 tabular-nums">
+                            <span className="text-muted">Subtotal</span>
+                            <span className="font-medium text-ink tabular-nums">
                                 {formatMoney(quote.subtotal)}
                             </span>
                         </div>
 
                         {quote.discountAmount > 0 && (
                             <div className={rowClass}>
-                                <span className="text-[#2a4a1e]">
+                                <span className="text-pine-700">
                                     {quote.discountLabel} ({formatPercent(quote.discountPercent)})
                                 </span>
-                                <span className="font-medium text-[#2a4a1e] tabular-nums">
+                                <span className="font-medium text-pine-700 tabular-nums">
                                     −{formatMoney(quote.discountAmount)}
                                 </span>
                             </div>
@@ -118,13 +118,13 @@ export function PriceBreakdown({
 
                         {quote.extraDiscountAmount > 0 && (
                             <div className={rowClass}>
-                                <span className="text-[#2a4a1e]">
+                                <span className="text-pine-700">
                                     {quote.extraDiscountLabel} ({formatPercent(quote.extraDiscountPercent)})
-                                    <span className="ml-1.5 text-[10px] text-gray-500">
+                                    <span className="ml-1.5 text-[10px] text-muted">
                                         applied after
                                     </span>
                                 </span>
-                                <span className="font-medium text-[#2a4a1e] tabular-nums">
+                                <span className="font-medium text-pine-700 tabular-nums">
                                     −{formatMoney(quote.extraDiscountAmount)}
                                 </span>
                             </div>
@@ -132,10 +132,10 @@ export function PriceBreakdown({
 
                         {quote.surchargeAmount > 0 && (
                             <div className={rowClass}>
-                                <span className="text-gray-700">
+                                <span className="text-muted">
                                     {quote.surchargeLabel} ({formatPercent(quote.surchargePercent)})
                                 </span>
-                                <span className="font-medium text-gray-900 tabular-nums">
+                                <span className="font-medium text-ink tabular-nums">
                                     +{formatMoney(quote.surchargeAmount)}
                                 </span>
                             </div>
@@ -148,10 +148,10 @@ export function PriceBreakdown({
                             nowhere on the receipt explaining it. */}
                         {quote.refundableSurchargeAmount > 0 && (
                             <div className={rowClass}>
-                                <span className="text-gray-700">
+                                <span className="text-muted">
                                     {quote.refundableSurchargeLabel}
                                 </span>
-                                <span className="font-medium text-gray-900 tabular-nums">
+                                <span className="font-medium text-ink tabular-nums">
                                     +{formatMoney(quote.refundableSurchargeAmount)}
                                 </span>
                             </div>
@@ -171,22 +171,22 @@ export function PriceBreakdown({
                             imply it had been discounted along with the rate. */}
                         {quote.pickupFee > 0 && (
                             <div className={rowClass}>
-                                <span className="text-gray-700">{quote.pickupFeeLabel}</span>
-                                <span className="font-medium text-gray-900 tabular-nums">
+                                <span className="text-muted">{quote.pickupFeeLabel}</span>
+                                <span className="font-medium text-ink tabular-nums">
                                     +{formatMoney(quote.pickupFee)}
                                 </span>
                             </div>
                         )}
                     </div>
 
-                    <div className="mt-4 pt-4 border-t border-gray-300 flex justify-between items-baseline">
-                        <span className="font-bold text-gray-900">Total</span>
-                        <span className="text-xl font-bold text-gray-900 tabular-nums">
+                    <div className="mt-4 pt-4 border-t border-line flex justify-between items-baseline">
+                        <span className="font-bold">Total</span>
+                        <span className="text-xl font-bold tabular-nums">
                             {formatMoney(quote.total)}
                         </span>
                     </div>
 
-                    <p className="text-xs text-gray-500 mt-3">
+                    <p className="text-xs text-muted mt-3">
                         Not including tax.
                     </p>
                 </div>

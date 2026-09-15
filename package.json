@@ -10,8 +10,6 @@
     "gen:types": "supabase gen types typescript --linked --schema public > /tmp/db.types.ts && mv /tmp/db.types.ts src/lib/database.types.ts"
   },
   "dependencies": {
-    "@radix-ui/react-label": "^2.1.8",
-    "@radix-ui/react-slot": "^1.2.4",
     "@stripe/react-stripe-js": "^6.1.0",
     "@stripe/stripe-js": "^9.0.1",
     "@supabase/ssr": "^0.8.0",
@@ -21,7 +19,6 @@
     "@tanstack/react-router-devtools": "^1.162.4",
     "@tanstack/react-start": "^1.162.4",
     "@tanstack/react-virtual": "^3.14.3",
-    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "dotenv": "^17.4.2",

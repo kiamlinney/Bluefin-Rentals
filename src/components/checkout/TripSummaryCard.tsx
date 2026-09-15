@@ -45,10 +45,10 @@ function Row({
 }) {
     return (
         <div className="flex justify-between items-baseline gap-4 text-sm">
-            <span className={tone === 'green' ? 'text-[#2a4a1e]' : 'text-gray-700'}>{label}</span>
+            <span className={tone === 'green' ? 'text-pine-700' : 'text-muted'}>{label}</span>
             <span
                 className={`font-medium tabular-nums whitespace-nowrap ${
-                    tone === 'green' ? 'text-[#2a4a1e]' : 'text-gray-900'
+                    tone === 'green' ? 'text-pine-700' : 'text-ink'
                 }`}
             >
                 {value}
@@ -75,16 +75,16 @@ export function TripSummaryCard({
     const savings = quote.discountAmount + quote.extraDiscountAmount
 
     return (
-        <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
+        <div className="bg-surface border border-line rounded-2xl p-5 shadow-sm">
             {/* ── Car ─────────────────────────────────────────────────────── */}
             <div className="flex gap-4 items-start">
                 <div className="flex-1 min-w-0">
-                    <p className="font-bold text-gray-900 leading-tight">
+                    <p className="font-bold text-ink leading-tight">
                         {/* trim is nullable — filter rather than interpolate, so a
                             car without one doesn't render a trailing space. */}
                         {[car.make, car.model, car.trim].filter(Boolean).join(' ')}
                     </p>
-                    <p className="text-gray-500 text-sm mt-0.5">{car.year}</p>
+                    <p className="text-muted text-sm mt-0.5">{car.year}</p>
                 </div>
                 <img
                     src={`https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/car%20gallery/car_${carId}/main.PNG`}
@@ -96,15 +96,15 @@ export function TripSummaryCard({
             {/* ── When & where ────────────────────────────────────────────── */}
             <div className="mt-5 space-y-3">
                 <div className="flex gap-3">
-                    <CalendarDays size={18} className="text-gray-400 flex-shrink-0 mt-0.5" />
-                    <div className="text-sm text-gray-900 leading-relaxed">
+                    <CalendarDays size={18} className="text-ink-400 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm text-ink leading-relaxed">
                         <p>{formatWhen(search.startDate, search.startTime)}</p>
                         <p>{formatWhen(search.endDate, search.endTime)}</p>
                     </div>
                 </div>
                 <div className="flex gap-3">
-                    <MapPin size={18} className="text-gray-400 flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-gray-900">{search.pickupLocation}</p>
+                    <MapPin size={18} className="text-ink-400 flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-ink">{search.pickupLocation}</p>
                 </div>
             </div>
 
@@ -112,7 +112,7 @@ export function TripSummaryCard({
             {/* Row order mirrors the arithmetic in calculateTripPrice, so the
                 column reads top to bottom as the total being built: subtotal,
                 then what comes off it, then what goes on top. */}
-            <div className="mt-5 pt-5 border-t border-gray-200 space-y-2.5">
+            <div className="mt-5 pt-5 border-t border-line space-y-2.5">
                 <Row
                     label={`${quote.billableDays} ${quote.billableDays === 1 ? 'day' : 'days'}`}
                     value={formatMoney(quote.subtotal)}
@@ -162,7 +162,7 @@ export function TripSummaryCard({
                         label="Distance included"
                         value={`${formatMiles(milesIncluded(quote.billableDays))} miles`}
                     />
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-muted mt-1">
                         ${distanceFeeForTrip(car, quote, Number(car.price_per_day)).toFixed(2)} /
                         mile will be charged for miles driven over this allotment.
                     </p>
@@ -170,21 +170,21 @@ export function TripSummaryCard({
             </div>
 
             {/* ── Total ───────────────────────────────────────────────────── */}
-            <div className="mt-5 pt-5 border-t border-gray-200 flex justify-between items-baseline">
-                <span className="font-bold text-gray-900">Trip total</span>
-                <span className="text-xl font-bold text-gray-900 tabular-nums">
+            <div className="mt-5 pt-5 border-t border-line flex justify-between items-baseline">
+                <span className="font-bold text-ink">Trip total</span>
+                <span className="text-xl font-bold text-ink tabular-nums">
                     {formatMoney(total)}
                 </span>
             </div>
 
             {savings > 0 && (
-                <div className="mt-5 flex gap-3 items-start bg-[#eef5e9] rounded-xl p-4">
-                    <Tag size={18} className="text-[#3a7d2c] flex-shrink-0 mt-0.5" />
+                <div className="mt-5 flex gap-3 items-start bg-pine-50 rounded-xl p-4">
+                    <Tag size={18} className="text-pine-500 flex-shrink-0 mt-0.5" />
                     <div>
-                        <p className="text-sm font-bold text-[#2a4a1e]">
+                        <p className="text-sm font-bold text-pine-700">
                             You're saving {formatMoney(savings)}
                         </p>
-                        <p className="text-xs text-[#2a4a1e]/80 mt-0.5">
+                        <p className="text-xs text-pine-700/80 mt-0.5">
                             {[quote.discountLabel, quote.extraDiscountLabel]
                                 .filter(Boolean)
                                 .join(' and ')}{' '}

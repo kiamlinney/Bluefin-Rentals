@@ -3,7 +3,6 @@ import { getCarById } from "@/lib/db.ts";
 import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { z } from "zod";
 import { Users, Fuel, Gauge, Settings2, X, ChevronDown } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
 import { getBookedDates, getCarPriceOverrides } from "@/lib/db.ts";
 import { getUser } from "@/lib/auth.ts";
 import {
@@ -161,16 +160,16 @@ function TimeDropdown({ value, onChange, options }: {
             <button
                 type="button"
                 onClick={() => setIsOpen(o => !o)}
-                className="w-full flex items-center justify-between border border-gray-300 rounded-lg px-4 py-3 text-gray-900 text-sm hover:border-gray-400 transition-colors cursor-pointer"
+                className="w-full flex items-center justify-between border border-line rounded-lg px-4 py-3 text-sm hover:border-ink-400 transition-colors cursor-pointer"
             >
                 <span>{selected?.label ?? value}</span>
-                <ChevronDown size={14} className={`text-gray-500 transition-transform duration-150 ${isOpen ? "rotate-180" : ""}`} />
+                <ChevronDown size={14} className={`text-muted transition-transform duration-150 ${isOpen ? "rotate-180" : ""}`} />
             </button>
 
             {isOpen && (
                 <div
                     ref={scrollRef}
-                    className="absolute top-full left-0 right-0 mt-1 z-[120] bg-white border border-gray-200 rounded-lg shadow-lg max-h-96 overflow-y-scroll time-dropdown-scroll"
+                    className="absolute top-full left-0 right-0 mt-1 z-[120] bg-surface border border-line rounded-lg shadow-lg max-h-96 overflow-y-scroll time-dropdown-scroll"
                 >
                     {options.map(opt => (
                         <button
@@ -184,10 +183,10 @@ function TimeDropdown({ value, onChange, options }: {
                             className={[
                                 "w-full text-left px-3 py-2 text-sm",
                                 opt.disabled
-                                    ? "text-gray-300 cursor-not-allowed"
+                                    ? "text-ink-400 cursor-not-allowed"
                                     : opt.value === value
-                                        ? "bg-gray-100 text-gray-900 font-semibold cursor-pointer"
-                                        : "text-gray-900 hover:bg-gray-50 cursor-pointer"
+                                        ? "bg-subtle font-semibold cursor-pointer"
+                                        : "hover:bg-subtle cursor-pointer"
                             ].join(" ")}
                         >
                             {opt.label}
@@ -628,12 +627,12 @@ function CarDetails() {
 
     if (showGallery) {
         return (
-            <div className="fixed inset-0 z-[100] overflow-y-auto">
+            <div className="fixed inset-0 z-[100] overflow-y-auto bg-page">
                 <div className="sticky top-0 backdrop-blur-lg py-4 px-8 flex justify-between items-center border-b-[0.5px] z-50">
                     <h2 className="text-xl font-bold">{car.make} {car.model} {car.year}</h2>
                     <button
                         onClick={() => setShowGallery(false)}
-                        className="p-2 hover:bg-gray-900 rounded-full transition-colors cursor-pointer"
+                        className="p-2 hover:bg-subtle rounded-full transition-colors cursor-pointer"
                     >
                         <X size={24} />
                     </button>
@@ -641,7 +640,7 @@ function CarDetails() {
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 max-w-8xl mx-auto p-4 flex-col gap-8 mt-4">
                     {images.map((img: string, index: number) => (
-                        <div key={index} className="w-full rounded-xl overflow-hidden bg-gray-100 shadow-sm">
+                        <div key={index} className="w-full rounded-xl overflow-hidden bg-subtle shadow-sm">
                             <img
                                 src={getImageUrl(img)}
                                 className="w-full h-full object-cover aspect-video"
@@ -661,17 +660,17 @@ function CarDetails() {
                 <h1 className="mt-12 text-4xl"> {car.make} {car.model} {car.year}</h1>
 
                 {/* Spec Badges */}
-                <div className="flex flex-wrap text-black gap-4 mt-6">
-                    <div className="flex items-center gap-2 bg-gray-200 px-4 py-2 rounded-lg text-sm">
+                <div className="flex flex-wrap gap-4 mt-6">
+                    <div className="flex items-center gap-2 bg-subtle px-4 py-2 rounded-lg text-sm">
                         <Users size={18} /> {car.num_seats} seats
                     </div>
-                    <div className="flex items-center gap-2 bg-gray-200 px-4 py-2 rounded-lg text-sm">
+                    <div className="flex items-center gap-2 bg-subtle px-4 py-2 rounded-lg text-sm">
                         <Fuel size={18} /> {car.fuel_type}
                     </div>
-                    <div className="flex items-center gap-2 bg-gray-200 px-4 py-2 rounded-lg text-sm">
+                    <div className="flex items-center gap-2 bg-subtle px-4 py-2 rounded-lg text-sm">
                         <Gauge size={18} /> {car.mpg} MPG
                     </div>
-                    <div className="flex items-center gap-2 bg-gray-200 px-4 py-2 rounded-lg text-sm">
+                    <div className="flex items-center gap-2 bg-subtle px-4 py-2 rounded-lg text-sm">
                         <Settings2 size={18} /> {car.transmission} transmission
                     </div>
                 </div>
@@ -689,7 +688,7 @@ function CarDetails() {
                     </div>
 
                     {/* Top Left Image */}
-                    <div className="hidden lg:block h-[196px] border border-gray-800">
+                    <div className="hidden lg:block h-[196px] border border-line">
                         <img
                             src={getImageUrl("top_left.PNG")}
                             className="w-full h-full object-cover"
@@ -698,7 +697,7 @@ function CarDetails() {
                     </div>
 
                     {/* Top Right Image */}
-                    <div className="hidden lg:block h-[196px] border border-gray-800">
+                    <div className="hidden lg:block h-[196px] border border-line">
                         <img
                             src={getImageUrl("top_right.PNG")}
                             className="w-full h-full object-cover"
@@ -707,7 +706,7 @@ function CarDetails() {
                     </div>
 
                     {/* Bottom Left Image */}
-                    <div className="hidden lg:block h-[196px] border border-gray-800">
+                    <div className="hidden lg:block h-[196px] border border-line">
                         <img
                             src={getImageUrl("bottom_left.PNG")}
                             className="w-full h-full object-cover"
@@ -716,7 +715,7 @@ function CarDetails() {
                     </div>
 
                     {/* Bottom Right Image */}
-                    <div className="hidden lg:block h-[196px] relative group border border-gray-800">
+                    <div className="hidden lg:block h-[196px] relative group border border-line">
                         <img
                             src={getImageUrl("bottom_right.PNG")}
                             className="w-full h-full object-cover"
@@ -753,7 +752,7 @@ function CarDetails() {
                                         <h3 className="font-bold text-lg mb-3">{category}</h3>
                                         <ul className="space-y-2">
                                             {list.map((feature) => (
-                                                <li key={feature} className="text-gray-300 font-medium">
+                                                <li key={feature} className="text-muted font-medium">
                                                     {feature}
                                                 </li>
                                             ))}
@@ -779,30 +778,30 @@ function CarDetails() {
                     {/* -------------------------------- Booking Widget --------------------------------  */}
                     <div className="w-full lg:w-[400px] flex flex-col gap-8 lg:self-start">
                         {user ? (
-                            <Card className="top-24 shadow-xl bg-white text-black z-10">
-                                <CardContent className="p-6 relative">
+                            <div className="top-24 z-10 rounded-xl border border-line bg-surface shadow-xl">
+                                <div className="p-6 relative">
                                     <div className="flex items-baseline gap-1">
-                                        <span className="text-2xl font-bold text-gray-900">${car.price_per_day}</span>
-                                        <span className="text-gray-600 font-medium mb-4">/ day</span>
+                                        <span className="text-2xl font-bold">${car.price_per_day}</span>
+                                        <span className="text-muted font-medium mb-4">/ day</span>
                                     </div>
 
-                                    <hr className="border-gray-200" />
+                                    <hr className="border-line" />
 
                                     {totalDays > 0 && (
                                         <button
                                             type="button"
                                             onClick={() => setShowPriceDetails(true)}
-                                            className="mt-4 w-full p-3 bg-gray-100 rounded-lg flex justify-between items-center text-gray-900 font-bold border border-gray-200 hover:bg-gray-200 transition-colors cursor-pointer"
+                                            className="mt-4 w-full p-3 bg-subtle rounded-lg flex justify-between items-center font-bold border border-line hover:bg-cream-200 transition-colors cursor-pointer"
                                         >
                                             <span className="flex items-center gap-1.5">
                                                 {totalDays} day trip
-                                                <ChevronDown size={14} className="text-gray-500" />
+                                                <ChevronDown size={14} className="text-muted" />
                                             </span>
                                             <span className="flex items-baseline gap-2">
                                                 {/* Show what the trip would have cost without the
                                                     duration discounts, so the saving is visible. */}
                                                 {quote.discountAmount + quote.extraDiscountAmount > 0 && (
-                                                    <span className="text-gray-500 font-medium line-through">
+                                                    <span className="text-muted font-medium line-through">
                                                         ${quote.subtotal.toFixed(2)}
                                                     </span>
                                                 )}
@@ -811,7 +810,7 @@ function CarDetails() {
                                         </button>
                                     )}
 
-                                    <p className="text-gray-600 text-sm font-medium mb-6 mt-2">
+                                    <p className="text-muted text-sm font-medium mb-6 mt-2">
                                         {totalDays > 0 && "Click for price details"}
                                     </p>
 
@@ -820,16 +819,16 @@ function CarDetails() {
                                         {/* Trip start row */}
                                         <div className="relative">
 
-                                            <label className="block text-sm tex-gray-900 mb-1.5">Trip start</label>
+                                            <label className="block text-sm mb-1.5">Trip start</label>
 
                                             <div className="flex gap-3">
                                                 <button
                                                     ref={startTriggerRef}
                                                     onClick={toggleStartCalendar}
-                                                    className="flex-[1.3] flex items-center justify-between border border-gray-300 rounded-lg px-4 py-3 text-gray-900 text-sm hover:border-gray-400 transition-colors cursor-pointer"
+                                                    className="flex-[1.3] flex items-center justify-between border border-line rounded-lg px-4 py-3 text-sm hover:border-ink-400 transition-colors cursor-pointer"
                                                 >
                                                     <span>{startDate ? formatTriggerDate(startDate) : "Select Date"}</span>
-                                                    <ChevronDown size={14} className="text-gray-500" />
+                                                    <ChevronDown size={14} className="text-muted" />
                                                 </button>
 
                                                 <TimeDropdown value={startTime} onChange={setStartTime} options={startTimeOptions} />
@@ -852,16 +851,16 @@ function CarDetails() {
                                         {/* Trip end row */}
                                         <div className="relative">
 
-                                            <label className="block text-sm tex-gray-900 mb-1.5">Trip end</label>
+                                            <label className="block text-sm mb-1.5">Trip end</label>
 
                                             <div className="flex gap-3">
                                                 <button
                                                     ref={endTriggerRef}
                                                     onClick={toggleEndCalendar}
-                                                    className="flex-[1.3] flex items-center justify-between border border-gray-300 rounded-lg px-4 py-3 text-gray-900 text-sm hover:border-gray-400 transition-colors cursor-pointer"
+                                                    className="flex-[1.3] flex items-center justify-between border border-line rounded-lg px-4 py-3 text-sm hover:border-ink-400 transition-colors cursor-pointer"
                                                 >
                                                     <span>{endDate ? formatTriggerDate(endDate) : "Select Date"}</span>
-                                                    <ChevronDown size={14} className="text-gray-500" />
+                                                    <ChevronDown size={14} className="text-muted" />
                                                 </button>
 
                                                 <TimeDropdown value={endTime} onChange={setEndTime} options={endTimeOptions} />
@@ -882,14 +881,14 @@ function CarDetails() {
                                                 />
                                         </div>
 
-                                        <hr className="border-gray-200" />
+                                        <hr className="border-line" />
 
                                         <PickupLocationPicker
                                             value={pickup}
                                             onChange={setPickup}
                                         />
 
-                                        <hr className="border-gray-200" />
+                                        <hr className="border-line" />
 
                                     </div>
 
@@ -904,21 +903,21 @@ function CarDetails() {
                                         onClick={handleContinue}
                                         disabled={isButtonDisabled}
                                         className={[
-                                            "border border-gray-300 bg-white rounded-lg w-full text-lg py-6 shadow-lg transition-all hover:border-gray-400",
+                                            "bg-brand text-on-brand rounded-lg w-full text-lg py-6 shadow-lg transition-all hover:bg-pine-800",
                                             isButtonDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
                                         ].join(" ")}
                                     >
                                         Continue
                                     </button>
-                                </CardContent>
-                            </Card>
+                                </div>
+                            </div>
                         ) : (
-                            <Card className="top-24 shadow-xl bg-white text-black z-10">
-                                <CardContent className="p-6 text-center space-y-4">
-                                    <p className="text-gray-900 font-semibold text-lg">
+                            <div className="top-24 z-10 rounded-xl border border-line bg-surface shadow-xl">
+                                <div className="p-6 text-center space-y-4">
+                                    <p className="font-semibold text-lg">
                                         Please login to book a vehicle
                                     </p>
-                                    <p className="text-gray-500 text-sm">
+                                    <p className="text-muted text-sm">
                                         Create an account or login to continue.
                                     </p>
                                     <Link
@@ -931,12 +930,12 @@ function CarDetails() {
                                                 ? `/fleet/${carSlug(car)}?start=${search.start}&end=${search.end}`
                                                 : `/fleet/${carSlug(car)}`,
                                         }}
-                                        className="block w-full py-3 bg-gray-900 shadow-lg text-white rounded-full font-medium hover:scale-101 transition-colors"
+                                        className="block w-full py-3 bg-brand shadow-lg text-on-brand rounded-full font-medium hover:bg-pine-800 hover:scale-101 transition-colors"
                                     >
                                         Login or Sign Up
                                     </Link>
-                                </CardContent>
-                            </Card>
+                                </div>
+                            </div>
                         )}
 
 
@@ -960,7 +959,7 @@ function CarDetails() {
                                         {/* "from" only while undated: the rate
                                             can still drop once a range is
                                             picked, never rise. */}
-                                        <p className="text-sm text-gray-400 mt-0.5">
+                                        <p className="text-sm text-muted mt-0.5">
                                             {totalDays > 0
                                                 ? `$${distanceFee.toFixed(2)}/mi fee for additional miles driven`
                                                 : `from $${maxDistanceFee(car).toFixed(2)}/mi for additional miles driven`}

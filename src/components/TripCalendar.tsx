@@ -73,15 +73,15 @@ export const tripCalendarClassNames: Partial<ClassNames> = {
     months: 'flex flex-col',
     month: 'space-y-3',
     month_caption: 'flex justify-center items-center h-9 relative',
-    caption_label: 'text-sm font-semibold text-gray-800 tracking-wide',
+    caption_label: 'text-sm font-semibold text-ink tracking-wide',
     nav: 'w-full flex items-center justify-center relative h-5',
     button_previous:
-        'absolute left-2 top-0 w-7 h-7 rounded-md border border-gray-800 inline-flex items-center justify-center bg-transparent hover:bg-gray-100 transition-colors cursor-pointer',
+        'absolute left-2 top-0 w-7 h-7 rounded-md border border-line inline-flex items-center justify-center bg-transparent hover:bg-subtle transition-colors cursor-pointer',
     button_next:
-        'absolute right-2 top-0 w-7 h-7 rounded-md border border-gray-800 inline-flex items-center justify-center bg-transparent hover:bg-gray-100 transition-colors cursor-pointer',
+        'absolute right-2 top-0 w-7 h-7 rounded-md border border-line inline-flex items-center justify-center bg-transparent hover:bg-subtle transition-colors cursor-pointer',
     month_grid: 'w-full border-collapse',
     weekdays: 'flex',
-    weekday: 'w-9 text-center text-[10px] font-medium text-black uppercase tracking-widest pb-1',
+    weekday: 'w-9 text-center text-[10px] font-medium text-muted uppercase tracking-widest pb-1',
     week: 'flex mt-1',
     day: 'w-9 h-9 text-center text-sm p-0',
 
@@ -96,10 +96,10 @@ export const tripCalendarClassNames: Partial<ClassNames> = {
     // `[&>button]:text-gray-300` (0,1,1), which is exactly why booked days used
     // to flash white on hover. Not emitting the rule at all has no such tie.
     day_button: [
-        'w-9 h-9 rounded-full text-sm font-medium text-black',
+        'w-9 h-9 rounded-full text-sm font-medium text-ink',
         'transition-colors focus:outline-none',
         'not-disabled:cursor-pointer',
-        'not-disabled:hover:bg-gray-200',
+        'not-disabled:hover:bg-cream-200',
     ].join(' '),
 
     today: '[&>button]:underline',
@@ -115,11 +115,11 @@ export const tripCalendarClassNames: Partial<ClassNames> = {
     // `.cls > button:hover` (0,2,1), so without it a selected day would turn
     // grey under the mouse and break the pill.
     range_start:
-        '[&>button]:rounded-l-full [&>button]:rounded-r-none [&>button]:bg-emerald-800 [&>button]:text-white [&>button]:hover:bg-emerald-800!',
+        '[&>button]:rounded-l-full [&>button]:rounded-r-none [&>button]:bg-brand [&>button]:text-on-brand [&>button]:hover:bg-brand!',
     range_middle:
-        '[&>button]:rounded-none [&>button]:bg-emerald-800 [&>button]:text-white [&>button]:hover:bg-emerald-800!',
+        '[&>button]:rounded-none [&>button]:bg-brand [&>button]:text-on-brand [&>button]:hover:bg-brand!',
     range_end:
-        '[&>button]:rounded-r-full [&>button]:rounded-l-none [&>button]:bg-emerald-800 [&>button]:text-white [&>button]:hover:bg-emerald-800!',
+        '[&>button]:rounded-r-full [&>button]:rounded-l-none [&>button]:bg-brand [&>button]:text-on-brand [&>button]:hover:bg-brand!',
 
     // No colour here either — colour belongs to the range_* slots, so a booked
     // day sitting inside a selected range doesn't pit text-white against
@@ -131,7 +131,7 @@ export const tripCalendarClassNames: Partial<ClassNames> = {
     // settles the cursor — with pointer events off the pointer resolves against
     // the <td>, which sets no cursor, so there's no "no entry" symbol.
     disabled: 'cursor-default [&>button]:pointer-events-none [&>button]:opacity-40',
-    outside: '[&>button]:text-gray-400 [&>button]:opacity-50',
+    outside: '[&>button]:text-ink-400 [&>button]:opacity-50',
     hidden: 'invisible',
 }
 
@@ -148,7 +148,7 @@ export const tripCalendarModifierClassNames = {
     // range_start/range_end, which both land on a same-day selection and would
     // otherwise fight over the left and right corners with nothing but
     // stylesheet order to separate them.
-    pill: '[&>button]:rounded-full! [&>button]:bg-emerald-800! [&>button]:text-white [&>button]:hover:bg-emerald-900!',
+    pill: '[&>button]:rounded-full! [&>button]:bg-brand! [&>button]:text-on-brand [&>button]:hover:bg-pine-950!',
 }
 
 export function TripCalendar(props: TripCalendarProps) {
@@ -366,7 +366,7 @@ export function TripCalendar(props: TripCalendarProps) {
             aria-label="Choose dates"
             style={placement.maxHeight ? { maxHeight: placement.maxHeight } : undefined}
             className={cn(
-                'absolute left-0 z-[110] flex flex-col bg-white p-5 shadow-2xl rounded-2xl border border-gray-100',
+                'absolute left-0 z-[110] flex flex-col bg-surface text-ink p-5 shadow-2xl rounded-2xl border border-line',
                 placement.anchor === 'below' ? 'top-full mt-2' : 'bottom-full mb-2',
                 className,
             )}

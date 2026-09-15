@@ -118,7 +118,9 @@ export function SearchBar({
     return (
         <div
             className={[
-                'w-full max-w-5xl mx-auto bg-white rounded-full flex items-center shadow-lg border border-gray-200 divide-x divide-gray-200 relative h-16',
+                // text-ink is explicit because this also sits on the homepage video,
+                // where the surrounding copy is white.
+                'w-full max-w-5xl mx-auto bg-surface text-ink rounded-full flex items-center shadow-lg border border-line divide-x divide-line relative h-16',
                 className,
             ].join(' ')}
             role="search"
@@ -131,12 +133,12 @@ export function SearchBar({
                     aria-haspopup="listbox"
                     aria-expanded={openLocation}
                     onClick={() => setOpenLocation((v) => !v)}
-                    className="h-full w-full px-8 py-2 flex flex-col justify-center rounded-l-full hover:bg-gray-100 transition-colors text-left cursor-pointer"
+                    className="h-full w-full px-8 py-2 flex flex-col justify-center rounded-l-full hover:bg-subtle transition-colors text-left cursor-pointer"
                 >
-          <span className="text-[12px] font-semibold text-gray-700 tracking-wide">
+          <span className="text-[12px] font-semibold tracking-wide">
             Where
           </span>
-          <span className="text-[15px] w-50 text-gray-700 truncate pr-4 block items-center gap-2">
+          <span className="text-[15px] w-50 text-muted truncate pr-4 block items-center gap-2">
            {locationLabel}
           </span>
                 </button>
@@ -145,7 +147,7 @@ export function SearchBar({
                     <div
                         role="listbox"
                         aria-label="Pickup location"
-                        className="absolute top-full left-0 mt-3 w-[420px] bg-white rounded-2xl shadow-2xl border border-gray-100 py-3 z-50"
+                        className="absolute top-full left-0 mt-3 w-[420px] bg-surface rounded-2xl shadow-2xl border border-line py-3 z-50"
                     >
                         <Section label="Airports" />
                         {LOCATIONS.filter((l) => l.section === 'Airports').map((opt) => (
@@ -183,12 +185,12 @@ export function SearchBar({
                     aria-haspopup="dialog"
                     aria-expanded={openCalendar}
                     onClick={() => setOpenCalendar((v) => !v)}
-                    className="h-full w-full px-8 py-2 flex flex-col justify-center hover:bg-gray-50 transition-colors text-left cursor-pointer"
+                    className="h-full w-full px-8 py-2 flex flex-col justify-center hover:bg-subtle transition-colors text-left cursor-pointer"
                 >
-          <span className="text-[12px] font-semibold text-gray-700 tracking-wide">
+          <span className="text-[12px] font-semibold tracking-wide">
             Dates
           </span>
-                    <span className="text-[15px] text-gray-700 truncate pr-4">
+                    <span className="text-[15px] text-muted truncate pr-4">
             {start && end
                 ? `${formatTriggerDate(start)} – ${formatTriggerDate(end)}`
                 : 'Add dates'}
@@ -208,7 +210,7 @@ export function SearchBar({
                         <>
                             <button
                                 type="button"
-                                className="text-sm px-3 py-1 rounded-lg text-gray-700 hover:text-gray-800 cursor-pointer"
+                                className="text-sm px-3 py-1 rounded-lg text-muted hover:text-ink cursor-pointer"
                                 onClick={() => {
                                     setStart(null)
                                     setEnd(null)
@@ -218,7 +220,7 @@ export function SearchBar({
                             </button>
                             <button
                                 type="button"
-                                className="text-sm px-3 py-1 rounded-lg bg-emerald-800 text-white hover:bg-emerald-900 cursor-pointer"
+                                className="text-sm px-3 py-1 rounded-lg bg-brand text-on-brand hover:bg-pine-800 cursor-pointer"
                                 onClick={closeCalendar}
                             >
                                 Save
@@ -235,8 +237,8 @@ export function SearchBar({
                     disabled={!canSearch}
                     onClick={handleSearch}
                     className={[
-                        'h-8 w-8 rounded-full flex items-center justify-center text-white transition-transform shadow-md',
-                        canSearch ? 'bg-emerald-700 hover:bg-emerald-800 hover:scale-101 cursor-pointer' : 'bg-gray-300 cursor-not-allowed',
+                        'h-8 w-8 rounded-full flex items-center justify-center text-on-brand transition-transform shadow-md',
+                        canSearch ? 'bg-brand hover:bg-pine-800 hover:scale-101 cursor-pointer' : 'bg-cream-300 cursor-not-allowed',
                     ].join(' ')}
                     aria-label="Search"
                 >
@@ -249,7 +251,7 @@ export function SearchBar({
 
 function Section({ label }: { label: string }) {
     return (
-        <div className="px-4 pb-2 pt-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+        <div className="px-4 pb-2 pt-1 text-xs font-semibold text-muted uppercase tracking-wider">
             {label}
         </div>
     )
@@ -272,11 +274,11 @@ function LocationOption({
             onClick={onSelect}
             className={[
                 'w-full text-left px-4 py-3 flex items-center gap-3 transition-colors cursor-pointer',
-                active ? 'bg-emerald-600/20 text-gray-800' : 'hover:bg-gray-50 text-gray-500',
+                active ? 'bg-subtle text-ink' : 'hover:bg-subtle text-muted',
             ].join(' ')}
         >
-            <div className="p-2 bg-gray-100 rounded-lg">
-                <MapPin size={18} className={active ? 'text-emerald-800' : 'text-gray-600'} />
+            <div className={['p-2 rounded-lg', active ? 'bg-brand' : 'bg-cream-200'].join(' ')}>
+                <MapPin size={18} className={active ? 'text-on-brand' : 'text-muted'} />
             </div>
             <span className="text-sm font-medium">{option.label}</span>
         </button>

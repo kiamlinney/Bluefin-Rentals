@@ -130,23 +130,23 @@ export function IdentityStep({
 
     if (polling) {
         return (
-            <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center shadow-sm">
+            <div className="bg-surface border border-line rounded-2xl p-8 text-center shadow-sm">
                 <div className="text-3xl mb-4">⏳</div>
-                <p className="text-gray-900 font-semibold">Confirming your verification...</p>
-                <p className="text-gray-500 text-sm mt-2">This usually takes just a few seconds.</p>
+                <p className="text-ink font-semibold">Confirming your verification...</p>
+                <p className="text-muted text-sm mt-2">This usually takes just a few seconds.</p>
             </div>
         )
     }
 
     return (
         <div>
-            <h2 className="text-2xl font-bold text-gray-900">Verify your identity</h2>
-            <p className="text-gray-500 text-sm mt-1 mb-6">
+            <h2 className="text-2xl font-bold text-ink">Verify your identity</h2>
+            <p className="text-muted text-sm mt-1 mb-6">
                 Required once for all future bookings. You'll need your driver's license and a
                 quick selfie. Powered by Stripe Identity.
             </p>
 
-            <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+            <div className="bg-surface border border-line rounded-2xl p-6 shadow-sm">
                 <div className="space-y-4">
                     {[
                         "Take a photo of your driver's license",
@@ -154,10 +154,10 @@ export function IdentityStep({
                         'Results confirmed instantly',
                     ].map((s, i) => (
                         <div key={i} className="flex items-center gap-3">
-                            <div className="w-6 h-6 rounded-full bg-[#152110] text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
+                            <div className="w-6 h-6 rounded-full bg-brand text-on-brand flex items-center justify-center text-xs font-bold flex-shrink-0">
                                 {i + 1}
                             </div>
-                            <p className="text-gray-700 text-sm">{s}</p>
+                            <p className="text-muted text-sm">{s}</p>
                         </div>
                     ))}
                 </div>
@@ -168,7 +168,7 @@ export function IdentityStep({
             <button
                 onClick={handleStartVerification}
                 disabled={loading}
-                className="mt-6 w-full py-3.5 bg-[#152110] hover:bg-[#1d2f17] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors cursor-pointer"
+                className="mt-6 w-full py-3.5 bg-brand hover:bg-pine-800 disabled:opacity-50 disabled:cursor-not-allowed text-on-brand font-semibold rounded-xl transition-colors cursor-pointer"
             >
                 {loading ? 'Loading...' : 'Start verification →'}
             </button>

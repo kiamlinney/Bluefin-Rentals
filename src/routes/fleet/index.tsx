@@ -79,7 +79,7 @@ function Fleet() {
 
     return (
         <div className="max-w-7xl mx-auto px-4 py-8">
-            <div className="mt-14 flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-3 flex-wrap">
                 <SearchBar
                     className="max-w-[880px] rounded-xl"
                     initial={{
@@ -90,7 +90,7 @@ function Fleet() {
                 />
                 <button
                     onClick={clearAll}
-                    className="h-10 px-4 rounded-lg border border-gray-300 text-sm hover:bg-gray-800 cursor-pointer"
+                    className="h-10 px-4 rounded-lg border border-line bg-surface text-sm hover:bg-subtle cursor-pointer"
                 >
                     Clear
                 </button>
@@ -99,9 +99,9 @@ function Fleet() {
             <h1 className="text-5xl mt-8 mb-4">Our Fleet ({cars.length})</h1>
 
             {hasDates && cars.length === 0 ? (
-                <div className="rounded-xl border border-gray-200 bg-white p-6 text-gray-700">
+                <div className="rounded-xl border border-line bg-surface p-6">
                     <div className="text-lg font-semibold mb-1">No cars available for your dates</div>
-                    <div className="text-sm text-gray-600">
+                    <div className="text-sm text-muted">
                         Try adjusting your pick-up or return dates. You can also click <button onClick={clearAll} className="underline font-medium">Clear</button> to see all cars.
                     </div>
                 </div>

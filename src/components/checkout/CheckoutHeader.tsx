@@ -26,19 +26,19 @@ export function CheckoutHeader({ carId }: { carId: string }) {
     }
 
     return (
-        <header className="sticky top-0 z-50 h-16 bg-white border-b border-gray-200">
+        <header className="sticky top-0 z-50 h-16 bg-surface border-b border-line">
             <div className="relative h-full max-w-6xl mx-auto px-4 flex items-center">
                 <button
                     type="button"
                     onClick={handleBack}
                     aria-label="Back"
-                    className="p-2 -ml-2 rounded-full text-gray-900 hover:bg-gray-100 transition-colors cursor-pointer"
+                    className="p-2 -ml-2 rounded-full text-ink hover:bg-subtle transition-colors cursor-pointer"
                 >
                     <ArrowLeft size={20} />
                 </button>
                 {/* Absolutely positioned so the title is centred on the page,
                     not on the space left over beside the back button. */}
-                <h1 className="absolute left-1/2 -translate-x-1/2 text-base font-bold text-gray-900">
+                <h1 className="absolute left-1/2 -translate-x-1/2 text-base font-bold text-ink">
                     Checkout
                 </h1>
             </div>

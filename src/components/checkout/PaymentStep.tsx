@@ -119,7 +119,7 @@ export function PaymentStep({
 
     return (
         <form onSubmit={handleSubmit}>
-            <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+            <div className="bg-surface border border-line rounded-2xl p-6 shadow-sm">
                 {/*
                     PaymentElement renders the card input form styled using the
                     appearance config passed to <Elements> in the route file.
@@ -158,15 +158,15 @@ export function PaymentStep({
                     type="checkbox"
                     checked={agreedToTerms}
                     onChange={(e) => setAgreedToTerms(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 rounded border-gray-300 accent-[#152110] cursor-pointer flex-shrink-0"
+                    className="mt-0.5 w-4 h-4 rounded border-line accent-brand cursor-pointer flex-shrink-0"
                 />
-                <span className="text-sm text-gray-700">
+                <span className="text-sm text-muted">
                     I agree to pay the total shown and to the BlueFin Rentals {' '}
                     <Link
                         to="/policies/terms"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="underline cursor-pointer text-green-700"
+                        className="underline cursor-pointer text-pine-500"
                     >
                         terms of service
                     </Link>
@@ -177,7 +177,7 @@ export function PaymentStep({
                         to="/policies/cancellation"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="underline cursor-pointer text-green-700"
+                        className="underline cursor-pointer text-pine-500"
                     >
                      cancellation policy
                     </Link>
@@ -193,12 +193,12 @@ export function PaymentStep({
             <button
                 type="submit"
                 disabled={!stripe || processing || !agreedToTerms}
-                className="mt-6 w-full py-4 bg-[#152110] hover:bg-[#1d2f17] disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl text-lg transition-colors cursor-pointer"
+                className="mt-6 w-full py-4 bg-brand hover:bg-pine-800 disabled:opacity-50 disabled:cursor-not-allowed text-on-brand font-bold rounded-xl text-lg transition-colors cursor-pointer"
             >
                 {processing ? 'Processing payment...' : `Book trip · $${subtotal.toFixed(2)}`}
             </button>
 
-            {/*<p className="text-center text-gray-500 text-xs mt-3">Secured by Stripe</p>*/}
+            {/*<p className="text-center text-muted text-xs mt-3">Secured by Stripe</p>*/}
         </form>
     )
 }

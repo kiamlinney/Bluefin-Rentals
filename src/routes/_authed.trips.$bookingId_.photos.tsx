@@ -115,7 +115,7 @@ function TripPhotosPage() {
                     <Link
                         to="/admin/reservation/$bookingId"
                         params={{ bookingId }}
-                        className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700 hover:underline"
+                        className="inline-flex items-center gap-1.5 text-sm font-semibold text-pine-500 hover:underline"
                     >
                         <ArrowLeft size={16} />
                         {renterName.split(' ')[0]}'s trip
@@ -124,24 +124,24 @@ function TripPhotosPage() {
                     <Link
                         to="/trips/$bookingId"
                         params={{ bookingId }}
-                        className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700 hover:underline"
+                        className="inline-flex items-center gap-1.5 text-sm font-semibold text-pine-500 hover:underline"
                     >
                         <ArrowLeft size={16} />
                         Back to trip
                     </Link>
                 )}
 
-                <header className="mt-4 flex flex-wrap items-end justify-between gap-4 border-b border-gray-300 pb-6">
+                <header className="mt-4 flex flex-wrap items-end justify-between gap-4 border-b border-line pb-6">
                     <div>
-                        <h1 className="text-4xl text-black tracking-tight font-bold">Trip photos</h1>
-                        <p className="mt-2 text-sm text-gray-500">
+                        <h1 className="text-4xl text-ink tracking-tight font-bold">Trip photos</h1>
+                        <p className="mt-2 text-sm text-muted">
                             {car.year} {car.make} {car.model} ·{' '}
                             {formatTripDate(booking.start_time)} – {formatTripDate(booking.end_time)}
                         </p>
                     </div>
 
                     {items.length > 0 && (
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-muted">
                             {photoCount} {photoCount === 1 ? 'photo' : 'photos'}
                             {videoCount > 0 && ` · ${videoCount} ${videoCount === 1 ? 'video' : 'videos'}`}
                         </p>
@@ -149,16 +149,16 @@ function TripPhotosPage() {
                 </header>
 
                 {items.length > 0 && (
-                    <div className="sticky top-0 z-10 -mx-4 mb-8 flex flex-wrap items-center gap-3 border-b border-gray-200 bg-white/95 px-4 py-4 backdrop-blur md:-mx-8 md:px-8">
+                    <div className="sticky top-14 z-10 -mx-4 mb-8 flex flex-wrap items-center gap-3 border-b border-line bg-page/95 px-4 py-4 backdrop-blur md:-mx-8 md:px-8">
                         <button
                             onClick={openPicker}
                             disabled={uploading}
-                            className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 disabled:opacity-60 cursor-pointer"
+                            className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-on-brand transition-colors hover:bg-pine-800 disabled:opacity-60 cursor-pointer"
                         >
                             <ImagePlus size={16} />
                             Add photos or videos
                         </button>
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-muted">
                             {uploadingVideo
                                 ? 'Uploading a video — keep this tab open until it finishes.'
                                 : `Videos up to ${formatBytes(MAX_VIDEO_BYTES)}.`}
@@ -182,7 +182,7 @@ function TripPhotosPage() {
                         </ul>
                         <button
                             onClick={() => setRejections([])}
-                            className="mt-2 text-sm font-semibold text-emerald-700 hover:underline cursor-pointer"
+                            className="mt-2 text-sm font-semibold text-pine-500 hover:underline cursor-pointer"
                         >
                             Dismiss
                         </button>
@@ -195,24 +195,24 @@ function TripPhotosPage() {
                         className={[
                             'mt-8 flex w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-20 transition-colors cursor-pointer',
                             isDragging
-                                ? 'border-emerald-700 bg-emerald-50'
-                                : 'border-gray-300 bg-gray-50 hover:border-gray-400 hover:bg-gray-100',
+                                ? 'border-brand bg-pine-50'
+                                : 'border-line bg-subtle hover:border-ink-400 hover:bg-cream-200',
                         ].join(' ')}
                     >
-                        <Camera size={32} className="text-gray-400" />
-                        <span className="text-lg font-bold text-black">No photos yet</span>
-                        <span className="max-w-sm text-center text-sm text-gray-500">
+                        <Camera size={32} className="text-ink-400" />
+                        <span className="text-lg font-bold text-ink">No photos yet</span>
+                        <span className="max-w-sm text-center text-sm text-muted">
                             {isHost
                                 ? "Document the vehicle's condition before and after the trip. Drop files here, or choose them from your computer."
                                 : 'Photos of the car at pickup and return protect you if there’s a dispute about its condition. Drop files here, or choose them from your device.'}
                         </span>
-                        <span className="mt-2 inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white">
+                        <span className="mt-2 inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-on-brand">
                             <ImagePlus size={16} />
                             Add photos or videos
                         </span>
                     </button>
                 ) : (
-                    <div className={isDragging ? 'rounded-xl outline-2 outline-dashed outline-emerald-700 outline-offset-8' : ''}>
+                    <div className={isDragging ? 'rounded-xl outline-2 outline-dashed outline-brand outline-offset-8' : ''}>
                         <TripMediaGrid
                             items={items}
                             uploads={uploads}

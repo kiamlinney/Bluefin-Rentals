@@ -80,22 +80,22 @@ function OptionRow({
             aria-checked={selected}
             onClick={onSelect}
             className={cn(
-                'w-full flex items-start gap-3 p-3 text-left border border-gray-200 rounded-lg transition-colors cursor-pointer',
+                'w-full flex items-start gap-3 p-3 text-left border border-line rounded-lg transition-colors cursor-pointer',
                 // The selected row is filled rather than outlined. An outline
                 // would compete with the border every row already has, which is
                 // why the Turo reference fills it too.
-                selected ? 'bg-gray-100 border-gray-400' : 'bg-white hover:bg-gray-50',
+                selected ? 'bg-subtle border-ink-400' : 'bg-surface hover:bg-subtle',
             )}
         >
             {/* flex-shrink-0 because a long hotel name must wrap in the text
                 column rather than squeezing the icon into an oval. */}
-            <span className="flex-shrink-0 w-9 h-9 rounded-full border border-gray-400 flex items-center justify-center text-gray-700">
+            <span className="flex-shrink-0 w-9 h-9 rounded-full border border-ink-400 flex items-center justify-center text-muted">
                 <Icon size={16} />
             </span>
             <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium text-gray-900">{title}</span>
-                {subtitle && <span className="block text-xs text-gray-500 mt-0.5">{subtitle}</span>}
-                {detail && <span className="block text-xs text-gray-700 mt-0.5">{detail}</span>}
+                <span className="block text-sm font-medium text-ink">{title}</span>
+                {subtitle && <span className="block text-xs text-muted mt-0.5">{subtitle}</span>}
+                {detail && <span className="block text-xs text-muted mt-0.5">{detail}</span>}
                 {trailing}
             </span>
         </button>
@@ -104,7 +104,7 @@ function OptionRow({
 
 function GroupLabel({ children }: { children: React.ReactNode }) {
     return (
-        <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest mb-2">
+        <p className="text-[11px] font-semibold text-muted uppercase tracking-widest mb-2">
             {children}
         </p>
     )
@@ -284,7 +284,7 @@ function DeliveryPanel({
             <button
                 type="button"
                 onClick={onBack}
-                className="flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-900 transition-colors cursor-pointer"
+                className="flex items-center gap-1 text-xs font-medium text-muted hover:text-ink transition-colors cursor-pointer"
             >
                 <ChevronLeft size={14} /> All pickup options
             </button>
@@ -299,9 +299,9 @@ function DeliveryPanel({
                     value={query}
                     onChange={e => handleType(e.target.value)}
                     placeholder="Start typing an address"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 outline-none focus:border-gray-600 transition-colors"
+                    className="w-full border border-line rounded-md px-3 py-2 text-sm text-ink outline-none focus:border-muted transition-colors"
                 />
-                {/*<p className="text-xs text-gray-500 mt-1.5">*/}
+                {/*<p className="text-xs text-muted mt-1.5">*/}
                 {/*    {verified*/}
                 {/*        ? 'Add an apartment or unit number if you have one — this is the address we’ll deliver to.'*/}
                 {/*        : `$${DELIVERY_FEE} delivery fee · within ${DELIVERY_RADIUS_MILES} miles of ${HOME_BASE.label}`}*/}
@@ -309,7 +309,7 @@ function DeliveryPanel({
             </div>
 
             {isSearching && (
-                <p className="flex items-center gap-2 text-xs text-gray-500">
+                <p className="flex items-center gap-2 text-xs text-muted">
                     <Loader2 size={13} className="animate-spin" /> Searching addresses…
                 </p>
             )}
@@ -330,8 +330,8 @@ function DeliveryPanel({
                             className={cn(
                                 'w-full flex items-start gap-3 p-3 text-left border rounded-lg transition-colors cursor-pointer',
                                 verified?.label === suggestion.label
-                                    ? 'bg-gray-100 border-gray-400'
-                                    : 'bg-white border-gray-200 hover:bg-gray-50',
+                                    ? 'bg-subtle border-ink-400'
+                                    : 'bg-surface border-line hover:bg-subtle',
                                 // Out-of-range rows stay visible and clickable
                                 // rather than being filtered out. Seeing "43.1
                                 // miles" next to the address the customer typed
@@ -340,15 +340,15 @@ function DeliveryPanel({
                                 !suggestion.withinRadius && 'opacity-60',
                             )}
                         >
-                            <span className="flex-shrink-0 w-9 h-9 rounded-full border border-gray-400 flex items-center justify-center text-gray-700">
+                            <span className="flex-shrink-0 w-9 h-9 rounded-full border border-ink-400 flex items-center justify-center text-muted">
                                 <MapPinned size={16} />
                             </span>
                             <span className="min-w-0 flex-1">
-                                <span className="block text-sm text-gray-900">{suggestion.label}</span>
+                                <span className="block text-sm text-ink">{suggestion.label}</span>
                                 <span
                                     className={cn(
                                         'block text-xs mt-0.5',
-                                        suggestion.withinRadius ? 'text-gray-500' : 'text-red-600',
+                                        suggestion.withinRadius ? 'text-muted' : 'text-red-600',
                                     )}
                                 >
                                     {suggestion.distanceMiles} miles away
@@ -375,7 +375,7 @@ function DeliveryPanel({
                 still empty. */}
 
             {/*{hasSearched && !isSearching && results.length === 0 && (*/}
-            {/*    <p className="text-xs text-gray-500">*/}
+            {/*    <p className="text-xs text-muted">*/}
             {/*        We couldn't find that address. Try including the city and ZIP code.*/}
             {/*    </p>*/}
             {/*)}*/}
@@ -387,13 +387,13 @@ function DeliveryPanel({
                 about them after the click. */}
             {canConfirm && verified && (
                 <div className="pt-1 space-y-2">
-                    <p className="text-xs text-gray-700">
+                    <p className="text-xs text-muted">
                         {verified.distanceMiles} miles away · ${DELIVERY_FEE} delivery fee
                     </p>
                     <button
                         type="button"
                         onClick={onDone}
-                        className="w-full py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition-colors cursor-pointer"
+                        className="w-full py-2 rounded-lg bg-brand text-on-brand text-sm font-medium hover:bg-pine-800 transition-colors cursor-pointer"
                     >
                         Use this address
                     </button>
@@ -465,7 +465,7 @@ export function PickupLocationPicker({
             <div className="p-3">
                 <div className="flex items-start gap-3">
                     <div className="min-w-0 flex-1">
-                        <label className="text-[14px] font-semibold text-gray-900">
+                        <label className="text-[14px] font-semibold text-ink">
                             Pickup &amp; return location
                         </label>
 
@@ -474,18 +474,18 @@ export function PickupLocationPicker({
                             or delivery with nothing chosen yet. resolved.error
                             carries the detail; the car page renders that message
                             next to the Continue button, so it isn't repeated. */}
-                        <p className="text-sm text-gray-900 mt-0.5 break-words">
+                        <p className="text-sm text-ink mt-0.5 break-words">
                             {resolved.label || 'Choose a pickup location'}
                         </p>
 
                         {/*{value.kind === 'home' && (*/}
-                        {/*    <p className="text-xs text-gray-500 mt-1">*/}
+                        {/*    <p className="text-xs text-muted mt-1">*/}
                         {/*        The exact address will be sent once your trip is booked.*/}
                         {/*    </p>*/}
                         {/*)}*/}
 
                         {resolved.fee > 0 && (
-                            <p className="text-xs text-gray-700 mt-1 font-medium">
+                            <p className="text-xs text-muted mt-1 font-medium">
                                 ${resolved.fee} delivery fee
                             </p>
                         )}
@@ -493,7 +493,7 @@ export function PickupLocationPicker({
                         {/*<button*/}
                         {/*    type="button"*/}
                         {/*    onClick={() => setShowAirportInfo(o => !o)}*/}
-                        {/*    className="mt-1.5 inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 transition-colors cursor-pointer"*/}
+                        {/*    className="mt-1.5 inline-flex items-center gap-1 text-xs text-muted hover:text-ink transition-colors cursor-pointer"*/}
                         {/*>*/}
 
                     {/* Re-add `Info` to the lucide-react import above if this
@@ -517,8 +517,8 @@ export function PickupLocationPicker({
                         className={cn(
                             'flex-shrink-0 w-9 h-9 rounded-lg border flex items-center justify-center transition-colors cursor-pointer',
                             isOpen
-                                ? 'border-emerald-800 ring-2 ring-emerald-800/30 text-emerald-800'
-                                : 'border-gray-400 text-gray-700 hover:bg-gray-50',
+                                ? 'border-brand ring-2 ring-brand/30 text-brand'
+                                : 'border-ink-400 text-muted hover:bg-subtle',
                         )}
                     >
                         <Pencil size={14} />
@@ -526,12 +526,12 @@ export function PickupLocationPicker({
                 </div>
 
                 {showAirportInfo && (
-                    <div className="mt-3 rounded-lg bg-gray-50 border border-gray-200 p-3 relative">
+                    <div className="mt-3 rounded-lg bg-subtle border border-line p-3 relative">
                         <button
                             type="button"
                             onClick={() => setShowAirportInfo(false)}
                             aria-label="Close"
-                            className="absolute top-2 right-2 text-gray-400 hover:text-gray-700 cursor-pointer"
+                            className="absolute top-2 right-2 text-ink-400 hover:text-ink cursor-pointer"
                         >
                             <X size={14} />
                         </button>
@@ -539,7 +539,7 @@ export function PickupLocationPicker({
                             policy. Kept in the component (rather than pulled from
                             the database) because it's the same for every car and
                             changes about as often as the terms of service. */}
-                        <p className="text-xs text-gray-700 pr-5 leading-relaxed">
+                        <p className="text-xs text-muted pr-5 leading-relaxed">
                             Airport pickups are free. We'll meet you at the arrivals curb and
                             text you the exact door number the day before your trip. If your
                             flight is delayed, message us and we'll adjust the meeting time at
@@ -552,7 +552,7 @@ export function PickupLocationPicker({
                     <div
                         role="radiogroup"
                         aria-label="Pickup and return location"
-                        className="mt-3 pt-3 border-t border-gray-200 space-y-4"
+                        className="mt-3 pt-3 border-t border-line space-y-4"
                     >
                         {isDeliveryOpen ? (
                             <DeliveryPanel
@@ -580,7 +580,7 @@ export function PickupLocationPicker({
                                     {/* Sits outside the row so it reads as a
                                         policy note about the option rather than
                                         part of the address itself. */}
-                                    <p className="text-xs text-gray-500 mt-2">
+                                    <p className="text-xs text-muted mt-2">
                                         The exact address will be sent once your trip is booked.
                                     </p>
                                 </div>

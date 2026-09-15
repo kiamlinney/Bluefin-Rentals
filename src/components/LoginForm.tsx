@@ -1,19 +1,3 @@
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button.tsx"
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card"
-import {
-    Field,
-    FieldDescription,
-    FieldGroup,
-    FieldLabel,
-} from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
 import {getUserWithProfile, loginUser} from "@/lib/auth.ts";
 import { useNavigate, useRouter } from "@tanstack/react-router"
 import {useState} from "react";
@@ -76,50 +60,64 @@ export function LoginForm({switchToSignUp, redirect}: LoginFormProps) {
     };
 
     return (
-        <div className={cn("mt-12 flex flex-col gap-6 max-w-xl mx-auto p-12")}>
-            <Card>
-                <CardHeader>
-                    <CardTitle>
+        <div className="mt-12 flex flex-col gap-6 max-w-xl mx-auto p-12">
+            <div className="rounded-xl border border-line bg-surface shadow">
+                <div className="flex flex-col space-y-1.5 p-6">
+                    <h2 className="font-semibold leading-none tracking-tight">
                         {status === "success" ? "Welcome back!" : "Login to your account"}
-                    </CardTitle>
-                    <CardDescription>
+                    </h2>
+                    <p className="text-sm text-muted">
                         {status === "success"
                             ? "Redirecting you to the fleet..."
                             : "Enter your email below to login to your account"}
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
+                    </p>
+                </div>
+                <div className="p-6 pt-0">
                     {status !== "success" && (
-                        <form onSubmit={handleSubmit}>
-                            <FieldGroup>
-                                {status === "error" && (
-                                    <p className="text-red-500 text-sm font-medium">{errorMessage}</p>
-                                )}
-                                <Field>
-                                    <FieldLabel htmlFor="email">Email</FieldLabel>
-                                    <Input id="email" name="email" type="email" required />
-                                </Field>
-                                <Field>
-                                    <FieldLabel htmlFor="password">Password</FieldLabel>
-                                    <Input id="password" name="password" type="password" required />
-                                </Field>
-                                <Button type="submit" disabled={status === "loading"}>
-                                    {status === "loading" ? "Logging in..." : "Login"}
-                                </Button>
-                                <FieldDescription className="text-center">
-                                    Don&apos;t have an account?{" "}
-                                    <button
-                                        type="button"
-                                        onClick={switchToSignUp}
-                                        className="cursor-pointer underline hover:text-gray-900">
-                                        Sign up
-                                    </button>
-                                </FieldDescription>
-                            </FieldGroup>
+                        <form onSubmit={handleSubmit} className="grid gap-4">
+                            {status === "error" && (
+                                <p className="text-red-500 text-sm font-medium">{errorMessage}</p>
+                            )}
+                            <div className="grid gap-2">
+                                <label htmlFor="email" className="text-sm font-medium leading-none">Email</label>
+                                <input
+                                    id="email"
+                                    name="email"
+                                    type="email"
+                                    required
+                                    className="h-9 w-full rounded-md border border-line bg-transparent px-3 py-1 text-base md:text-sm shadow-sm transition-colors placeholder:text-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand"
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <label htmlFor="password" className="text-sm font-medium leading-none">Password</label>
+                                <input
+                                    id="password"
+                                    name="password"
+                                    type="password"
+                                    required
+                                    className="h-9 w-full rounded-md border border-line bg-transparent px-3 py-1 text-base md:text-sm shadow-sm transition-colors placeholder:text-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand"
+                                />
+                            </div>
+                            <button
+                                type="submit"
+                                disabled={status === "loading"}
+                                className="h-9 px-4 inline-flex items-center justify-center rounded-md bg-brand text-on-brand text-sm font-medium shadow hover:bg-pine-800 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand disabled:pointer-events-none disabled:opacity-50"
+                            >
+                                {status === "loading" ? "Logging in..." : "Login"}
+                            </button>
+                            <p className="text-[0.8rem] text-muted text-center">
+                                Don&apos;t have an account?{" "}
+                                <button
+                                    type="button"
+                                    onClick={switchToSignUp}
+                                    className="cursor-pointer underline hover:text-ink">
+                                    Sign up
+                                </button>
+                            </p>
                         </form>
                     )}
-                </CardContent>
-            </Card>
+                </div>
+            </div>
         </div>
     );
 }

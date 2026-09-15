@@ -33,13 +33,17 @@ const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 // Stripe's own inputs, themed to match the rest of this page rather than
 // Stripe's defaults. Defined at module level so the object identity is stable —
 // passing a fresh appearance object on every render remounts the iframe.
+//
+// Stripe renders in an iframe and takes literal colours, so these can't use the
+// Tailwind tokens. Each is copied from the palette in src/index.css — keep them
+// in step if that palette changes.
 const stripeAppearance = {
     theme: 'stripe' as const,
     variables: {
-        colorPrimary: '#152110',       // brand green — focus rings, accents
-        colorBackground: '#ffffff',
-        colorText: '#111827',          // gray-900
-        colorTextSecondary: '#6b7280', // gray-500
+        colorPrimary: '#152110',       // pine-900 / brand — focus rings, accents
+        colorBackground: '#ffffff',    // surface
+        colorText: '#1f2a1c',          // ink-900 / ink
+        colorTextSecondary: '#5d6558', // ink-600 / muted
         colorDanger: '#b91c1c',        // red-700
         fontFamily: 'Mona Sans, ui-sans-serif, system-ui, sans-serif',
         borderRadius: '10px',
@@ -47,7 +51,7 @@ const stripeAppearance = {
     },
     rules: {
         '.Input': {
-            border: '1px solid #d1d5db', // gray-300, same as this page's own inputs
+            border: '1px solid #dcd7ca', // cream-300 / line, same as this page's own inputs
             boxShadow: 'none',
         },
         '.Input:focus': {
@@ -291,10 +295,9 @@ function CheckoutPage() {
     }, [step, initKey])
 
     return (
-        // bg-white overrides the site-wide dark green on <body> (src/index.css).
-        // Checkout is deliberately its own surface: no marketing chrome, nothing
-        // to click off to, green demoted from background to accent.
-        <div className="min-h-screen bg-white text-gray-900">
+        // Checkout is deliberately its own plain white surface rather than the
+        // cream page: no marketing chrome, nothing to click off to.
+        <div className="min-h-screen bg-surface text-ink">
             <CheckoutHeader carId={carId} />
 
             <div className="max-w-6xl mx-auto px-4 py-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">

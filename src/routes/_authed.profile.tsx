@@ -34,12 +34,12 @@ function ProfilePage() {
     })
 
     return (
-        <div className="min-h-screen bg-[#152110] py-24 px-4 md:px-8">
+        <div className="min-h-screen py-24 px-4 md:px-8">
             <div className="max-w-5xl mx-auto space-y-6">
                 {polling && (
-                    <div className="bg-gray-200 border border-gray-800 rounded-2xl p-5 text-center">
-                        <p className="text-gray-900 font-semibold">Confirming your verification...</p>
-                        <p className="text-gray-600 text-sm mt-1">This usually takes just a few seconds.</p>
+                    <div className="bg-surface border border-line rounded-2xl p-5 text-center">
+                        <p className="font-semibold">Confirming your verification...</p>
+                        <p className="text-muted text-sm mt-1">This usually takes just a few seconds.</p>
                     </div>
                 )}
 
@@ -49,7 +49,7 @@ function ProfilePage() {
                     </div>
                 )}
 
-                <div className="bg-gray-200 border border-gray-800 rounded-2xl p-8 md:p-10">
+                <div className="bg-surface border border-line rounded-2xl p-8 md:p-10">
                     <UserProfile profile={profile} viewer="self" />
                 </div>
             </div>

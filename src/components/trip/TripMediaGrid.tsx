@@ -44,7 +44,7 @@ export function TripMediaGrid({ items, uploads, onOpen, onRetry }: TripMediaGrid
         <div className="space-y-10">
             {pending.length > 0 && (
                 <section className="space-y-3">
-                    <h2 className="text-xs font-bold uppercase tracking-wider text-black">
+                    <h2 className="text-xs font-bold uppercase tracking-wider text-ink">
                         Uploading · {uploads.filter(t => t.status === 'done').length} of {uploads.length} done
                     </h2>
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
@@ -57,9 +57,9 @@ export function TripMediaGrid({ items, uploads, onOpen, onRetry }: TripMediaGrid
 
             {groups.map(group => (
                 <section key={group.key} className="space-y-3">
-                    <h2 className="text-xs font-bold uppercase tracking-wider text-black">
+                    <h2 className="text-xs font-bold uppercase tracking-wider text-ink">
                         {group.label}
-                        <span className="ml-2 font-medium normal-case tracking-normal text-gray-500">
+                        <span className="ml-2 font-medium normal-case tracking-normal text-muted">
                             {group.items.length} {group.items.length === 1 ? 'item' : 'items'}
                         </span>
                     </h2>
@@ -82,7 +82,7 @@ function MediaTile({ item, onOpen }: { item: TripMediaItem; onOpen: () => void }
     return (
         <button
             onClick={onOpen}
-            className="group relative aspect-square w-full overflow-hidden rounded-lg bg-gray-100 border border-gray-200 hover:border-gray-400 focus-visible:outline-2 focus-visible:outline-emerald-700 transition-colors cursor-pointer"
+            className="group relative aspect-square w-full overflow-hidden rounded-lg bg-subtle border border-line hover:border-ink-400 focus-visible:outline-2 focus-visible:outline-brand transition-colors cursor-pointer"
         >
             {item.thumbUrl ? (
                 <img
@@ -92,7 +92,7 @@ function MediaTile({ item, onOpen }: { item: TripMediaItem; onOpen: () => void }
                     className="h-full w-full object-cover"
                 />
             ) : (
-                <div className="flex h-full w-full items-center justify-center text-gray-400">
+                <div className="flex h-full w-full items-center justify-center text-ink-400">
                     <Play size={24} />
                 </div>
             )}
@@ -130,7 +130,7 @@ function UploadTile({ task, onRetry }: { task: UploadTask; onRetry: () => void }
                 <p className="line-clamp-2 text-xs text-red-700">{task.error}</p>
                 <button
                     onClick={onRetry}
-                    className="text-xs font-semibold text-emerald-700 hover:underline cursor-pointer"
+                    className="text-xs font-semibold text-pine-500 hover:underline cursor-pointer"
                 >
                     Try again
                 </button>
@@ -139,13 +139,13 @@ function UploadTile({ task, onRetry }: { task: UploadTask; onRetry: () => void }
     }
 
     return (
-        <div className="relative aspect-square w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-100">
+        <div className="relative aspect-square w-full overflow-hidden rounded-lg border border-line bg-subtle">
             {task.previewUrl && (
                 <img src={task.previewUrl} alt="" className="h-full w-full object-cover opacity-40" />
             )}
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-3 text-center">
-                <span className="h-5 w-5 rounded-full border-2 border-gray-300 border-t-emerald-700 motion-safe:animate-spin" />
-                <p className="line-clamp-2 text-xs text-gray-600">
+                <span className="h-5 w-5 rounded-full border-2 border-line border-t-brand motion-safe:animate-spin" />
+                <p className="line-clamp-2 text-xs text-muted">
                     {task.status === 'preparing' ? 'Preparing' : 'Uploading'}
                 </p>
             </div>

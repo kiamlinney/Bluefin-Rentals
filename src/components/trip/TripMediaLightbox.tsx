@@ -168,7 +168,7 @@ export function TripMediaLightbox({
                 that way rather than looking like a layout bug. */}
             <div
                 style={{ width: frameWidth(item.width, item.height) }}
-                className="flex flex-col max-h-full min-w-[min(100%,20rem)] bg-white rounded-xl overflow-hidden"
+                className="flex flex-col max-h-full min-w-[min(100%,20rem)] bg-surface text-ink rounded-xl overflow-hidden"
             >
                 <div className="relative bg-black flex items-center justify-center">
                     {item.kind === 'video' ? (
@@ -204,20 +204,20 @@ export function TripMediaLightbox({
                                 maxLength={200}
                                 placeholder="Add a label"
                                 aria-label="Photo label"
-                                className="w-full text-lg text-black bg-transparent border-b border-transparent hover:border-gray-200 focus:border-emerald-700 focus:outline-none placeholder:text-gray-400 py-0.5"
+                                className="w-full text-lg text-ink bg-transparent border-b border-transparent hover:border-line focus:border-brand focus:outline-none placeholder:text-ink-400 py-0.5"
                             />
                         ) : (
                             // Someone else's photo: their label still shows, it
                             // just isn't an input. An empty one renders nothing
                             // rather than an editable-looking placeholder.
                             item.caption && (
-                                <p className="w-full text-lg text-black py-0.5">{item.caption}</p>
+                                <p className="w-full text-lg text-ink py-0.5">{item.caption}</p>
                             )
                         )}
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-muted">
                             {takenAt} · by {uploader}
-                            {savingCaption && <span className="text-gray-400"> · saving</span>}
-                            <span className="text-gray-400"> · {formatBytes(item.size_bytes)}</span>
+                            {savingCaption && <span className="text-ink-400"> · saving</span>}
+                            <span className="text-ink-400"> · {formatBytes(item.size_bytes)}</span>
                         </p>
                     </div>
 
@@ -227,23 +227,23 @@ export function TripMediaLightbox({
                         <button
                             onClick={() => setConfirmingDelete(true)}
                             aria-label="Delete"
-                            className="shrink-0 p-2 rounded-full text-gray-500 hover:text-red-700 hover:bg-red-50 transition-colors cursor-pointer"
+                            className="shrink-0 p-2 rounded-full text-muted hover:text-red-700 hover:bg-red-50 transition-colors cursor-pointer"
                         >
                             <Trash2 size={20} />
                         </button>
                     ) : (
                         <div className="shrink-0 flex items-center gap-3">
-                            <span className="text-s text-black">Delete this?</span>
+                            <span className="text-s text-ink">Delete this?</span>
                             <button
                                 onClick={handleDelete}
                                 disabled={deleting}
-                                className="text-s text-black bg-red-700/80 px-3 py-1 rounded-md hover:bg-red-500 border border-black disabled:opacity-50 cursor-pointer"
+                                className="text-s text-ink bg-red-700/80 px-3 py-1 rounded-md hover:bg-red-500 border border-ink disabled:opacity-50 cursor-pointer"
                             >
                                 {deleting ? '...' : 'Yes'}
                             </button>
                             <button
                                 onClick={() => setConfirmingDelete(false)}
-                                className="text-xs text-black hover:text-gray-700 cursor-pointer"
+                                className="text-xs text-ink hover:text-muted cursor-pointer"
                             >
                                 Back
                             </button>
@@ -251,7 +251,7 @@ export function TripMediaLightbox({
                     )}
                 </div>
 
-                <div className="px-5 pb-3 text-xs text-gray-400">
+                <div className="px-5 pb-3 text-xs text-ink-400">
                     {index + 1} of {items.length} · Use ← and → to move, Esc to close
                 </div>
             </div>

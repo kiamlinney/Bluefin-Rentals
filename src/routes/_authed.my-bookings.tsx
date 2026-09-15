@@ -30,15 +30,15 @@ function MyBookingsPage() {
         )
 
     return (
-        <div className="min-h-screen bg-[#152110] py-24 px-4 md:px-8">
+        <div className="min-h-screen py-24 px-4 md:px-8">
             <div className="max-w-4xl mx-auto">
                 <h1 className="text-3xl font-bold mb-8">My Bookings</h1>
 
                 {bookings.length === 0 ? (
-                    <div className="bg-gray-200 border border-gray-800 rounded-2xl p-12 text-center">
-                        <h2 className="text-xl text-gray-800 font-bold mb-2">No bookings yet!</h2>
-                        <p className="text-gray-600 mb-6">When you book a car, all trips will appear here.</p>
-                        <Link to="/fleet" className="primary-button px-6 py-3 border border-gray-800 text-gray-800 hover:bg-gray-300 font-semibold rounded-xl transition-colors">
+                    <div className="bg-surface border border-line rounded-2xl p-12 text-center">
+                        <h2 className="text-xl font-bold mb-2">No bookings yet!</h2>
+                        <p className="text-muted mb-6">When you book a car, all trips will appear here.</p>
+                        <Link to="/fleet" className="primary-button px-6 py-3 font-semibold rounded-xl transition-colors">
                             Browse Cars
                         </Link>
                     </div>
@@ -47,7 +47,7 @@ function MyBookingsPage() {
                         {/* Upcoming Trips */}
                         {upcomingBookings.length > 0 && (
                             <section>
-                                <h2 className="text-xl font-bold mb-4 border-b border-[#2a4a1e] pb-2">Upcoming Trips</h2>
+                                <h2 className="text-xl font-bold mb-4 border-b border-line pb-2">Upcoming Trips</h2>
                                 <div className="space-y-4">
                                     {upcomingBookings.map((booking: any) => (
                                         <BookingCard key={booking.id} booking={booking} formatDate={formatDate} isUpcoming={true} />
@@ -59,7 +59,7 @@ function MyBookingsPage() {
                         {/* Pending Trips */}
                         {pendingBookings.length > 0 && (
                             <section>
-                                <h2 className="text-xl font-bold  mb-4 border-b border-[#2a4a1e] pb-2">Pending Checkouts</h2>
+                                <h2 className="text-xl font-bold  mb-4 border-b border-line pb-2">Pending Checkouts</h2>
                                 <div className="space-y-4">
                                     {pendingBookings.map((booking: any) => (
                                         <BookingCard key={booking.id} booking={booking} formatDate={formatDate} isUpcoming={true} />
@@ -71,7 +71,7 @@ function MyBookingsPage() {
                         {/* Past Trips */}
                         {pastBookings.length > 0 && (
                             <section>
-                                <h2 className="text-xl font-bold mb-4 border-b border-[#2a4a1e] pb-2">Past Trips</h2>
+                                <h2 className="text-xl font-bold mb-4 border-b border-line pb-2">Past Trips</h2>
                                 <div className="space-y-4">
                                     {pastBookings.map((booking: any) => (
                                         <BookingCard key={booking.id} booking={booking} formatDate={formatDate} isUpcoming={false} />

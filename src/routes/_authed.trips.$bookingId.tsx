@@ -37,12 +37,12 @@ const PROCESSING_POLL_MS = 5000
 const PROCESSING_POLL_LIMIT = 6
 
 const STATUS_BADGE: Record<string, string> = {
-    confirmed: 'bg-[#3a7d2c]/80 text-green-950',
+    confirmed: 'bg-pine-500/80 text-pine-950',
     canceled: 'bg-red-900/30 text-red-800',
     completed: 'bg-blue-900/30 text-blue-800',
-    pending: 'bg-amber-300/60 text-black',
+    pending: 'bg-amber-300/60 text-ink',
     // Reachable directly by URL even though the trips list hides these.
-    expired: 'bg-gray-200 text-gray-600',
+    expired: 'bg-cream-200 text-muted',
 }
 
 function TripPage() {
@@ -67,43 +67,44 @@ function TripPage() {
     const showBanner = booked === '1' && paymentState === 'confirmed'
 
     return (
-        <div className="min-h-screen bg-[#152110] py-24 px-4 md:px-8">
+        <div className="min-h-screen py-24 px-4 md:px-8">
             <div className="max-w-3xl mx-auto space-y-6">
 
                 {showBanner && (
                     <div className="text-center mb-2">
-                        <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <Check className="w-8 h-8 text-gray-800" strokeWidth={3} />
+                        <div className="w-16 h-16 bg-pine-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <Check className="w-8 h-8 text-pine-700" strokeWidth={3} />
                         </div>
-                        <h1 className="text-3xl font-bold text-white">You're all set!</h1>
-                        <p className="text-gray-300 mt-2">
+                        <h1 className="text-3xl font-bold text-ink">You're all set!</h1>
+                        <p className="text-muted mt-2">
                             Confirmation details have been sent to your email.
                         </p>
                     </div>
                 )}
 
                 {/* Car + status */}
-                <div className="bg-gray-200 border border-gray-800 rounded-2xl p-6">
+                <div className="bg-surface border border-line rounded-2xl p-6">
                     <div className="flex flex-col sm:flex-row gap-5">
                         <img
                             src={`https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/car%20gallery/car_${car.id}/main.PNG`}
                             alt={`${car.year} ${car.make} ${car.model}`}
-                            className="w-full sm:w-48 h-32 object-cover rounded-xl border border-black flex-shrink-0"
+                            className="w-full sm:w-48 h-32 object-cover rounded-xl border border-line flex-shrink-0"
                         />
                         <div className="flex-1 min-w-0">
                             <div className="flex justify-between items-start gap-3">
                                 {!showBanner ? (
-                                    <h1 className="text-2xl font-bold text-black">
+                                    <h1 className="text-2xl font-bold text-ink">
                                         {car.year} {car.make} {car.model}
                                     </h1>
                                 ) : (
-                                    <h2 className="text-2xl font-bold text-black">
+                                    <h2 className="text-2xl font-bold text-ink">
                                         {car.year} {car.make} {car.model}
                                     </h2>
                                 )}
                                 <span
                                     className={`text-xs font-bold px-3 py-1 rounded-full shrink-0 ${
-                                        STATUS_BADGE[booking.status] ?? 'bg-gray-800 text-gray-400'
+
+                                        STATUS_BADGE[booking.status] ?? 'bg-subtle text-muted'
                                     }`}
                                 >
                                     {booking.status.toUpperCase()}
@@ -112,7 +113,7 @@ function TripPage() {
                             <Link
                                 to="/fleet/$carSlug"
                                 params={{ carSlug: carSlug(car) }}
-                                className="text-sm font-semibold text-emerald-700 hover:underline"
+                                className="text-sm font-semibold text-pine-500 hover:underline"
                             >
                                 View car details
                             </Link>
@@ -121,32 +122,32 @@ function TripPage() {
                 </div>
 
                 {/* Dates and pickup */}
-                <div className="bg-gray-200 border border-gray-800 rounded-2xl p-6 space-y-5">
+                <div className="bg-surface border border-line rounded-2xl p-6 space-y-5">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                         <div>
-                            <h3 className="text-xs font-bold uppercase tracking-wider text-black">Pickup</h3>
-                            <p className="text-lg font-bold text-black mt-1">
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-ink">Pickup</h3>
+                            <p className="text-lg font-bold text-ink mt-1">
                                 {formatBusinessDate(booking.start_time, DATE_FORMAT)}
                             </p>
-                            <p className="text-sm text-gray-700">
+                            <p className="text-sm text-muted">
                                 {formatBusinessTime(booking.start_time)} CST
                             </p>
                         </div>
                         <div>
-                            <h3 className="text-xs font-bold uppercase tracking-wider text-black">Return</h3>
-                            <p className="text-lg font-bold text-black mt-1">
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-ink">Return</h3>
+                            <p className="text-lg font-bold text-ink mt-1">
                                 {formatBusinessDate(booking.end_time, DATE_FORMAT)}
                             </p>
-                            <p className="text-sm text-gray-700">
+                            <p className="text-sm text-muted">
                                 {formatBusinessTime(booking.end_time)} CST
                             </p>
                         </div>
                     </div>
 
-                    <hr className="border-gray-400" />
+                    <hr className="border-line" />
 
                     <div>
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-black mb-2">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-ink mb-2">
                             Where to pick it up
                         </h3>
                         <PickupLine pickupLocation={booking.pickup_location} />
@@ -157,8 +158,8 @@ function TripPage() {
                     happen — a canceled booking counting down to its pickup would
                     be nonsense. */}
                 {isPaid && !hasEnded && (
-                    <div className="bg-gray-200 border border-gray-800 rounded-2xl p-6">
-                        <p className="text-black">
+                    <div className="bg-surface border border-line rounded-2xl p-6">
+                        <p className="text-ink">
                             {hasStarted ? (
                                 <>Your trip ends in{' '}
                                     <span className="font-bold">{getRelativeTimeString(endDate, now)}</span>.
@@ -169,7 +170,7 @@ function TripPage() {
                                 </>
                             )}
                         </p>
-                        <p className="text-sm text-gray-700 mt-2">
+                        <p className="text-sm text-muted mt-2">
                             {hasStarted
                                 ? 'Take photos of the car before you hand it back — they’re your record of how you returned it.'
                                 : 'Bring your driver’s license. Take a few photos of the car when you pick it up, so its condition at handover is on record.'}
@@ -180,19 +181,19 @@ function TripPage() {
                 {/* Photos. Available regardless of payment state — a guest sorting
                     out a disputed charge still needs to show what the car looked
                     like. */}
-                <div className="bg-gray-200 border border-gray-800 rounded-2xl p-6 flex items-center justify-between gap-4">
+                <div className="bg-surface border border-line rounded-2xl p-6 flex items-center justify-between gap-4">
                     <div>
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-black">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-ink">
                             Trip photos{mediaCount > 0 && ` (${mediaCount})`}
                         </h3>
-                        <p className="text-sm text-gray-700 mt-1">
+                        <p className="text-sm text-muted mt-1">
                             Photos and videos of the car, shared with BlueFin.
                         </p>
                     </div>
                     <Link
                         to="/trips/$bookingId/photos"
                         params={{ bookingId: booking.id }}
-                        className="shrink-0 text-sm font-semibold text-emerald-700 hover:underline"
+                        className="shrink-0 text-sm font-semibold text-pine-500 hover:underline"
                     >
                         {mediaCount > 0 ? 'View and add more' : 'Add photos'}
                     </Link>
@@ -212,7 +213,7 @@ function TripPage() {
 
                 <Link
                     to="/my-bookings"
-                    className="block text-center text-gray-200 hover:text-gray-400 text-sm transition-colors pt-2"
+                    className="block text-center text-muted hover:text-ink text-sm transition-colors pt-2"
                 >
                     All my trips →
                 </Link>
@@ -228,10 +229,10 @@ function PickupLine({ pickupLocation }: { pickupLocation: string }) {
 
     return (
         <div className="flex items-center gap-3">
-            <div className="p-2 border border-gray-700 rounded-full bg-gray-50 text-gray-700 shrink-0">
+            <div className="p-2 border border-line rounded-full bg-subtle text-muted shrink-0">
                 {isAirport ? <Plane size={20} /> : <CarFront size={20} />}
             </div>
-            <p className="text-black">
+            <p className="text-ink">
                 {isAirport ? 'Minneapolis−Saint Paul International Airport' : pickupLocation}
             </p>
         </div>
@@ -262,8 +263,8 @@ function PaymentSection({
     if (paymentState === 'unpaid') {
         return (
             <div className="bg-amber-100 border border-amber-700 rounded-2xl p-6">
-                <h3 className="font-bold text-black">You haven't finished checking out</h3>
-                <p className="text-sm text-gray-800 mt-1">
+                <h3 className="font-bold text-ink">You haven't finished checking out</h3>
+                <p className="text-sm text-ink mt-1">
                     This car isn't reserved yet — the dates are still open to other renters until
                     the payment goes through.
                 </p>
@@ -271,7 +272,7 @@ function PaymentSection({
                     to="/checkout/$carId"
                     params={{ carId: booking.car_id.toString() }}
                     search={buildCheckoutSearch(booking)}
-                    className="inline-block mt-4 px-5 py-2.5 bg-[#152110] hover:bg-[#1d2f17] text-white font-bold rounded-xl text-sm transition-colors"
+                    className="inline-block mt-4 px-5 py-2.5 bg-brand hover:bg-pine-800 text-on-brand font-bold rounded-xl text-sm transition-colors"
                 >
                     Finish checkout →
                 </Link>
@@ -301,14 +302,14 @@ function PaymentSection({
 
     if (paymentState === 'canceled') {
         return (
-            <div className="bg-gray-200 border border-gray-800 rounded-2xl p-6">
-                <h3 className="font-bold text-black">This trip was canceled</h3>
+            <div className="bg-surface border border-line rounded-2xl p-6">
+                <h3 className="font-bold text-ink">This trip was canceled</h3>
                 {/* Deliberately says nothing about the amount. A cancellation
                     refunds in full, in part, or not at all depending on the rate
                     and the timing — this used to promise a full refund, which is
                     now false more often than not. The cancellation email carries
                     the actual figure. */}
-                <p className="text-sm text-gray-700 mt-1">
+                <p className="text-sm text-muted mt-1">
                     Any refund due has been sent to your original payment method, and usually
                     lands within 5–10 business days. Check your email for the details.
                 </p>
@@ -318,28 +319,28 @@ function PaymentSection({
 
     // confirmed / completed — the only two states allowed to say "paid".
     return (
-        <div className="bg-gray-200 border border-gray-800 rounded-2xl p-6 space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-black">Receipt</h3>
+        <div className="bg-surface border border-line rounded-2xl p-6 space-y-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-ink">Receipt</h3>
 
             <div className="flex justify-between text-sm">
-                <span className="text-gray-700">Booking reference</span>
-                <span className="text-black font-mono">{booking.id.slice(0, 8).toUpperCase()}</span>
+                <span className="text-muted">Booking reference</span>
+                <span className="text-ink font-mono">{booking.id.slice(0, 8).toUpperCase()}</span>
             </div>
 
             {card?.last4 && (
                 <div className="flex justify-between text-sm">
-                    <span className="text-gray-700">Paid with</span>
-                    <span className="text-black capitalize">
+                    <span className="text-muted">Paid with</span>
+                    <span className="text-ink capitalize">
                         {card.brand ?? 'Card'} ···· {card.last4}
                     </span>
                 </div>
             )}
 
-            <hr className="border-gray-400" />
+            <hr className="border-line" />
 
             <div className="flex justify-between text-base">
-                <span className="font-bold text-black">Total paid</span>
-                <span className="font-bold text-black">${booking.total_price}</span>
+                <span className="font-bold text-ink">Total paid</span>
+                <span className="font-bold text-ink">${booking.total_price}</span>
             </div>
 
             {card?.receiptUrl && (
@@ -347,7 +348,7 @@ function PaymentSection({
                     href={card.receiptUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-block text-sm font-semibold text-emerald-700 hover:underline"
+                    className="inline-block text-sm font-semibold text-pine-500 hover:underline"
                 >
                     View full receipt →
                 </a>
@@ -375,16 +376,16 @@ function ProcessingPayment({ onRecheck }: { onRecheck: () => void }) {
 
     return (
         <div className="bg-amber-100 border border-amber-700 rounded-2xl p-6">
-            <h3 className="font-bold text-black">
+            <h3 className="font-bold text-ink">
                 {gaveUp ? 'This is taking longer than usual' : 'Confirming your payment…'}
             </h3>
-            <p className="text-sm text-gray-800 mt-1">
+            <p className="text-sm text-ink mt-1">
                 {gaveUp
                     ? 'Your booking is safe and nothing is lost — it just hasn’t been confirmed yet. Check My Bookings again shortly, or get in touch and we’ll sort it out.'
                     : 'Your bank is still processing this. This page updates on its own — no need to refresh.'}
             </p>
             {gaveUp && (
-                <Link to="/contact" className="inline-block mt-4 text-sm font-semibold text-emerald-800 hover:underline">
+                <Link to="/contact" className="inline-block mt-4 text-sm font-semibold text-pine-700 hover:underline">
                     Contact us →
                 </Link>
             )}

@@ -21,18 +21,18 @@ function Rule({
     return (
         <div className="grid grid-cols-[9rem_1fr] gap-4 p-4">
             <div>
-                <p className="font-bold text-gray-900 text-sm">{when.split('\n')[0]}</p>
-                <p className="text-sm text-gray-500">{when.split('\n')[1]}</p>
+                <p className="font-bold text-ink text-sm">{when.split('\n')[0]}</p>
+                <p className="text-sm text-muted">{when.split('\n')[1]}</p>
             </div>
             <div>
-                <p className="font-bold text-gray-900 text-sm">{verdict}</p>
+                <p className="font-bold text-ink text-sm">{verdict}</p>
                 <ul className="mt-2 space-y-1.5">
                     {points.map(({ ok, text }) => (
-                        <li key={text} className="flex items-start gap-2 text-sm text-gray-700">
+                        <li key={text} className="flex items-start gap-2 text-sm text-muted">
                             {ok ? (
-                                <CircleCheck size={16} className="text-[#3a7d2c] flex-shrink-0 mt-0.5" />
+                                <CircleCheck size={16} className="text-pine-500 flex-shrink-0 mt-0.5" />
                             ) : (
-                                <CircleX size={16} className="text-gray-400 flex-shrink-0 mt-0.5" />
+                                <CircleX size={16} className="text-ink-400 flex-shrink-0 mt-0.5" />
                             )}
                             <span>{text}</span>
                         </li>
@@ -58,7 +58,7 @@ export function BookingRateInfoModal({ onClose }: { onClose: () => void }) {
             onClick={onClose}
         >
             <div
-                className="w-full max-w-lg bg-white text-black rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+                className="w-full max-w-lg bg-surface text-ink rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
@@ -68,18 +68,18 @@ export function BookingRateInfoModal({ onClose }: { onClose: () => void }) {
                     <button
                         onClick={onClose}
                         aria-label="Close"
-                        className="p-1.5 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
+                        className="p-1.5 rounded-full hover:bg-subtle transition-colors cursor-pointer"
                     >
-                        <X size={20} className="text-gray-600" />
+                        <X size={20} className="text-muted" />
                     </button>
                 </div>
 
                 <div className="px-6 pb-6 overflow-y-auto">
-                    <h2 id="booking-rate-info-title" className="text-2xl font-bold text-gray-900">
+                    <h2 id="booking-rate-info-title" className="text-2xl font-bold text-ink">
                         Non-refundable trips
                     </h2>
 
-                    <p className="mt-4 text-gray-700 leading-relaxed">
+                    <p className="mt-4 text-muted leading-relaxed">
                         Non-refundable trips can't be canceled or changed for a refund after{' '}
                         {FREE_CANCELLATION_HOURS} hours of booking — or {FREE_CANCELLATION_HOURS}{' '}
                         hours before pickup, whichever comes first — except in rare cases under our
@@ -93,12 +93,12 @@ export function BookingRateInfoModal({ onClose }: { onClose: () => void }) {
                         href="/policies/cancellation"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-block mt-4 text-[#2a4a1e] font-medium underline hover:no-underline"
+                        className="inline-block mt-4 text-pine-700 font-medium underline hover:no-underline"
                     >
                         Cancellation policy
                     </a>
 
-                    <div className="mt-5 rounded-xl bg-gray-50 border border-gray-200 divide-y divide-gray-200">
+                    <div className="mt-5 rounded-xl bg-subtle border border-line divide-y divide-line">
                         {/* "or before pickup" carries the cap: the free window
                             closes at whichever comes first, so on a trip booked
                             close to its start it can be much shorter than 24h.
@@ -121,15 +121,15 @@ export function BookingRateInfoModal({ onClose }: { onClose: () => void }) {
                         />
                     </div>
 
-                    <p className="mt-5 text-gray-700">
+                    <p className="mt-5 text-muted">
                         You can extend your trip anytime, subject to availability.
                     </p>
                 </div>
 
-                <div className="border-t border-gray-200 px-6 py-4 flex justify-end">
+                <div className="border-t border-line px-6 py-4 flex justify-end">
                     <button
                         onClick={onClose}
-                        className="px-6 py-2.5 rounded-lg bg-[#152110] text-white font-semibold hover:bg-[#1f3018] transition-colors cursor-pointer"
+                        className="px-6 py-2.5 rounded-lg bg-brand text-on-brand font-semibold hover:bg-pine-800 transition-colors cursor-pointer"
                     >
                         Done
                     </button>

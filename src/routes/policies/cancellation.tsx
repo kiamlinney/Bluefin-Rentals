@@ -43,7 +43,7 @@ function CancellationPolicy() {
     return (
         <article className="max-w-2xl">
             <h2 className="text-2xl font-bold mb-2">Cancellation policy</h2>
-            <p className="text-sm text-gray-400 mb-8">Last revised: August 28, 2026</p>
+            <p className="text-sm text-muted mb-8">Last revised: August 28, 2026</p>
 
             <Section title="Canceling a trip">
                 <p>

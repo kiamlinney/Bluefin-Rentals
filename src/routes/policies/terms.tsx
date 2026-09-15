@@ -18,7 +18,7 @@ function TermsOfService() {
     return (
         <article className="max-w-2xl">
             <h2 className="text-2xl font-bold mb-2">Terms of service</h2>
-            <p className="text-sm text-gray-400 mb-8">Last revised: —</p>
+            <p className="text-sm text-muted mb-8">Last revised: —</p>
         </article>
     )
 }

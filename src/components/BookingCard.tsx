@@ -30,7 +30,7 @@ export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any,
         // those inside an anchor breaks both keyboard and screen reader
         // behaviour. The overlay-plus-raised-controls arrangement keeps one
         // large click target without that nesting.
-        <div className={`relative flex flex-col md:flex-row gap-6 bg-gray-200 border border-gray-800 rounded-2xl p-6 transition-all focus-within:ring-2 focus-within:ring-emerald-700 hover:border-black ${!isUpcoming && 'opacity-80'}`}>
+        <div className={`relative flex flex-col md:flex-row gap-6 bg-surface border border-line rounded-2xl p-6 transition-all focus-within:ring-2 focus-within:ring-brand hover:border-ink-400 ${!isUpcoming && 'opacity-80'}`}>
 
             <Link
                 to="/trips/$bookingId"
@@ -44,7 +44,7 @@ export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any,
                 <img
                     src={`https://${projectID}.supabase.co/storage/v1/object/public/car%20gallery/car_${car.id}/main.PNG`}
                     alt={`${car.make} ${car.model} ${car.year} `}
-                    className="w-full h-full border border-black object-cover rounded-xl"
+                    className="w-full h-full border border-line object-cover rounded-xl"
                 />
             </div>
 
@@ -52,15 +52,15 @@ export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any,
             <div className="flex-1 flex flex-col justify-between">
                 <div>
                     <div className="flex justify-between items-start mb-2">
-                        <h3 className="text-xl text-black font-bold">{car.make} {car.model} {car.trim} {car.year}</h3>
+                        <h3 className="text-xl font-bold">{car.make} {car.model} {car.trim} {car.year}</h3>
 
                         {/* Status Badge */}
                         <span className={`text-xs font-bold px-3 py-1 rounded-full ${
-                            booking.status === 'confirmed' ? 'bg-[#3a7d2c]/80 text-green-950' :
+                            booking.status === 'confirmed' ? 'bg-pine-500/80 text-pine-950' :
                                 booking.status === 'canceled' ? 'bg-red-900/30 text-red-800' :
                                     booking.status === 'completed' ? 'bg-blue-900/30 text-blue-800' :
-                                        booking.status === 'pending' ? 'bg-amber-300/60 text-black':
-                                            'bg-gray-800 text-gray-400'
+                                        booking.status === 'pending' ? 'bg-amber-300/60 text-ink':
+                                            'bg-subtle text-muted'
 
                         }`}>
                             {booking.status.toUpperCase()}
@@ -68,10 +68,10 @@ export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any,
                     </div>
 
                     {/* Displaying trip times and location */}
-                    <div className="flex text-black items-center gap-2">
+                    <div className="flex text-muted items-center gap-2">
                         <CalendarDays size={14} /> {formatDate(booking.start_time)} — {formatDate(booking.end_time)}
                     </div>
-                    <div className="flex text-black items-center gap-2">
+                    <div className="flex text-muted items-center gap-2">
                         <MapPin size={14} /> {booking.pickup_location}
                     </div>
 
@@ -79,10 +79,10 @@ export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any,
 
                 {/* z-10 lifts these above the full-card link overlay so they keep
                     their own click targets instead of navigating to the trip. */}
-                <div className="relative z-10 flex justify-between items-end mt-4 pt-4 border-t border-[#2a4a1e]">
+                <div className="relative z-10 flex justify-between items-end mt-4 pt-4 border-t border-line">
                     <div>
-                        <p className="text-xs mt-2 text-black">Total Paid</p>
-                        <p className="font-bold text-black">${booking.total_price}</p>
+                        <p className="text-xs mt-2 text-muted">Total Paid</p>
+                        <p className="font-bold">${booking.total_price}</p>
                     </div>
 
                     {/* Only show Cancel Trip option if status is confirmed and the dates have not past */}
@@ -104,7 +104,7 @@ export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any,
                                 to="/checkout/$carId"
                                 params={{ carId: car.id.toString() }}
                                 search={{ ...checkoutParams, bookingId: booking.id }}
-                                className="bg-amber-300/60 hover:bg-amber-200/50 text-black text-xs font-bold px-2 py-2 rounded-lg transition-colors"
+                                className="bg-amber-300/60 hover:bg-amber-200/50 text-ink text-xs font-bold px-2 py-2 rounded-lg transition-colors"
                             >
                                 Finish Checkout →
                             </Link>
