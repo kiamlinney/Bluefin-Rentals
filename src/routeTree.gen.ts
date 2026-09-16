@@ -30,6 +30,7 @@ import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe-webhoo
 import { Route as AdminCalendarRouteImport } from './routes/admin/calendar'
 import { Route as AuthedProfileRouteImport } from './routes/_authed.profile'
 import { Route as AuthedMyBookingsRouteImport } from './routes/_authed.my-bookings'
+import { Route as ApiCronSyncTuroRouteImport } from './routes/api/cron/sync-turo'
 import { Route as AdminUserUserIdRouteImport } from './routes/admin/user.$userId'
 import { Route as AdminTripsHistoryRouteImport } from './routes/admin/trips/history'
 import { Route as AdminTripsBookedRouteImport } from './routes/admin/trips/booked'
@@ -145,6 +146,11 @@ const AuthedMyBookingsRoute = AuthedMyBookingsRouteImport.update({
   path: '/my-bookings',
   getParentRoute: () => AuthedRoute,
 } as any)
+const ApiCronSyncTuroRoute = ApiCronSyncTuroRouteImport.update({
+  id: '/api/cron/sync-turo',
+  path: '/api/cron/sync-turo',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminUserUserIdRoute = AdminUserUserIdRouteImport.update({
   id: '/user/$userId',
   path: '/user/$userId',
@@ -229,6 +235,7 @@ export interface FileRoutesByFullPath {
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
   '/admin/user/$userId': typeof AdminUserUserIdRoute
+  '/api/cron/sync-turo': typeof ApiCronSyncTuroRoute
   '/trips/$bookingId/photos': typeof AuthedTripsBookingIdPhotosRoute
 }
 export interface FileRoutesByTo {
@@ -260,6 +267,7 @@ export interface FileRoutesByTo {
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
   '/admin/user/$userId': typeof AdminUserUserIdRoute
+  '/api/cron/sync-turo': typeof ApiCronSyncTuroRoute
   '/trips/$bookingId/photos': typeof AuthedTripsBookingIdPhotosRoute
 }
 export interface FileRoutesById {
@@ -294,6 +302,7 @@ export interface FileRoutesById {
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
   '/admin/user/$userId': typeof AdminUserUserIdRoute
+  '/api/cron/sync-turo': typeof ApiCronSyncTuroRoute
   '/_authed/trips/$bookingId_/photos': typeof AuthedTripsBookingIdPhotosRoute
 }
 export interface FileRouteTypes {
@@ -328,6 +337,7 @@ export interface FileRouteTypes {
     | '/admin/trips/booked'
     | '/admin/trips/history'
     | '/admin/user/$userId'
+    | '/api/cron/sync-turo'
     | '/trips/$bookingId/photos'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -359,6 +369,7 @@ export interface FileRouteTypes {
     | '/admin/trips/booked'
     | '/admin/trips/history'
     | '/admin/user/$userId'
+    | '/api/cron/sync-turo'
     | '/trips/$bookingId/photos'
   id:
     | '__root__'
@@ -392,6 +403,7 @@ export interface FileRouteTypes {
     | '/admin/trips/booked'
     | '/admin/trips/history'
     | '/admin/user/$userId'
+    | '/api/cron/sync-turo'
     | '/_authed/trips/$bookingId_/photos'
   fileRoutesById: FileRoutesById
 }
@@ -410,6 +422,7 @@ export interface RootRouteChildren {
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
   FleetCarSlugRoute: typeof FleetCarSlugRoute
   FleetIndexRoute: typeof FleetIndexRoute
+  ApiCronSyncTuroRoute: typeof ApiCronSyncTuroRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -561,6 +574,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedMyBookingsRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/api/cron/sync-turo': {
+      id: '/api/cron/sync-turo'
+      path: '/api/cron/sync-turo'
+      fullPath: '/api/cron/sync-turo'
+      preLoaderRoute: typeof ApiCronSyncTuroRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/user/$userId': {
       id: '/admin/user/$userId'
       path: '/user/$userId'
@@ -710,6 +730,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
   FleetCarSlugRoute: FleetCarSlugRoute,
   FleetIndexRoute: FleetIndexRoute,
+  ApiCronSyncTuroRoute: ApiCronSyncTuroRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

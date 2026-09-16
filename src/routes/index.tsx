@@ -251,7 +251,7 @@ function LocalContent() {
                     </p>
                 </div>
                 <div className="rounded-2xl border border-line bg-surface p-6">
-                    <h3 className="text-lg font-semibold mb-2">Cheaper the longer you stay</h3>
+                    <h3 className="text-lg font-semibold mb-2">Cheaper the longer your trip</h3>
                     <p className="text-muted text-sm leading-relaxed">
                         Discounts apply automatically: 5% off from three days, 10% from a week, 15%
                         from two weeks, and 20% from three. Month-long trips save around 24%.
@@ -261,7 +261,7 @@ function LocalContent() {
                     <h3 className="text-lg font-semibold mb-2">Straightforward pricing</h3>
                     <p className="text-muted text-sm leading-relaxed">
                         The daily rate and any delivery fee are shown before you pay, and the full
-                        breakdown appears at checkout.
+                        breakdown detailing each day appears before and at checkout.
                     </p>
                 </div>
             </div>
