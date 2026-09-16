@@ -137,13 +137,13 @@
    4. Animations
    ========================================================================== */
 
-/* The segment travelling down the line beside the homepage's "How it works"
-   arrow. Its track is 2.8x the segment's height, hence 280%. */
+/* The arrow beside the homepage's "Learn more" link, falling and fading to
+   say there's more below. Travel is in em so it scales with the icon. */
 @keyframes scroll-cue {
-    0% { transform: translateY(-100%); opacity: 0; }
-    30% { opacity: 1; }
-    70% { opacity: 1; }
-    100% { transform: translateY(280%); opacity: 0; }
+    0% { transform: translateY(-0.5em); opacity: 0; }
+    15% { opacity: 1; }
+    85% { opacity: 1; }
+    100% { transform: translateY(0.9em); opacity: 0; }
 }
 
 /* Used by the trip photo lightbox via animate-[fadeIn_...], behind motion-safe. */

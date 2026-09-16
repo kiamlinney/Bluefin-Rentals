@@ -15,7 +15,7 @@ const CarCard = ({ car, search } : { car : Car; search?: CarCardSearch }) => {
             // customer doesn't re-pick dates they already picked. TanStack drops
             // undefined values, so a dateless fleet page still links to /fleet/3.
             search={{ start: search?.start, end: search?.end }}
-            className="group flex flex-col bg-surface border border-line rounded-2xl overflow-hidden hover:shadow-lg transition-shadow"
+            className="group flex flex-col bg-surface border border-line rounded-2xl overflow-hidden hover:shadow-md transition-shadow"
         >
             <div className="relative aspect-[16/10] w-full overflow-hidden bg-subtle">
                 <img src={car.image_url ?? undefined} alt={car.make} className="w-full h-full object-cover" />

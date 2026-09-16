@@ -120,6 +120,7 @@ function Home() {
                     className="absolute inset-0 h-full w-full object-cover object-center"
                 >
                     <source src="https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/background-videos/background.mp4" type="video/mp4" />
+                    {/*<source src="public/deyaw.mp4" type="video/mp4" />*/}
                     Your browser does not support the video tag.
                 </video>
 
@@ -157,8 +158,8 @@ function Home() {
                             )}
                         </div>
 
-                        {/* The scroll signal: a way down that's worth taking, with the
-                            travelling line beside the arrow to say "there's more".
+                        {/* The scroll signal: a way down that's worth taking, the arrow
+                            itself falling and fading to say "there's more".
                             Hidden once the search bar opens — it would wrap under the
                             expanding bar mid-animation, and by then the visitor is
                             already booking. */}
@@ -171,10 +172,10 @@ function Home() {
                                 <span className="underline underline-offset-[6px] decoration-white/50 transition-colors group-hover:decoration-white">
                                     Learn more
                                 </span>
-                                <ArrowDown size={18} />
-                                <span aria-hidden className="relative h-7 w-0.5 overflow-hidden rounded-full bg-white/30">
-                                    <span className="absolute inset-x-0 top-0 h-2.5 rounded-full bg-white motion-safe:animate-[scroll-cue_2.2s_cubic-bezier(0.65,0,0.35,1)_infinite]" />
-                                </span>
+                                <ArrowDown
+                                    size={18}
+                                    className="motion-safe:animate-[scroll-cue_2.2s_cubic-bezier(0.65,0,0.35,1)_infinite]"
+                                />
                             </a>
                         )}
                         </div>
