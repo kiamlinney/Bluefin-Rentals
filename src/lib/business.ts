@@ -31,8 +31,14 @@ export const BUSINESS = {
     priceRange: '$$',
 } as const
 
-// Sharing any page without its own image falls back to this. Swap for a
-// branded 1200x630 card when one exists.
+// Shown on /contact. Kept here with the other business facts 
+export const CONTACT_EMAIL = 'bluefinbiz@gmail.com'
+
+// null until the account exists
+export const INSTAGRAM_URL: string | null = null
+
+// Sharing any page without its own image falls back to this. 
+// TODO: Swap for a branded 1200x630 card when one exists.
 export const DEFAULT_OG_IMAGE =
     'https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/car%20gallery/car_10/main.PNG'
 

@@ -14,9 +14,8 @@ const Footer = () => {
                     <p className="text-2xl">
                         <span className="font-bold">Bluefin </span>Rentals
                     </p>
-                    <p className="text-muted text-sm mt-3 max-w-sm leading-relaxed">
-                        Locally owned car rental serving {BUSINESS.areaServed}. Pick up in Saint
-                        Paul, at MSP, or have the car delivered.
+                    <p className="text-muted text-sm mt-3 max-w-md leading-relaxed">
+                        Locally owned car rental serving {BUSINESS.areaServed}.
                     </p>
                     <p className="text-muted text-sm mt-4">
                         {BUSINESS.city}, {BUSINESS.region} {BUSINESS.postalCode}

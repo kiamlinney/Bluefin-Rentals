@@ -11,6 +11,20 @@ export type OutboundEmail = {
     html: string
     /** Plain-text alternative. Not optional: it's what notification previews show. */
     text: string
+    /**
+     * Where hitting Reply goes. Without it, a reply to a contact-form message
+     * would go back to our own sending address instead of the visitor.
+     */
+    replyTo?: string
+}
+
+// Header values are written straight into the raw message, and a header ends at
+// a line break. An address smuggling "\r\nBcc: someone@else" would add a header
+// of its own — so anything with a line break is refused here, where headers are
+// written, rather than trusting every caller to have validated first.
+function assertSingleLine(value: string, field: string): string {
+    if (/[\r\n]/.test(value)) throw new Error(`Refusing ${field} header containing a line break`)
+    return value
 }
 
 // The display name on the From header. The address itself is whatever account
@@ -68,7 +82,8 @@ function buildMimeMessage(msg: OutboundEmail, from: string): string {
     // some receivers are strict about it.
     return [
         `From: ${encodeHeader(SENDER_NAME)} <${from}>`,
-        `To: ${msg.to}`,
+        `To: ${assertSingleLine(msg.to, 'To')}`,
+        ...(msg.replyTo ? [`Reply-To: ${assertSingleLine(msg.replyTo, 'Reply-To')}`] : []),
         `Subject: ${encodeHeader(msg.subject)}`,
         'MIME-Version: 1.0',
         // multipart/alternative, text part first: the last part a client can

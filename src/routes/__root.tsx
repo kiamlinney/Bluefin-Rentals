@@ -75,9 +75,13 @@ function RootComponent() {
 
     return (
         <RootDocument>
-            {!isBareShell && <Navbar user={user}/>}
-            <Outlet />
-            {!isBareShell && <Footer />}
+            <div className="flex min-h-svh flex-col">
+                {!isBareShell && <Navbar user={user}/>}
+                <main className="flex-1">
+                    <Outlet />
+                </main>
+                {!isBareShell && <Footer />}
+            </div>
             {/* Devtools disabled to prevent potential overlay intercepting clicks */}
             {null}
         </RootDocument>
