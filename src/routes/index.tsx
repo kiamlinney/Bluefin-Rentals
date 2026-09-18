@@ -6,6 +6,7 @@ import CarCard from "@/components/CarCard.tsx";
 import { getFeaturedCars } from "@/lib/db.ts";
 import { absoluteUrl } from '@/lib/site'
 import { businessJsonLd, seoMeta } from '@/lib/business'
+import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/')({
     head: () => ({
@@ -99,12 +100,13 @@ function Home() {
     }, [])
 
     return (
-        <main>
+        <div>
             {/* -mt-14 pulls the hero up behind the sticky navbar so the video runs
                 edge to edge. sticky keeps it pinned while the content sheet below
                 scrolls up over it. No overflow-hidden: the video can't overflow
                 (object-cover), and clipping here would cut off the SearchBar's
                 location and date popovers. */}
+            {/*TODO: Once smaller verson is available, a <source media="(max-width: 640px)"> line would serve it to phones only.*/}
             <section className="sticky top-0 h-svh -mt-14">
                 <video
                     ref={videoRef}
@@ -119,28 +121,50 @@ function Home() {
                        declaration would drop the first.  [transform:scaleX(-1)_translateZ(0)]*/
                     className="absolute inset-0 h-full w-full object-cover object-center"
                 >
-                    <source src="https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/background-videos/background.mp4" type="video/mp4" />
-                    {/*<source src="public/deyaw.mp4" type="video/mp4" />*/}
+                    {/*<source src="https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/background-videos/background.mp4" type="video/mp4" />*/}
+                    <source src="/deyaw.mp4" type="video/mp4" />
                     Your browser does not support the video tag.
                 </video>
 
-                {/* Left-weighted scrim, purely for copy legibility. */}
-                <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/25 to-transparent"></div>
+                {/* Scrim, purely for copy legibility. Wide screens get a
+                    left-weighted gradient: the copy sits on the left, so the
+                    right side can stay bright. On a phone the copy spans the
+                    full width and would run onto the transparent end, so it
+                    gets an even tint instead. */}
+                <div className="absolute inset-0 bg-black/40 sm:bg-transparent sm:bg-gradient-to-r sm:from-black/60 sm:via-black/25 sm:to-transparent"></div>
 
-                <div className="relative z-10 h-full flex items-center">
-                    <div ref={copyRef} className="w-full px-8 sm:px-12 lg:px-20 pb-24 will-change-[opacity]">
+                {/* Phones: the copy sits near the top (pt-20 clears the navbar)
+                    instead of being vertically centred. When the search bar
+                    opens it stacks to about 200px tall, and centred it sat low
+                    enough that the date picker had no room below it. From sm up
+                    the bar is a single row, so centring works fine. */}
+                <div className="relative z-10 h-full flex items-start pt-20 sm:items-center sm:pt-0">
+                    {/* px-6 on phones lines the headline up with the logo and
+                        with every section below, which all use px-6.
+                        Used to be pb-24.*/}
+                    {/* text-center on phones: a short, stacked hero reads as a
+                        single centred block on a narrow screen. From sm up it
+                        goes back to left-aligned, matching the left-weighted
+                        scrim. */}
+                    <div ref={copyRef} className="w-full px-6 pt-12 sm:pt-0 sm:px-12 lg:px-20 pb-42 text-center sm:text-left will-change-[opacity]">
                         {/* One h1 per page; the line break is presentation, not structure. */}
                         {/* Preflight resets h1 to font-size:inherit, so the base size
                             has to be stated or mobile renders this at body size. */}
-                        <h1 className="text-white text-4xl sm:text-5xl md:text-6xl font-semibold mb-4 tracking-tight">
+                        <h1 className="text-white text-4xl sm:text-4xl md:text-5xl font-semibold mb-4 tracking-tight">
                             <span className="block mb-4">Less Hassle,</span>
                             <span className="block">More Driving</span>
                         </h1>
                         <p className="text-base md:text-xl text-white">
-                            Rent from trusted locals in Minneapolis-St.Paul
+                            Rent from trusted locals in <span className="whitespace-nowrap">Minneapolis-St.Paul</span>
                         </p>
+
                         
-                        <div className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-4">
+                        <div
+                            className={cn(
+                                'mt-8 mx-auto sm:mx-0 flex flex-col items-center gap-4 sm:flex-row sm:flex-wrap sm:gap-x-8',
+                                !showBar && 'max-w-[240px] sm:max-w-none',
+                            )}
+                        >
                         <div
                             className={`w-full transition-[max-width] duration-500 ease-out ${
                                 showBar ? 'max-w-5xl' : 'max-w-[240px]'
@@ -193,7 +217,7 @@ function Home() {
                 <FeaturedCars cars={featuredCars} />
                 <LocalContent />
             </div>
-        </main>
+        </div>
     )
 }
 

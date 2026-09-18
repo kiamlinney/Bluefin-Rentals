@@ -13,6 +13,7 @@ import {effectiveFreeCancellationDeadline} from "@/lib/cancellation-policy.ts";
 import { Plane, CarFront, Check, X} from 'lucide-react';
 import {useState} from "react";
 import {displayName, formatPhone} from "@/lib/profile.ts";
+import {carMainImageUrl} from "@/lib/car-images.ts";
 import {carSlug} from "@/lib/slug.ts";
 import {buildOverrideMap, calculateTripPrice} from "@/lib/pricing.ts";
 import {calculateOverage, distanceFeeForTrip, formatMiles, milesIncluded} from "@/lib/distance.ts";
@@ -147,9 +148,10 @@ function ReservationDetailsPage() {
                             </Link>
                         </div>
                         <img
-                            src={`https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/car%20gallery/car_${car.id}/main.PNG`}
+                            src={carMainImageUrl(car.id)}
                             alt={`${car.year} ${car.make} ${car.model}`}
                             className="w-28 h-18 object-cover rounded-md border border-gray-100 shrink-0"
+                            decoding="async"
                         />
                     </div>
                 </header>

@@ -5,6 +5,7 @@ import { BookingWithRelations, Car, CarBlockedDate } from 'src/types.ts'
 import { upsertPriceOverrides, createBlockedDates, deleteBlockedDate } from "@/lib/db.ts";
 import { formatBusinessDate, formatBusinessTime, formatDateKey } from "@/lib/dates.ts";
 import { dateKeyToLocalDate } from "@/lib/pricing.ts";
+import { carMainImageUrl } from "@/lib/car-images.ts";
 
 export type PanelTab = 'prices' | 'unavailability' | 'trips'
 
@@ -752,9 +753,11 @@ function TripsTab({
                             {car && (
                                 <div className="flex flex-col items-center gap-2 shrink-0">
                                     <img
-                                        src={`https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/car%20gallery/car_${car.id}/main.PNG`}
+                                        src={carMainImageUrl(car.id)}
                                         alt={`${car.year} ${car.make} ${car.model}`}
                                         className="w-20 h-14 object-cover rounded-md border border-gray-100"
+                                        loading="lazy"
+                                        decoding="async"
                                     />
                                     <div className="text-xs text-gray-600">{car.license_plate}</div>
                                 </div>

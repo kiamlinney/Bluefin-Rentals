@@ -120,25 +120,30 @@ export function SearchBar({
             className={[
                 // text-ink is explicit because this also sits on the homepage video,
                 // where the surrounding copy is white.
-                'w-full max-w-5xl mx-auto bg-surface text-ink rounded-full flex items-center shadow-lg border border-line divide-x divide-line relative h-16',
+                // text-left for the same reason: on phones the homepage hero
+                // centres its text, and text alignment is inherited.
+                'w-full max-w-5xl mx-auto bg-surface text-ink text-left shadow-lg border border-line relative',
+                // Phones: a stacked card, one field per row
+                'flex flex-col divide-y divide-line rounded-3xl',
+                'sm:flex-row sm:items-center sm:divide-y-0 sm:divide-x sm:rounded-full sm:h-16',
                 className,
             ].join(' ')}
             role="search"
             aria-label="Trip search"
         >
             {/* Location */}
-            <div ref={locRef} className="relative flex-1 h-full">
+            <div ref={locRef} className="relative sm:flex-1 sm:h-full">
                 <button
                     type="button"
                     aria-haspopup="listbox"
                     aria-expanded={openLocation}
                     onClick={() => setOpenLocation((v) => !v)}
-                    className="h-full w-full px-8 py-2 flex flex-col justify-center rounded-l-full hover:bg-subtle transition-colors text-left cursor-pointer"
+                    className="h-16 sm:h-full w-full px-6 sm:px-8 py-2 flex flex-col justify-center rounded-t-3xl sm:rounded-tr-none sm:rounded-l-full hover:bg-subtle transition-colors text-left cursor-pointer"
                 >
           <span className="text-[12px] font-semibold tracking-wide">
             Where
           </span>
-          <span className="text-[15px] w-50 text-muted truncate pr-4 block items-center gap-2">
+          <span className="text-[15px] sm:w-50 text-muted truncate pr-4 block">
            {locationLabel}
           </span>
                 </button>
@@ -147,7 +152,7 @@ export function SearchBar({
                     <div
                         role="listbox"
                         aria-label="Pickup location"
-                        className="absolute top-full left-0 mt-3 w-[420px] bg-surface rounded-2xl shadow-2xl border border-line py-3 z-50"
+                        className="absolute top-full left-0 mt-3 w-full sm:w-[420px] bg-surface rounded-2xl shadow-2xl border border-line py-3 z-50"
                     >
                         <Section label="Airports" />
                         {LOCATIONS.filter((l) => l.section === 'Airports').map((opt) => (
@@ -178,14 +183,14 @@ export function SearchBar({
             </div>
 
             {/* Dates (range) */}
-            <div className="relative flex-[1.4] h-full">
+            <div className="relative sm:flex-[1.4] sm:h-full">
                 <button
                     ref={calTriggerRef}
                     type="button"
                     aria-haspopup="dialog"
                     aria-expanded={openCalendar}
                     onClick={() => setOpenCalendar((v) => !v)}
-                    className="h-full w-full px-8 py-2 flex flex-col justify-center hover:bg-subtle transition-colors text-left cursor-pointer"
+                    className="h-16 sm:h-full w-full px-6 sm:px-8 py-2 flex flex-col justify-center hover:bg-subtle transition-colors text-left cursor-pointer"
                 >
           <span className="text-[12px] font-semibold tracking-wide">
             Dates
@@ -231,18 +236,26 @@ export function SearchBar({
             </div>
 
             {/* Search */}
-            <div className="h-full px-2 flex items-center justify-center">
+            {/* Phones get a full-width labelled button, since a 32px icon is a
+                small tap target and doesn't say what it does. From sm up it's
+                the original round icon, and the label becomes screen-reader-only
+                (sm:sr-only), so the button keeps its accessible name either way. */}
+            <div className="p-2 sm:p-0 sm:h-full sm:px-2 flex items-center justify-center">
                 <button
                     type="button"
                     disabled={!canSearch}
                     onClick={handleSearch}
                     className={[
-                        'h-8 w-8 rounded-full flex items-center justify-center text-on-brand transition-transform shadow-md',
-                        canSearch ? 'bg-brand hover:bg-pine-800 hover:scale-101 cursor-pointer' : 'bg-cream-300 cursor-not-allowed',
+                        'h-12 w-full gap-2 font-semibold sm:h-8 sm:w-8 rounded-full flex items-center justify-center transition-transform shadow-md',
+                        // Near-white text on the
+                        // light disabled fill was barely readable.
+                        canSearch
+                            ? 'bg-brand text-on-brand hover:bg-pine-800 hover:scale-101 cursor-pointer'
+                            : 'bg-cream-300 text-muted cursor-not-allowed',
                     ].join(' ')}
-                    aria-label="Search"
                 >
                     <Search size={16} strokeWidth={2.5} />
+                    <span className="sm:sr-only">Search</span>
                 </button>
             </div>
         </div>

@@ -1,5 +1,6 @@
 // Business facts shared by structured data and page metadata.
 import { absoluteUrl, SITE_URL } from './site'
+import { carMainImageUrl } from './car-images'
 
 // Real operating hours. Open is 10:00 every day; only closing moves.
 //
@@ -39,8 +40,7 @@ export const INSTAGRAM_URL: string | null = null
 
 // Sharing any page without its own image falls back to this. 
 // TODO: Swap for a branded 1200x630 card when one exists.
-export const DEFAULT_OG_IMAGE =
-    'https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/car%20gallery/car_10/main.PNG'
+export const DEFAULT_OG_IMAGE = carMainImageUrl(3)
 
 
 /**

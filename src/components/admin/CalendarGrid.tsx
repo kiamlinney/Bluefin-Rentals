@@ -6,6 +6,7 @@ import { MonthPicker } from "@/components/admin/MonthPicker.tsx";
 import { SelectionPanel } from "@/components/admin/SelectionPanel.tsx";
 import { businessDayStart } from "@/lib/dates.ts";
 import { dateKeyToLocalDate } from "@/lib/pricing.ts";
+import { carMainImageUrl } from "@/lib/car-images.ts";
 
 const column_width = 64 // pixels - width of one day column
 const row_height = 80 // pixels - height of one car's price row
@@ -598,9 +599,11 @@ export function CalendarGrid({
                                     <div className="flex flex-row gap-4 items-center justify-center">
                                         <div className="w-full rounded-md md:w-12 h-8 flex-shrink-0">
                                             <img
-                                                src={`https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/car%20gallery/car_${car.id}/main.PNG`}
+                                                src={carMainImageUrl(car.id)}
                                                 alt={`${car.year} ${car.make} ${car.model}`}
                                                 className="w-12 h-8 object-cover rounded-sm flex-shrink-0"
+                                                loading="lazy"
+                                                decoding="async"
                                             />
                                         </div>
                                         <div className="flex flex-col text-left">

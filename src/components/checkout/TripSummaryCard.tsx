@@ -5,6 +5,7 @@ import { formatDateKey, formatMinutesOfDay } from '@/lib/dates.ts'
 import type { CheckoutSearch } from '@/lib/checkout-search.ts'
 import { distanceFeeForTrip, formatMiles, milesIncluded } from '@/lib/distance.ts'
 import type { Car } from '@/types.ts'
+import { carMainImageUrl } from '@/lib/car-images.ts'
 
 // ── Placeholder ───────────────────────────────────────────────────────────────
 //
@@ -87,9 +88,11 @@ export function TripSummaryCard({
                     <p className="text-muted text-sm mt-0.5">{car.year}</p>
                 </div>
                 <img
-                    src={`https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/car%20gallery/car_${carId}/main.PNG`}
+                    src={carMainImageUrl(carId)}
                     alt={`${car.year} ${car.make} ${car.model}`}
                     className="w-24 h-16 object-cover rounded-lg flex-shrink-0"
+                    loading="lazy"
+                    decoding="async"
                 />
             </div>
 

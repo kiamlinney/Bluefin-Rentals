@@ -33,7 +33,7 @@ function About() {
                             <p>
                                 BlueFin Rentals is a small, locally owned car rental company
                                 based in Saint Paul. We've rented with Turo for over 3 years,
-                                with 712 trips and a 5.0 star rating.
+                                with over 700 trips and a 5.0 star rating.
                             </p>
                             <p>
                                 There's no rental counter and no call center. When you book with

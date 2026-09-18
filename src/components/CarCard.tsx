@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Car } from "../types";
 import { carSlug } from "../lib/slug";
+import { carMainImageUrl } from "../lib/car-images";
 
 // Dates come in as a prop rather than via useSearch so the card stays usable
 // outside the fleet route, and so the hand-off is visible at the call site.
@@ -18,7 +19,13 @@ const CarCard = ({ car, search } : { car : Car; search?: CarCardSearch }) => {
             className="group flex flex-col bg-surface border border-line rounded-2xl overflow-hidden hover:shadow-md transition-shadow"
         >
             <div className="relative aspect-[16/10] w-full overflow-hidden bg-subtle">
-                <img src={car.image_url ?? undefined} alt={car.make} className="w-full h-full object-cover" />
+                <img
+                    src={car.image_url ?? carMainImageUrl(car.id)}
+                    alt={car.make}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                />
             </div>
 
             <div className="p-4">

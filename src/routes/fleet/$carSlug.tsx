@@ -5,6 +5,7 @@ import { z } from "zod";
 import { Users, Fuel, Gauge, Settings2, X, ChevronDown } from "lucide-react";
 import { getBookedDates, getCarPriceOverrides } from "@/lib/db.ts";
 import { getUser } from "@/lib/auth.ts";
+import { carImageUrl, carMainImageUrl, carPhotoUrl } from "@/lib/car-images.ts";
 import {
     addDays,
     buildOverrideMap,
@@ -47,6 +48,7 @@ import {
 } from "@/lib/distance.ts";
 import { carSlug, parseCarIdFromSlug } from "@/lib/slug.ts";
 import { absoluteUrl } from "@/lib/site.ts";
+import { DEFAULT_OG_IMAGE } from "@/lib/business.ts";
 
 // Optional because most visitors arrive without dates. `.catch(undefined)` so a
 // hand-mangled URL renders an empty picker instead of an error boundary.
@@ -110,7 +112,7 @@ export const Route = createFileRoute("/fleet/$carSlug")({
             { property: "og:title", content: `${loaderData?.car.year} ${loaderData?.car.make} ${loaderData?.car.model} Rental - Bluefin Rentals` },
             { property: "og:description", content: `Rent a ${loaderData?.car.year} ${loaderData?.car.make} ${loaderData?.car.model} in Saint Paul, MN for $${loaderData?.car.price_per_day}/day.` },
             { property: "og:type", content: "website" },
-            { property: "og:image", content: `https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/car%20gallery/car_${loaderData?.car.id}/main.PNG` },
+            { property: "og:image", content: loaderData ? carMainImageUrl(loaderData.car.id) : DEFAULT_OG_IMAGE },
         ],
     }),
     component: CarDetails,
@@ -614,10 +616,8 @@ function CarDetails() {
             }
         })
     }
-
-    const projectID = "fmueikfpthimanfrituz"
-    const getImageUrl = (fileName: string) =>
-        `https://${projectID}.supabase.co/storage/v1/object/public/car%20gallery/car_${carId}/${fileName}`
+    
+    const getImageUrl = (fileName: string) => carImageUrl(carId, fileName)
 
     const images = car.gallery_images || [];
     const PREFERRED_ORDER = ["Safety", "Device connectivity", "Convenience", "Additional features"];
@@ -645,6 +645,8 @@ function CarDetails() {
                                 src={getImageUrl(img)}
                                 className="w-full h-full object-cover aspect-video"
                                 alt={`${car.year} ${car.make} ${car.model} - gallery image ${index + 1}`}
+                                loading={index < 2 ? "eager" : "lazy"}
+                                decoding="async"
                             />
                         </div>
                     ))}
@@ -681,45 +683,63 @@ function CarDetails() {
                     {/* Main image */}
                     <div className="lg:col-span-2 lg:row-span-2 relative h-[400px]" >
                         <img
-                            src={getImageUrl("main.PNG")}
+                            src={carMainImageUrl(carId)}
+
+
+
                             className="w-full h-full object-cover"
                             alt={`${car.year} ${car.make} ${car.model} rental - main view`}
+                            fetchPriority="high"
+                            decoding="async"
                         />
                     </div>
 
                     {/* Top Left Image */}
                     <div className="hidden lg:block h-[196px] border border-line">
                         <img
-                            src={getImageUrl("top_left.PNG")}
+                            src={carPhotoUrl(carId, "top_left")}
                             className="w-full h-full object-cover"
                             alt={`${car.year} ${car.make} ${car.model} rental - front interior view`}
+                            decoding="async"
+                            // These four are `hidden lg:block`. Without lazy the
+                            // browser fetches them on phones too, where they never
+                            // render — 280-600KB a visit. Lazy skips them below the
+                            // breakpoint and still loads them on desktop, where they
+                            // sit in the opening viewport.
+                            loading="lazy"
                         />
                     </div>
 
                     {/* Top Right Image */}
                     <div className="hidden lg:block h-[196px] border border-line">
                         <img
-                            src={getImageUrl("top_right.PNG")}
+                            src={carPhotoUrl(carId, "top_right")}
                             className="w-full h-full object-cover"
                             alt={`${car.year} ${car.make} ${car.model} rental - back view`}
+                            decoding="async"
+                            loading="lazy"
                         />
                     </div>
 
                     {/* Bottom Left Image */}
                     <div className="hidden lg:block h-[196px] border border-line">
                         <img
-                            src={getImageUrl("bottom_left.PNG")}
+                            src={carPhotoUrl(carId, "bottom_left")}
                             className="w-full h-full object-cover"
                             alt={`${car.year} ${car.make} ${car.model} rental - front view`}
+                            decoding="async"
+                            loading="lazy"
                         />
                     </div>
 
                     {/* Bottom Right Image */}
                     <div className="hidden lg:block h-[196px] relative group border border-line">
                         <img
-                            src={getImageUrl("bottom_right.PNG")}
+                            src={carPhotoUrl(carId, "bottom_right")}
                             className="w-full h-full object-cover"
                             alt={`${car.year} ${car.make} ${car.model} rental - back interior view`}
+                            decoding="async"
+                            loading="lazy"
                         />
 
                         <button
@@ -915,6 +935,7 @@ function CarDetails() {
                             <div className="top-24 z-10 rounded-xl border border-line bg-surface shadow-xl">
                                 <div className="p-6 text-center space-y-4">
                                     <p className="font-semibold text-lg">
+                                        {/*TODO: change this to after selecting dates, in checkout*/}
                                         Please login to book a vehicle
                                     </p>
                                     <p className="text-muted text-sm">

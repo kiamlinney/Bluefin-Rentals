@@ -6,6 +6,7 @@ import { getTripForGuest, type TripPaymentState } from '@/lib/db'
 import { buildCheckoutSearch } from '@/lib/checkout-search'
 import type { BookingRate } from '@/lib/booking-rate'
 import { carSlug } from '@/lib/slug'
+import { carMainImageUrl } from '@/lib/car-images'
 import {
     formatBusinessDate,
     formatBusinessTime,
@@ -86,9 +87,10 @@ function TripPage() {
                 <div className="bg-surface border border-line rounded-2xl p-6">
                     <div className="flex flex-col sm:flex-row gap-5">
                         <img
-                            src={`https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/car%20gallery/car_${car.id}/main.PNG`}
+                            src={carMainImageUrl(car.id)}
                             alt={`${car.year} ${car.make} ${car.model}`}
                             className="w-full sm:w-48 h-32 object-cover rounded-xl border border-line flex-shrink-0"
+                            decoding="async"
                         />
                         <div className="flex-1 min-w-0">
                             <div className="flex justify-between items-start gap-3">

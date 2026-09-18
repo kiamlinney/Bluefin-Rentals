@@ -26,6 +26,7 @@ import 'react-day-picker/style.css'
 import type { DateSpan } from '@/lib/availability.ts'
 import { daysBetween, toDateKey } from '@/lib/pricing.ts'
 import { cn } from '@/lib/utils.ts'
+import { NAV_HEIGHT } from '@/lib/layout.ts'
 
 type TripCalendarBase = {
     open: boolean
@@ -292,7 +293,11 @@ export function TripCalendar(props: TripCalendarProps) {
         const triggerRect = trigger.getBoundingClientRect()
         const naturalHeight = panelEl.getBoundingClientRect().height
         const spaceBelow = window.innerHeight - triggerRect.bottom - GAP - EDGE_MARGIN
-        const spaceAbove = triggerRect.top - GAP - EDGE_MARGIN
+        // The top of the window isn't all usable: the sticky navbar covers the
+        // first NAV_HEIGHT px. Without subtracting it, a calendar flipped
+        // above the trigger could run up over the navbar. That happened on
+        // phones, where the stacked search bar leaves less room below.
+        const spaceAbove = triggerRect.top - NAV_HEIGHT - GAP - EDGE_MARGIN
 
         // Flip only when the other side fully fits — otherwise flipping just
         // trades "overflows the bottom" for "overlaps whatever's above the

@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import {BookingWithRelations} from "@/types.ts";
 import {formatBusinessDate, formatBusinessTime} from "@/lib/dates.ts";
+import {carMainImageUrl} from "@/lib/car-images.ts";
 
 export function TripCard({ booking }: { booking: BookingWithRelations }) {
     const car = booking.cars
@@ -97,9 +98,11 @@ export function TripCard({ booking }: { booking: BookingWithRelations }) {
             {/* Right: Car Image */}
             <div className="flex flex-col items-center justify-center">
                 <img
-                    src={`https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/car%20gallery/car_${car.id}/main.PNG`}
+                    src={carMainImageUrl(car.id)}
                     alt={`${car.year} ${car.make} ${car.model}`}
                     className="w-24 h-16 object-cover rounded-lg flex-shrink-0"
+                    loading="lazy"
+                    decoding="async"
                 />
 
                 <p className="text-xs text-gray-600 text-center">

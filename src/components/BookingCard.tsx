@@ -3,10 +3,10 @@ import {buildCheckoutSearch} from "@/lib/checkout-search.ts";
 import {CalendarDays, MapPin} from "lucide-react";
 import {Link, useRouter} from "@tanstack/react-router";
 import {CancelTripDialog} from "@/components/CancelTripDialog.tsx";
+import {carMainImageUrl} from "@/lib/car-images.ts";
 
 export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any, formatDate: any, isUpcoming: boolean }) {
     const car = booking.cars
-    const projectID = "fmueikfpthimanfrituz"
     const router = useRouter()
 
     // One flag, where there used to be two pieces of state shared between the
@@ -42,9 +42,11 @@ export function BookingCard({ booking, formatDate, isUpcoming }: { booking: any,
             {/* Car Image */}
             <div className="w-full rounded-lg md:w-48 h-32 flex-shrink-0">
                 <img
-                    src={`https://${projectID}.supabase.co/storage/v1/object/public/car%20gallery/car_${car.id}/main.PNG`}
+                    src={carMainImageUrl(car.id)}
                     alt={`${car.make} ${car.model} ${car.year} `}
                     className="w-full h-full border border-line object-cover rounded-xl"
+                    loading="lazy"
+                    decoding="async"
                 />
             </div>
 
