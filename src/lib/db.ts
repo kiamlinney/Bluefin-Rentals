@@ -37,6 +37,13 @@ import {
     sendBookingConfirmedEmail,
 } from './booking-email'
 import { notifyBookingCanceled } from './cancellation-email'
+import {
+    REVIEWER_NAME_MAX,
+    firstName,
+    isValidRating,
+    validateReviewBody,
+} from './reviews'
+import type { AdminReview, PublicReview, ReviewableTrip } from '../types'
 
 // Fetches all cars that are available
 export const getCars = createServerFn({ method: 'GET' })
@@ -426,7 +433,7 @@ type PickupInput = {
 // and measure those against the home base. But coordinates travelling through an
 // editable URL are just numbers the caller chose: nothing would stop a request
 // pairing "1 Main St, Duluth" with a point two blocks from the lot. The radius
-// check would pass, the fee would be $140, and the host would be committed to a
+// check would pass, the fee would be $120, and the host would be committed to a
 // 150-mile drive. A check that runs on the caller's own numbers is theatre.
 //
 // So the *address string* — the thing that will be printed on the reservation and
@@ -478,9 +485,6 @@ async function resolvePickupOnServer(input: PickupInput): Promise<ResolvedPickup
     // picker verified it gets caught right here rather than at the kerb.
     const [best] = await geocodeAddresses(address)
 
-    // No result means either a geocoder outage or an address Mapbox can't place.
-    // Both are refusals rather than fallbacks: the alternative is charging $140
-    // to deliver somewhere we were never able to locate.
     if (!best) {
         throw new Error('We could not verify that delivery address. Please check it and try again.')
     }
@@ -2288,4 +2292,293 @@ export const deleteTripMedia = createServerFn({ method: 'POST' })
         if (error) throw new Error(error.message)
 
         return { deleted: mediaId }
+    })
+
+// ---- Ratings & reviews ------------------------------------------------------------------
+//
+// A review hangs off a completed booking. The client only ever names the
+// booking; car_id and user_id are copied off the row server-side, so a guest
+// can't attach a review to a car they didn't rent. Every write goes through the
+// service-role client after the checks below — the table has no write policies
+// (supabase/migrations/20260918120000_reviews.sql).
+
+// What the public pages read. user_id and booking_id stay server-side: they're
+// needed to work out `is_mine`, not to render anything.
+const PUBLIC_REVIEW_COLUMNS =
+    'id, car_id, rating, body, reviewer_name, source, created_at, edited_at, cars(id, year, make, model)'
+
+type ReviewInput = { rating: number; body: string }
+
+function cleanReviewInput(input: ReviewInput): ReviewInput {
+    if (!isValidRating(input.rating)) throw new Error('Choose a rating from 1 to 5 stars')
+    const checked = validateReviewBody(input.body ?? '')
+    if (!checked.ok) throw new Error(checked.error)
+    return { rating: input.rating, body: checked.body }
+}
+
+async function requireUser() {
+    const supabase = getSupabaseServerClient()
+    const { data } = await supabase.auth.getUser()
+    if (!data.user) throw new Error('Not authenticated')
+    return { user: data.user, supabase }
+}
+
+async function requireAdmin() {
+    const { user, supabase } = await requireUser()
+    const { data: profile } = await supabase
+        .from('profiles').select('is_admin').eq('id', user.id).single()
+    if (!profile?.is_admin) throw new Error('Not authorized')
+    return { user }
+}
+
+// Every visible review, newest first — all of them for /reviews, or one car's
+// for its fleet page. Public: logged-out visitors read these too.
+export const getReviews = createServerFn({ method: 'GET' })
+    .inputValidator((input: { carId?: number } | undefined) => input ?? {})
+    .handler(async ({ data }) => {
+        const supabase = getSupabaseServerClient()
+        const { data: auth } = await supabase.auth.getUser()
+        const viewerId = auth.user?.id ?? null
+
+        let query = getServiceRoleClient()
+            .from('reviews')
+            .select(`${PUBLIC_REVIEW_COLUMNS}, user_id`)
+            .is('removed_at', null)
+            .order('created_at', { ascending: false })
+
+        if (data.carId !== undefined) query = query.eq('car_id', data.carId)
+
+        const { data: rows, error } = await query
+        if (error) throw new Error(error.message)
+
+        return (rows ?? []).map(({ user_id, ...review }) => ({
+            ...review,
+            is_mine: viewerId !== null && user_id === viewerId,
+        })) as unknown as PublicReview[]
+    })
+
+// The caller's completed trips that don't have a review yet — what "Write a
+// review" offers. A trip whose review an admin removed stays excluded: the row
+// still exists, and the unique booking_id would refuse a second one anyway.
+export const getReviewableTrips = createServerFn({ method: 'GET' })
+    .handler(async () => {
+        const supabase = getSupabaseServerClient()
+        const { data: auth } = await supabase.auth.getUser()
+        if (!auth.user) return [] as ReviewableTrip[]
+
+        const supabaseAdmin = getServiceRoleClient()
+        const { data: bookings, error } = await supabaseAdmin
+            .from('bookings')
+            .select('id, start_time, end_time, cars(id, year, make, model)')
+            .eq('user_id', auth.user.id)
+            .eq('status', 'completed')
+            .order('end_time', { ascending: false })
+
+        if (error) throw new Error(error.message)
+        if (!bookings?.length) return [] as ReviewableTrip[]
+
+        const { data: reviewed, error: reviewErr } = await supabaseAdmin
+            .from('reviews')
+            .select('booking_id')
+            .in('booking_id', bookings.map((b) => b.id))
+
+        if (reviewErr) throw new Error(reviewErr.message)
+        const taken = new Set((reviewed ?? []).map((r) => r.booking_id))
+
+        return bookings.filter((b) => !taken.has(b.id)) as unknown as ReviewableTrip[]
+    })
+
+// The review on one booking, for the trip page. Same access rule as the rest of
+// that page: the renter or an admin.
+export const getBookingReview = createServerFn({ method: 'GET' })
+    .inputValidator((bookingId: string) => bookingId)
+    .handler(async ({ data: bookingId }) => {
+        const { user, supabaseAdmin } = await assertBookingAccess(bookingId)
+
+        const { data, error } = await supabaseAdmin
+            .from('reviews')
+            .select(`${PUBLIC_REVIEW_COLUMNS}, user_id, removed_at`)
+            .eq('booking_id', bookingId)
+            .maybeSingle()
+
+        if (error) throw new Error(error.message)
+        if (!data) return null
+
+        const { user_id, removed_at, ...review } = data
+        return {
+            ...review,
+            is_mine: user_id === user.id,
+            removed: removed_at !== null,
+        } as unknown as PublicReview & { removed: boolean }
+    })
+
+export const createReview = createServerFn({ method: 'POST' })
+    .inputValidator((input: ReviewInput & { bookingId: string }) => input)
+    .handler(async ({ data }) => {
+        const { user, supabase } = await requireUser()
+        const { rating, body } = cleanReviewInput(data)
+
+        const supabaseAdmin = getServiceRoleClient()
+        const { data: booking } = await supabaseAdmin
+            .from('bookings')
+            .select('id, car_id, user_id, status')
+            .eq('id', data.bookingId)
+            .maybeSingle()
+
+        // One message for "not yours" and "doesn't exist", so this can't be used
+        // to probe other people's booking ids.
+        if (!booking || booking.user_id !== user.id) throw new Error('Trip not found')
+        if (booking.status !== 'completed') {
+            throw new Error('You can review a trip once it has been completed')
+        }
+
+        const { data: profile } = await supabase
+            .from('profiles').select('full_name').eq('id', user.id).single()
+
+        const { data: inserted, error } = await supabaseAdmin
+            .from('reviews')
+            .insert({
+                booking_id: booking.id,
+                car_id: booking.car_id,
+                user_id: user.id,
+                reviewer_name: firstName(profile?.full_name),
+                rating,
+                body,
+                source: 'bluefin',
+            })
+            .select('id')
+            .single()
+
+        // The unique booking_id is the real guard against a second review; this
+        // just turns its violation into a sentence.
+        if (error?.code === '23505') throw new Error('You have already reviewed this trip')
+        if (error) throw new Error(error.message)
+        return { id: inserted.id }
+    })
+
+// Guests may edit their own review; the public pages then show "Edited".
+export const updateReview = createServerFn({ method: 'POST' })
+    .inputValidator((input: ReviewInput & { reviewId: string }) => input)
+    .handler(async ({ data }) => {
+        const { user } = await requireUser()
+        const { rating, body } = cleanReviewInput(data)
+
+        const { data: updated, error } = await getServiceRoleClient()
+            .from('reviews')
+            .update({ rating, body, edited_at: new Date().toISOString() })
+            .eq('id', data.reviewId)
+            .eq('user_id', user.id)
+            .eq('source', 'bluefin')
+            .is('removed_at', null)
+            .select('id')
+
+        if (error) throw new Error(error.message)
+        if (!updated?.length) throw new Error('Review not found')
+        return { id: data.reviewId }
+    })
+
+// A guest deleting their own review really deletes it, which frees the trip to
+// be reviewed again. Contrast adminRemoveReview.
+export const deleteMyReview = createServerFn({ method: 'POST' })
+    .inputValidator((reviewId: string) => reviewId)
+    .handler(async ({ data: reviewId }) => {
+        const { user } = await requireUser()
+
+        const { data: deleted, error } = await getServiceRoleClient()
+            .from('reviews')
+            .delete()
+            .eq('id', reviewId)
+            .eq('user_id', user.id)
+            .is('removed_at', null)
+            .select('id')
+
+        if (error) throw new Error(error.message)
+        if (!deleted?.length) throw new Error('Review not found')
+        return { deleted: reviewId }
+    })
+
+// Everything the admin ratings page shows: visible reviews with the car's plate,
+// the completed-trip count for the stats row, and the fleet for the import form.
+export const getAdminReviews = createServerFn({ method: 'GET' })
+    .handler(async () => {
+        await requireAdmin()
+        const supabaseAdmin = getServiceRoleClient()
+
+        const [reviewsRes, tripsRes, carsRes] = await Promise.all([
+            supabaseAdmin
+                .from('reviews')
+                .select('id, car_id, rating, body, reviewer_name, source, created_at, edited_at, booking_id, user_id, cars(id, year, make, model, license_plate)')
+                .is('removed_at', null)
+                .order('created_at', { ascending: false }),
+            supabaseAdmin
+                .from('bookings')
+                .select('id', { count: 'exact', head: true })
+                .eq('status', 'completed'),
+            supabaseAdmin
+                .from('cars')
+                .select('id, year, make, model, license_plate, is_available')
+                .order('is_available', { ascending: false })
+                .order('make')
+                .order('model'),
+        ])
+
+        if (reviewsRes.error) throw new Error(reviewsRes.error.message)
+        if (tripsRes.error) throw new Error(tripsRes.error.message)
+        if (carsRes.error) throw new Error(carsRes.error.message)
+
+        return {
+            reviews: (reviewsRes.data ?? []) as unknown as AdminReview[],
+            completedTrips: tripsRes.count ?? 0,
+            cars: carsRes.data ?? [],
+        }
+    })
+
+// Admin removal hides the review but keeps the row, so the booking stays
+// reviewed and the same review can't simply be posted again.
+export const adminRemoveReview = createServerFn({ method: 'POST' })
+    .inputValidator((reviewId: string) => reviewId)
+    .handler(async ({ data: reviewId }) => {
+        await requireAdmin()
+
+        const { data: removed, error } = await getServiceRoleClient()
+            .from('reviews')
+            .update({ removed_at: new Date().toISOString() })
+            .eq('id', reviewId)
+            .is('removed_at', null)
+            .select('id')
+
+        if (error) throw new Error(error.message)
+        if (!removed?.length) throw new Error('Review not found or already removed')
+        return { removed: reviewId }
+    })
+
+// Hand-entered reviews carried over from Turo. They have no booking or user on
+// this site, which the table's check constraint allows only for source 'turo'.
+export const adminImportReview = createServerFn({ method: 'POST' })
+    .inputValidator((input: ReviewInput & { carId: number; reviewerName: string; reviewedOn: string }) => input)
+    .handler(async ({ data }) => {
+        await requireAdmin()
+        const { rating, body } = cleanReviewInput(data)
+
+        const reviewerName = data.reviewerName.trim().slice(0, REVIEWER_NAME_MAX)
+        if (!reviewerName) throw new Error('Enter the renter’s name')
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(data.reviewedOn)) throw new Error('Enter the review date')
+
+        const { data: inserted, error } = await getServiceRoleClient()
+            .from('reviews')
+            .insert({
+                car_id: data.carId,
+                reviewer_name: reviewerName,
+                rating,
+                body,
+                source: 'turo',
+                // Noon business time, so the stored instant can't slide onto a
+                // neighbouring day whichever zone it's later rendered in.
+                created_at: `${data.reviewedOn}T12:00:00-05:00`,
+            })
+            .select('id')
+            .single()
+
+        if (error) throw new Error(error.message)
+        return { id: inserted.id }
     })

@@ -7,6 +7,7 @@ import { NAV_HEIGHT } from "@/lib/layout.ts";
 
 const navLinks = [
     { name: "fleet", to: "/fleet" },
+    { name: "reviews", to: "/reviews" },
     { name: "about", to: "/about" },
     { name: "contact", to: "/contact" },
 ] as const;

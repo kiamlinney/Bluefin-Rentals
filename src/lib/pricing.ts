@@ -285,7 +285,7 @@ const EMPTY_QUOTE: TripQuote = {
     refundableSurchargeLabel: null,
     // Zero rather than the caller's pickupFee on purpose: EMPTY_QUOTE is returned
     // when there's no trip yet (no dates, or a non-positive duration), and a
-    // $140 delivery line under a $0 total would be a price for nothing.
+    // $120 delivery line under a $0 total would be a price for nothing.
     pickupFee: 0,
     pickupFeeLabel: null,
     total: 0,

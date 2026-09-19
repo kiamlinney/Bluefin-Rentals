@@ -272,7 +272,7 @@ function LocalContent() {
                     <p className="text-muted text-sm leading-relaxed">
                         Collect from our Saint Paul home base, MSP airport, the Grand Hotel
                         Minneapolis, or the MSP light rail station at no extra cost. Prefer the car
-                        brought to you? We deliver within 10 miles of Saint Paul for a flat $140.
+                        brought to you? We deliver within 10 miles of Saint Paul for a flat $120.
                     </p>
                 </div>
                 <div className="rounded-2xl border border-line bg-surface p-6">

@@ -13,7 +13,7 @@
 // The pickup choice reaches checkout through URL search params, which the
 // customer can edit freely. The previous design passed only the human-readable
 // address string and derived everything from it; pricing off that string would
-// mean `?pickupLocation=Free%20pickup` is a $140 discount. Everything here is
+// mean `?pickupLocation=Free%20pickup` is a $120 discount. Everything here is
 // keyed by an id that the server re-resolves against the tables below, and the
 // display string is *derived* from the id rather than trusted as input.
 
@@ -103,7 +103,7 @@ export function findPickupLocation(id: string): PickupLocation | undefined {
 // A custom delivery address is the only option that costs anything
 
 // Flat rather than per-mile
-export const DELIVERY_FEE = 140
+export const DELIVERY_FEE = 120
 export const DELIVERY_FEE_LABEL = 'Delivery'
 
 // The service-area boundary. Outside this delivery isn't offered at all
@@ -162,7 +162,7 @@ export type PickupSelection =
     // mid-way through typing, or they've edited a confirmed address past
     // recognition. Without a way to represent it, the picker would have to keep
     // reporting the *previous* verified address while the field says something
-    // else, and the card above would quote $140 for somewhere the customer has
+    // else, and the card above would quote $120 for somewhere the customer has
     // already typed over. Absent coordinates resolve to an error, which blocks
     // Continue until the address is confirmed again.
     //
@@ -272,7 +272,7 @@ export function resolvePickup(selection: PickupSelection): ResolvedPickup {
             label: selection.address,
             bookingLabel: selection.address,
             // Deliberately no fee on the rejected path. If this returned
-            // DELIVERY_FEE the quote would briefly show a $140 line for a trip
+            // DELIVERY_FEE the quote would briefly show a $120 line for a trip
             // that can't be booked, which reads as "pay more and we'll do it".
             fee: 0,
             feeLabel: null,

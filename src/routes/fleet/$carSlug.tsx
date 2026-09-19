@@ -3,7 +3,10 @@ import { getCarById } from "@/lib/db.ts";
 import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { z } from "zod";
 import { Users, Fuel, Gauge, Settings2, X, ChevronDown } from "lucide-react";
-import { getBookedDates, getCarPriceOverrides } from "@/lib/db.ts";
+import { getBookedDates, getCarPriceOverrides, getReviews } from "@/lib/db.ts";
+import { summarizeRatings } from "@/lib/reviews.ts";
+import { RatingSummary } from "@/components/reviews/RatingSummary.tsx";
+import { ReviewList } from "@/components/reviews/ReviewList.tsx";
 import { getUser } from "@/lib/auth.ts";
 import { carImageUrl, carMainImageUrl, carPhotoUrl } from "@/lib/car-images.ts";
 import {
@@ -78,8 +81,11 @@ export const Route = createFileRoute("/fleet/$carSlug")({
             })
         }
 
-        const user = await getUser().catch(() => null)
-        return { car, user }
+        const [user, reviews] = await Promise.all([
+            getUser().catch(() => null),
+            getReviews({ data: { carId: car.id } }),
+        ])
+        return { car, user, reviews }
     },
 
     // Meta tag generation to optimize SEO
@@ -243,7 +249,8 @@ const conflictMessage = (conflict: TripConflict): string => {
 const formatTriggerDate = (d: Date) => d.toLocaleDateString("en-US");
 
 function CarDetails() {
-    const { car, user } = Route.useLoaderData()
+    const { car, user, reviews } = Route.useLoaderData()
+    const reviewSummary = useMemo(() => summarizeRatings(reviews.map((r) => r.rating)), [reviews])
     // The rest of the page works in ids; the slug is only ever a URL concern.
     const carId = String(car.id)
     const search = Route.useSearch()
@@ -792,6 +799,24 @@ function CarDetails() {
                             Ratings and reviews
                         </h2>
 
+                        {reviews.length > 0 ? (
+                            <div className="mt-6 space-y-10">
+                                <RatingSummary
+                                    summary={reviewSummary}
+                                    includesTuro={reviews.some((r) => r.source === 'turo')}
+                                />
+                                <ReviewList reviews={reviews} />
+                            </div>
+                        ) : (
+                            <p className="mt-4 text-muted">No reviews for this car yet.</p>
+                        )}
+
+                        <Link
+                            to="/reviews"
+                            className="inline-block mt-6 text-sm font-semibold text-ink underline"
+                        >
+                            See reviews across our whole fleet
+                        </Link>
 
                     </div>
 

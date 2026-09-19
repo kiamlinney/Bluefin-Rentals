@@ -167,7 +167,7 @@ export function PriceBreakdown({
                             top. Delivery is applied after everything else because
                             it's a flat service charge that the duration discounts
                             deliberately don't touch (a 3-week trip pays the same
-                            $140 as a 2-day one), and printing it above them would
+                            $120 as a 2-day one), and printing it above them would
                             imply it had been discounted along with the rate. */}
                         {quote.pickupFee > 0 && (
                             <div className={rowClass}>

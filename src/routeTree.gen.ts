@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
+import { Route as ReviewsRouteImport } from './routes/reviews'
 import { Route as PoliciesRouteImport } from './routes/policies'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as FaqRouteImport } from './routes/faq'
@@ -50,6 +51,11 @@ const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
 const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
   id: '/robots.txt',
   path: '/robots.txt',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReviewsRoute = ReviewsRouteImport.update({
+  id: '/reviews',
+  path: '/reviews',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PoliciesRoute = PoliciesRouteImport.update({
@@ -214,6 +220,7 @@ export interface FileRoutesByFullPath {
   '/faq': typeof FaqRoute
   '/login': typeof LoginRoute
   '/policies': typeof PoliciesRouteWithChildren
+  '/reviews': typeof ReviewsRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/my-bookings': typeof AuthedMyBookingsRoute
@@ -246,6 +253,7 @@ export interface FileRoutesByTo {
   '/faq': typeof FaqRoute
   '/login': typeof LoginRoute
   '/policies': typeof PoliciesRouteWithChildren
+  '/reviews': typeof ReviewsRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/my-bookings': typeof AuthedMyBookingsRoute
@@ -281,6 +289,7 @@ export interface FileRoutesById {
   '/faq': typeof FaqRoute
   '/login': typeof LoginRoute
   '/policies': typeof PoliciesRouteWithChildren
+  '/reviews': typeof ReviewsRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authed/my-bookings': typeof AuthedMyBookingsRoute
@@ -316,6 +325,7 @@ export interface FileRouteTypes {
     | '/faq'
     | '/login'
     | '/policies'
+    | '/reviews'
     | '/robots.txt'
     | '/sitemap.xml'
     | '/my-bookings'
@@ -348,6 +358,7 @@ export interface FileRouteTypes {
     | '/faq'
     | '/login'
     | '/policies'
+    | '/reviews'
     | '/robots.txt'
     | '/sitemap.xml'
     | '/my-bookings'
@@ -382,6 +393,7 @@ export interface FileRouteTypes {
     | '/faq'
     | '/login'
     | '/policies'
+    | '/reviews'
     | '/robots.txt'
     | '/sitemap.xml'
     | '/_authed/my-bookings'
@@ -417,6 +429,7 @@ export interface RootRouteChildren {
   FaqRoute: typeof FaqRoute
   LoginRoute: typeof LoginRoute
   PoliciesRoute: typeof PoliciesRouteWithChildren
+  ReviewsRoute: typeof ReviewsRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
@@ -439,6 +452,13 @@ declare module '@tanstack/react-router' {
       path: '/robots.txt'
       fullPath: '/robots.txt'
       preLoaderRoute: typeof RobotsDottxtRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reviews': {
+      id: '/reviews'
+      path: '/reviews'
+      fullPath: '/reviews'
+      preLoaderRoute: typeof ReviewsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/policies': {
@@ -725,6 +745,7 @@ const rootRouteChildren: RootRouteChildren = {
   FaqRoute: FaqRoute,
   LoginRoute: LoginRoute,
   PoliciesRoute: PoliciesRouteWithChildren,
+  ReviewsRoute: ReviewsRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,

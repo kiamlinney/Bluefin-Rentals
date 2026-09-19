@@ -267,12 +267,6 @@ function DeliveryPanel({
             return
         }
 
-        // Verification lost. The new text is lifted *without* coordinates rather
-        // than leaving the old selection in place: the parent would otherwise go
-        // on quoting $140 for the address the customer has just typed over, with
-        // the card showing one address and the field showing another. Coordinate-
-        // less delivery resolves to an error, so the price drops away and Continue
-        // blocks until an address is picked again.
         if (verified) setVerified(null)
         onChange({ kind: 'delivery', address: next })
     }

@@ -5,6 +5,8 @@ export type Booking = Database['public']['Tables']['bookings']['Row']
 export type Profile = Database['public']['Tables']['profiles']['Row']
 export type CarPriceOverride = Database['public']['Tables']['car_price_overrides']['Row']
 export type CarBlockedDate = Database['public']['Tables']['car_blocked_dates']['Row']
+export type Review = Database['public']['Tables']['reviews']['Row']
+export type TuroBooking = Database['public']['Tables']['turo_bookings']['Row']
 
 // --- Composite row types -----------------------------------------------------
 //
@@ -88,3 +90,33 @@ export type UserTripSummary = Pick<Booking, 'id' | 'start_time' | 'end_time' | '
 // `uploaded_by`. Already modelled as `TripMediaItem` in src/lib/trip-media.ts,
 // which also carries a resolved signed `url` that isn't a column at all, so it
 // stays there rather than being restated here.
+
+// getReviews and getBookingReview:
+//     .select(PUBLIC_REVIEW_COLUMNS)  (db.ts)
+// What the public pages see. user_id and booking_id are read server-side only
+// to work out `is_mine` and are stripped before the payload leaves, so they're
+// deliberately absent here. `cars` is non-nullable for the same reason as the
+// booking embeds above: reviews.car_id is NOT NULL with an FK to cars.
+export type PublicReview = Pick<
+    Review,
+    'id' | 'car_id' | 'rating' | 'body' | 'reviewer_name' | 'source' | 'created_at' | 'edited_at'
+> & {
+    cars: Pick<Car, 'id' | 'year' | 'make' | 'model'>
+    is_mine: boolean
+}
+
+// getAdminReviews: the public columns plus who wrote it and the car's plate,
+// which the admin list shows next to the car name.
+export type AdminReview = Pick<
+    Review,
+    | 'id' | 'car_id' | 'rating' | 'body' | 'reviewer_name' | 'source'
+    | 'created_at' | 'edited_at' | 'booking_id' | 'user_id'
+> & {
+    cars: Pick<Car, 'id' | 'year' | 'make' | 'model' | 'license_plate'>
+}
+
+// getReviewableTrips:
+//     .select('id, start_time, end_time, cars(id, year, make, model)')
+export type ReviewableTrip = Pick<Booking, 'id' | 'start_time' | 'end_time'> & {
+    cars: Pick<Car, 'id' | 'year' | 'make' | 'model'>
+}

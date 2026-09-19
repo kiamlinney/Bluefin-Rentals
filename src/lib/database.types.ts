@@ -291,6 +291,70 @@ export type Database = {
         }
         Relationships: []
       }
+      reviews: {
+        Row: {
+          body: string
+          booking_id: string | null
+          car_id: number
+          created_at: string
+          edited_at: string | null
+          id: string
+          rating: number
+          removed_at: string | null
+          reviewer_name: string
+          source: string
+          user_id: string | null
+        }
+        Insert: {
+          body: string
+          booking_id?: string | null
+          car_id: number
+          created_at?: string
+          edited_at?: string | null
+          id?: string
+          rating: number
+          removed_at?: string | null
+          reviewer_name: string
+          source?: string
+          user_id?: string | null
+        }
+        Update: {
+          body?: string
+          booking_id?: string | null
+          car_id?: number
+          created_at?: string
+          edited_at?: string | null
+          id?: string
+          rating?: number
+          removed_at?: string | null
+          reviewer_name?: string
+          source?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reviews_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: true
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reviews_car_id_fkey"
+            columns: ["car_id"]
+            isOneToOne: false
+            referencedRelation: "cars"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reviews_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trip_media: {
         Row: {
           booking_id: string

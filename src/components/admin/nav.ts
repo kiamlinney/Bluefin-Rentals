@@ -26,7 +26,7 @@ export const adminNav: AdminNavItem[] = [
         icon: LineChart,
         children: [
            // { label: 'Earnings', path: '/admin/business/earnings'},
-            { label: 'Ratings & Reviews', path: '/admin/business/ratings-reviews'},
+            { label: 'Ratings & reviews', path: '/admin/business/ratings-reviews'},
            // { label: 'Tax Information', path: '/admin/business/tax-information'},
            // { label: 'Transaction History', path: '/admin/business/transaction-history'},
         ],

@@ -98,8 +98,6 @@ export async function geocodeAddresses(query: string): Promise<AddressSuggestion
     // results found", which reads like the address doesn't exist.
     url.searchParams.set('proximity', `${HOME_BASE.lng},${HOME_BASE.lat}`)
     url.searchParams.set('country', 'us')
-    // Street addresses only. A city or region centroid would geocode fine and
-    // then quote a $140 delivery to somewhere nobody can actually meet.
     url.searchParams.set('types', 'address')
     url.searchParams.set('limit', String(RESULT_LIMIT))
     url.searchParams.set('access_token', token)

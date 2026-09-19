@@ -2,7 +2,9 @@ import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { CarFront, Check, Plane } from 'lucide-react'
-import { getTripForGuest, type TripPaymentState } from '@/lib/db'
+import { getBookingReview, getTripForGuest, type TripPaymentState } from '@/lib/db'
+import { ReviewItem } from '@/components/reviews/ReviewList'
+import { ReviewDialog } from '@/components/reviews/ReviewDialog'
 import { buildCheckoutSearch } from '@/lib/checkout-search'
 import type { BookingRate } from '@/lib/booking-rate'
 import { carSlug } from '@/lib/slug'
@@ -25,7 +27,13 @@ export const Route = createFileRoute('/_authed/trips/$bookingId')({
     validateSearch: z.object({
         booked: z.literal('1').optional(),
     }),
-    loader: async ({ params }) => getTripForGuest({ data: params.bookingId }),
+    loader: async ({ params }) => {
+        const [trip, review] = await Promise.all([
+            getTripForGuest({ data: params.bookingId }),
+            getBookingReview({ data: params.bookingId }),
+        ])
+        return { ...trip, review }
+    },
     component: TripPage,
 })
 
@@ -47,7 +55,7 @@ const STATUS_BADGE: Record<string, string> = {
 }
 
 function TripPage() {
-    const { booking, paymentState, card } = Route.useLoaderData()
+    const { booking, paymentState, card, review, isAdmin } = Route.useLoaderData()
     const { booked } = Route.useSearch()
     const router = useRouter()
 
@@ -178,6 +186,10 @@ function TripPage() {
                                 : 'Bring your driver’s license. Take a few photos of the car when you pick it up, so its condition at handover is on record.'}
                         </p>
                     </div>
+                )}
+
+                {booking.status === 'completed' && (
+                    <TripReview booking={booking} review={review} isAdmin={isAdmin} />
                 )}
 
                 {/* Photos. Available regardless of payment state — a guest sorting
@@ -394,6 +406,78 @@ function ProcessingPayment({ onRecheck }: { onRecheck: () => void }) {
         </div>
     )
 }
+
+// Completed trips only 
+function TripReview({
+    booking,
+    review,
+    isAdmin,
+}: {
+    booking: TripData['booking']
+    review: TripData['review']
+    isAdmin: boolean
+}) {
+    const router = useRouter()
+    const [writing, setWriting] = useState(false)
+
+    if (review?.removed) {
+        return (
+            <div className="bg-surface border border-line rounded-2xl p-6">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-ink">Your review</h3>
+                <p className="text-sm text-muted mt-2">This review was removed by BlueFin.</p>
+            </div>
+        )
+    }
+
+    if (review) {
+        return (
+            <div className="bg-surface border border-line rounded-2xl p-6">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-ink mb-3">
+                    {review.is_mine ? 'Your review' : 'Guest review'}
+                </h3>
+                <ReviewItem review={review} />
+            </div>
+        )
+    }
+
+    if (isAdmin) return null
+
+    return (
+        <div className="bg-surface border border-line rounded-2xl p-6 flex items-center justify-between gap-4">
+            <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-ink">How was your trip?</h3>
+                <p className="text-sm text-muted mt-1">
+                    Your review is shown on this car’s page and helps other guests choose.
+                </p>
+            </div>
+            <button
+                onClick={() => setWriting(true)}
+                className="shrink-0 px-4 py-2 rounded-lg bg-brand text-on-brand text-sm font-semibold hover:opacity-90 transition-opacity cursor-pointer"
+            >
+                Write a review
+            </button>
+
+            {writing && (
+                <ReviewDialog
+                    mode="create"
+                    trips={[{
+                        id: booking.id,
+                        start_time: booking.start_time,
+                        end_time: booking.end_time,
+                        cars: booking.cars,
+                    }]}
+                    onClose={() => setWriting(false)}
+                    onSaved={async () => {
+                        await router.invalidate()
+                        setWriting(false)
+                    }}
+                />
+            )}
+        </div>
+    )
+}
+
+type TripData = ReturnType<typeof Route.useLoaderData>
 
 // CancelTrip used to live here. It moved to
 // src/components/CancelTripDialog.tsx and is rendered only from the
