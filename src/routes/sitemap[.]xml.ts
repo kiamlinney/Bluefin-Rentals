@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { createClient } from '@supabase/supabase-js'
-import { absoluteUrl } from '@/lib/site'
+import { absoluteUrl, ALLOW_INDEXING } from '@/lib/site'
 import { carSlug } from '@/lib/slug'
 import { POLICY_PAGES } from '@/lib/policies'
 
@@ -50,6 +50,14 @@ export const Route = createFileRoute('/sitemap.xml')({
     server: {
         handlers: {
             GET: async () => {
+                // Nothing to submit while the site is held out of the index. Served
+                // as 404 rather than an empty urlset so a crawler treats it as absent
+                // instead of as an explicit claim that the site has no pages — and so
+                // the cars query below doesn't run for a document nobody should use.
+                if (!ALLOW_INDEXING) {
+                    return new Response('Not found', { status: 404 })
+                }
+
                 const supabase = createClient(
                     process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL,
                     import.meta.env.VITE_SUPABASE_ANON_KEY,
