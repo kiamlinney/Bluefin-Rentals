@@ -1,4 +1,4 @@
-import { CalendarDays, Car, History, LineChart, MessageSquareShare, ShieldAlert, ReceiptText, Banknote } from 'lucide-react'
+import { CalendarDays, Car, LineChart } from 'lucide-react'
 
 export type AdminNavItem = {
     label: string

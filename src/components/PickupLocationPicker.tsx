@@ -366,13 +366,15 @@ function DeliveryPanel({
 
             {/* hasSearched gates this so it doesn't flash between the debounce
                 firing and the response landing, when results is legitimately
-                still empty. */}
-
-            {/*{hasSearched && !isSearching && results.length === 0 && (*/}
-            {/*    <p className="text-xs text-muted">*/}
-            {/*        We couldn't find that address. Try including the city and ZIP code.*/}
-            {/*    </p>*/}
-            {/*)}*/}
+                still empty. Without the message, a search that matches nothing
+                renders nothing at all, and the customer can't tell a bad address
+                from a broken lookup — which matters here, because delivery is the
+                one pickup option that depends on MAPBOX_TOKEN and a geocode hit. */}
+            {hasSearched && !isSearching && results.length === 0 && (
+                <p className="text-xs text-muted">
+                    We couldn't find that address. Try including the city and ZIP code.
+                </p>
+            )}
 
             {/* Only reachable once a suggestion has been accepted, which is what
                 makes it the confirmation step: the customer has seen the distance,

@@ -39,15 +39,24 @@ function parseCellKey(key: CellKey) : { carId: number; dateIndex: number } {
 // Builds an array of 365 consecutive Date objects starting today
 // Plain array, virtualizer doesn't care what's "inside" each
 // item, it only needs to know how many there are (its count)
-function buildDateRange(days: number): Date[] {
+// Typed non-empty ([Date, ...Date[]]) because it always is — the range starts at
+// today whatever `days` says. Under noUncheckedIndexedAccess that's what lets
+// dateRange[0] be a Date instead of Date | undefined, so the month label below
+// doesn't need a cast to satisfy MonthPicker.
+function buildDateRange(days: number): [Date, ...Date[]] {
     const today = new Date()
     today.setHours(0, 0, 0, 0) // normalize to midnight so math is clean
 
-    return Array.from({ length: days }, (_, i) => {
+    const dayOffsetFromToday = (offset: number) => {
         const d = new Date(today) // crucial to have a copy of today rather than mutating it directly
-        d.setDate(today.getDate() + i)
+        d.setDate(today.getDate() + offset)
         return d
-    })
+    }
+
+    return [
+        dayOffsetFromToday(0),
+        ...Array.from({ length: Math.max(days - 1, 0) }, (_, i) => dayOffsetFromToday(i + 1)),
+    ]
 }
 
 function formatDayLabel(date: Date) {
@@ -539,9 +548,15 @@ export function CalendarGrid({
                         {/* Date column headers */}
                         <div className="relative" style={{ width: totalGridWidth }}>
                             {virtualColumns.map((virtualColumn) => {
+                                // The virtualizer only ever hands back indexes inside
+                                // dateRange, so this is defensive rather than expected —
+                                // but it's what lets the rest of the block treat `date`
+                                // as a Date instead of guarding on every use.
                                 const date = dateRange[virtualColumn.index]
+                                if (!date) return null
+
                                 const { weekday, dayNum } = formatDayLabel(date)
-                                const isWeekend = date?.getDay() === 0 || date?.getDay() === 6
+                                const isWeekend = date.getDay() === 0 || date.getDay() === 6
                                 const isToday = virtualColumn.index === 0
 
                                 // A column is "active" when every car has this dateIndex in selectedCells

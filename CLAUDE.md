@@ -11,9 +11,18 @@ BlueFin Rentals — a self-hosted car rental platform migrating BlueFin Rentals 
 ```bash
 npm run dev     # vite dev — TanStack Start dev server
 npm run build   # vite build — outputs to dist/client and dist/server
-npm run start   # BROKEN: points at .output/server/index.mjs, but the build now emits dist/server/server.js (a fetch handler, not a runnable Node server). Needs a hosting target before it can serve.
+npm run start   # serves the production build on :3000 via srvx (run `npm run build` first)
 npx tsc --noEmit   # type-check (no dedicated script in package.json)
 ```
+
+`npm run start` is `srvx serve --prod --entry dist/server/server.js --static ../client`.
+**The `--static` path is relative to the entry file's directory, not the cwd** — srvx
+resolves it as `resolve(dirname(entry), static)` (`node_modules/srvx/dist/cli.mjs:24`),
+so from `dist/server` the client build is `../client`. Writing `dist/client` there
+silently resolves to `dist/server/dist/client`, finds nothing, and falls back to serving
+`public/` — the server still boots and SSR still returns 200, but every asset 404s and
+the site renders as unstyled HTML with no JS. The startup banner is the tell: it must
+read `Static files: ./dist/client/`, not `(create public/ dir)`.
 
 There is no test suite in this repo. `eslint.config.js` exists but `eslint` is not installed (missing from `package.json`/`node_modules`), so linting is currently non-functional — don't rely on `npm run lint`.
 
@@ -22,7 +31,7 @@ There is no test suite in this repo. `eslint.config.js` exists but `eslint` is n
 ### TanStack Start structure
 
 - `src/router.tsx` builds the router from the auto-generated `src/routeTree.gen.ts`. **Never hand-edit `routeTree.gen.ts`** — it's regenerated from the `src/routes/` file tree.
-- `src/ssr.tsx` is the server entry (`createStartHandler`); `src/client.tsx` hydrates on the client.
+- There is **no hand-written server entry**. `vite build` emits `dist/server/server.js`, which default-exports a `{ fetch }` handler wired up by the Start plugin's own default entry (`createStartHandler(defaultStreamHandler)`). A `src/ssr.tsx` used to exist here and was deleted: it was written against an older API (`{ router, streamHandler }`), the plugin had stopped picking it up, and it only ever produced a type error. Don't re-add one unless you actually need to customise the handler — and if you do, match the current signature, which takes either the stream handler directly or `{ handler, transformAssets }`. `src/client.tsx` hydrates on the client.
 - Routes live in `src/routes/` using TanStack Router's file-based conventions: dot-segments nest under a layout route (e.g. `_authed.checkout.$carId.tsx` is nested under `_authed.tsx`), and directories mirror URL paths (e.g. `admin/trips/booked.tsx` → `/admin/trips/booked`).
 - `src/routes/__root.tsx` loads `getUserWithProfile()` in its root loader and renders `<Navbar>` for all non-`/admin` routes.
 

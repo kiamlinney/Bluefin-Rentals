@@ -3,10 +3,13 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "start": "node .output/server/index.mjs",
+    "start": "srvx serve --prod --entry dist/server/server.js --static ../client",
     "gen:types": "supabase gen types typescript --linked --schema public > /tmp/db.types.ts && mv /tmp/db.types.ts src/lib/database.types.ts"
   },
   "dependencies": {
