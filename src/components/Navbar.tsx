@@ -148,7 +148,7 @@ const Navbar = ({ user }: { user: any | null }) => {
                 "sticky top-0 h-14 w-full z-50 flex items-center justify-between px-6 md:px-8 border-b-[0.5px] transition-colors duration-300 print:hidden",
                 overHero
                     ? "bg-transparent border-white/25 text-white"
-                    : "bg-page/90 backdrop-blur-md border-line text-ink",
+                    : "bg-page backdrop-blur-md border-line text-ink",
             )}
         >
             {/* Logo Section. One size smaller on phones so the logo and the

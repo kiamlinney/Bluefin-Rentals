@@ -105,7 +105,7 @@ function Home() {
                 edge to edge. sticky keeps it pinned while the content sheet below
                 scrolls up over it. No overflow-hidden: the video can't overflow
                 (object-cover), and clipping here would cut off the SearchBar's
-                location and date popovers. */}
+                date popover. */}
             <section className="sticky top-0 h-svh -mt-14">
                 <video
                     ref={videoRef}
@@ -140,10 +140,11 @@ function Home() {
                 <div className="absolute inset-0 bg-black/40 sm:bg-transparent sm:bg-gradient-to-r sm:from-black/60 sm:via-black/25 sm:to-transparent"></div>
 
                 {/* Phones: the copy sits near the top (pt-20 clears the navbar)
-                    instead of being vertically centred. When the search bar
-                    opens it stacks to about 200px tall, and centred it sat low
-                    enough that the date picker had no room below it. From sm up
-                    the bar is a single row, so centring works fine. */}
+                    instead of being vertically centred, so the stacked search
+                    bar stays well clear of the bottom of the screen. The date
+                    picker itself opens as a bottom sheet there, so it no longer
+                    depends on room below the bar. From sm up the bar is a
+                    single row, so centring works fine. */}
                 <div className="relative z-10 h-full flex items-start pt-20 sm:items-center sm:pt-0">
                     {/* px-6 on phones lines the headline up with the logo and
                         with every section below, which all use px-6.
@@ -152,7 +153,7 @@ function Home() {
                         single centred block on a narrow screen. From sm up it
                         goes back to left-aligned, matching the left-weighted
                         scrim. */}
-                    <div ref={copyRef} className="w-full px-6 pt-12 sm:pt-0 sm:px-12 lg:px-20 pb-42 text-center sm:text-left will-change-[opacity]">
+                    <div ref={copyRef} className="w-full px-6 pt-8 sm:pt-0 sm:px-12 lg:px-20 pb-42 text-center sm:text-left will-change-[opacity]">
                         {/* One h1 per page; the line break is presentation, not structure. */}
                         {/* Preflight resets h1 to font-size:inherit, so the base size
                             has to be stated or mobile renders this at body size. */}
@@ -167,7 +168,7 @@ function Home() {
                         
                         <div
                             className={cn(
-                                'mt-8 mx-auto sm:mx-0 flex flex-col items-center gap-4 sm:flex-row sm:flex-wrap sm:gap-x-8',
+                                'mt-6 sm:mt-8 mx-auto sm:mx-0 flex flex-col items-center gap-4 sm:flex-row sm:flex-wrap sm:gap-x-8',
                                 !showBar && 'max-w-[240px] sm:max-w-none',
                             )}
                         >
@@ -179,7 +180,7 @@ function Home() {
                             {!showBar ? (
                                 <button
                                     onClick={() => setShowBar(true)}
-                                    className="h-16 w-full rounded-full bg-white shadow-lg border border-line text-ink font-semibold flex items-center justify-center gap-2 hover:bg-cream-100 transition-colors cursor-pointer"
+                                    className="h-14 sm:h-16 w-full rounded-full bg-white shadow-lg border border-line text-ink font-semibold flex items-center justify-center gap-2 hover:bg-cream-100 transition-colors cursor-pointer"
                                 >
                                     Book Now <MoveUpRight size={14}/>
                                 </button>

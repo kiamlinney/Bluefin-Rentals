@@ -14,7 +14,7 @@ const OPTIONS: { mode: PaymentMode; label: string; description: string }[] = [
     {
         mode: 'other',
         label: 'Other payment options',
-        description: 'Bank account, Cash App Pay, Amazon Pay, Affirm or Klarna.',
+        description: 'Cash App Pay, Amazon Pay, Affirm or Klarna.',
     },
 ]
 

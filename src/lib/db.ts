@@ -613,9 +613,17 @@ async function quoteTripOnServer(input: {
 // ineligible type makes the whole PaymentIntent fail to create.
 export type PaymentMode = 'card' | 'other'
 
+// us_bank_account (ACH) is deliberately left out, and must not be added back
+// without first changing how bookings hold a car. ACH sits in `processing` for
+// ~4 business days, far beyond PENDING_HOLD_MS: the hold lapses, the sweep marks
+// the row `expired`, someone else books those dates, and when the debit finally
+// clears the webhook's `payment_intent.succeeded` revives the expired row to
+// `confirmed` — two paid bookings on one car. (Reviving expired rows is correct
+// for a late *card* payment; see CLAUDE.md.) It can also bounce after the guest
+// has driven off. Every method here must settle within the hold.
 const PAYMENT_METHOD_TYPES: Record<PaymentMode, string[]> = {
     card: ['card'],
-    other: ['us_bank_account', 'cashapp', 'affirm', 'klarna', 'amazon_pay'],
+    other: ['cashapp', 'affirm', 'klarna', 'amazon_pay'],
 }
 
 // Whether an existing intent already offers exactly this mode's methods.

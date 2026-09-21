@@ -25,18 +25,18 @@ function About() {
                         <h1 className="text-4xl md:text-5xl tracking-tight mb-6">About Us</h1>
                         <div className="space-y-4 text-lg text-muted leading-relaxed max-w-prose">
                             <p>
-                                BlueFin Rentals is a small, locally owned car rental company
-                                based in Saint Paul. We've rented with Turo for over 3 years,
+                                Bluefin Rentals is a small, locally owned car rental company
+                                based in Saint Paul. We've rented on Turo for over 3 years,
                                 with over 700 trips and a 5.0 star rating.
                             </p>
                             <p>
                                 There's no rental counter and no call center. When you book with
-                                us, you're dealing with the people who own the car... blah blah stuff
+                                us, you're dealing with the people who own the car.
                             </p>
                         </div>
                     </div>
 
-                    <PhotoPlaceholder className="bg-surface" />
+                    <OwnersPhoto />
                 </div>
             </section>
 
@@ -96,4 +96,19 @@ function About() {
 // aria-hidden because an empty box means nothing to a screen reader.
 function PhotoPlaceholder({ className }: { className?: string }) {
     return <div aria-hidden="true" className={cn('aspect-[4/3] w-full rounded-2xl border border-line', className)} />
+}
+
+// The source photo is portrait (3:4) but the box is landscape (4:3), so
+// object-cover crops it; object-[center_35%] shifts that crop up from centre
+// so the faces sit in frame rather than the vests.
+function OwnersPhoto() {
+    return (
+        <img
+            src="/about.jpg"
+            alt="Jade and Nick, the owners of Bluefin Rentals."
+            width={1200}
+            height={1600}
+            className="aspect-[4/3] w-full rounded-2xl object-cover object-[center_35%]"
+        />
+    )
 }

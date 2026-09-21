@@ -63,15 +63,21 @@ const stripeAppearance = {
 
 export const Route = createFileRoute('/_authed/checkout/$carId')({
     validateSearch: checkoutSearchSchema,
-    loader: async ({ params }) => {
+    loader: async ({ params, context }) => {
         // Promise.all fetches all three in parallel — faster than awaiting
         // sequentially. If any throws, the loader fails and TanStack Router
         // shows the errorComponent rather than rendering a broken checkout.
         //
         // priceOverrides is here so the trip summary can show a real breakdown.
+        //
+        // Signed-out visitors do reach this route now — the car page lets
+        // anyone press Continue, and _authed shows them the sign-in form in
+        // place of the checkout. getProfile throws without a session, so it's
+        // skipped for them; signing in invalidates the router and re-runs this
+        // loader with the real profile.
         const [car, profile, priceOverrides] = await Promise.all([
             getCarById({ data: params.carId }),
-            getProfile(),
+            context.isLoggedIn ? getProfile() : Promise.resolve(null),
             getCarPriceOverrides({ data: params.carId }),
         ])
         return { car, profile, priceOverrides }
@@ -94,8 +100,22 @@ const buildDateTime = (dateInput: string, time: string): string =>
     wallClockToUtcIso(dateInput.slice(0, 10), time)
 
 // ── CheckoutPage ──────────────────────────────────────────────────────────────
+//
+// Keyed on the profile so the checkout rebuilds its state when the real
+// profile arrives. That happens when someone signs up or logs in right here:
+// _authed's beforeLoad flips to logged-in before this route's loader has
+// re-run, so CheckoutFlow first mounts on the signed-out load's data
+// (profile: null). Its state is seeded once at mount — the starting step,
+// currentProfile, the driver form — so without the remount it kept that null
+// for good: a returning, ID-verified customer was sent back to step 1 with a
+// blank form, and a new one had to retype the email they'd just signed up with.
 
 function CheckoutPage() {
+    const { profile } = Route.useLoaderData()
+    return <CheckoutFlow key={profile?.id ?? 'signed-out'} />
+}
+
+function CheckoutFlow() {
     const { car, profile: initialProfile, priceOverrides } = Route.useLoaderData()
     const { carId } = Route.useParams()
     const search = Route.useSearch()

@@ -1,13 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Search, MapPin } from 'lucide-react'
+import { Search } from 'lucide-react'
 import { TripCalendar } from '@/components/TripCalendar.tsx'
 import { dateKeyToLocalDate, toDateKey } from '@/lib/pricing.ts'
 
-export type LocationCode = 'MSP' | 'stpaul-mpls'
 
 export type SearchBarValue = {
-    location: LocationCode
     start?: Date | null
     end?: Date | null
 }
@@ -15,15 +13,9 @@ export type SearchBarValue = {
 // What a caller may hand us as a starting value. Dates arrive from the URL as
 // 'YYYY-MM-DD' keys, so strings are accepted alongside real Dates.
 export type SearchBarInitial = {
-    location?: LocationCode
     start?: Date | string | null
     end?: Date | string | null
 }
-
-const LOCATIONS: { value: LocationCode; label: string; section: 'Airports' | 'Cities' }[] = [
-    { value: 'MSP', label: 'MSP – Minneapolis–Saint Paul International Airport', section: 'Airports' },
-    { value: 'stpaul-mpls', label: 'Minneapolis–St Paul (metro)', section: 'Cities' },
-]
 
 function coerceDate(v: Date | string | null | undefined): Date | null {
     if (!v) return null
@@ -52,49 +44,21 @@ export function SearchBar({
 }) {
     const navigate = useNavigate()
 
-    // Value state (stable codes for location)
-    const [location, setLocation] = useState<LocationCode>(
-        (initial?.location as LocationCode) ?? 'MSP',
-    )
     const [start, setStart] = useState<Date | null>(coerceDate(initial?.start))
     const [end, setEnd] = useState<Date | null>(coerceDate(initial?.end))
-
-    // Popover state
-    const [openLocation, setOpenLocation] = useState(false)
     const [openCalendar, setOpenCalendar] = useState(false)
 
     const canSearch = useMemo(() => !!start && !!end, [start, end])
 
-    // Close the location popover on outside click or Escape. The calendar
-    // popover handles its own dismissal inside TripCalendar.
-    const locRef = useRef<HTMLDivElement>(null)
+    // The calendar handles its own outside-click and Escape dismissal.
     const calTriggerRef = useRef<HTMLButtonElement>(null)
-    useEffect(() => {
-        function onDocClick(e: MouseEvent) {
-            const t = e.target as Node
-            if (openLocation && locRef.current && !locRef.current.contains(t)) setOpenLocation(false)
-        }
-        function onKey(e: KeyboardEvent) {
-            if (e.key === 'Escape') setOpenLocation(false)
-        }
-        document.addEventListener('mousedown', onDocClick)
-        document.addEventListener('keydown', onKey)
-        return () => {
-            document.removeEventListener('mousedown', onDocClick)
-            document.removeEventListener('keydown', onKey)
-        }
-    }, [openLocation])
 
     // Stable so TripCalendar's listener effect doesn't resubscribe each render.
     const closeCalendar = useCallback(() => setOpenCalendar(false), [])
 
     function handleSearch() {
         if (!start || !end) return
-        const payload: Required<SearchBarValue> = {
-            location,
-            start,
-            end,
-        }
+        const payload: Required<SearchBarValue> = { start, end }
         // Navigate with URL as the source of truth. Bare 'YYYY-MM-DD' keys
         // rather than toISOString(): a full UTC instant shifts the calendar day
         // by one for anyone west of Greenwich, and the car page has to read
@@ -102,18 +66,12 @@ export function SearchBar({
         navigate({
             to: '/fleet',
             search: () => ({
-                location,
                 start: toDateKey(start),
                 end: toDateKey(end),
             }),
         })
         onSubmit?.(payload)
     }
-
-    const locationLabel = useMemo(
-        () => LOCATIONS.find((l) => l.value === location)?.label ?? 'Select location',
-        [location],
-    )
 
     return (
         <div
@@ -131,66 +89,15 @@ export function SearchBar({
             role="search"
             aria-label="Trip search"
         >
-            {/* Location */}
-            <div ref={locRef} className="relative sm:flex-1 sm:h-full">
-                <button
-                    type="button"
-                    aria-haspopup="listbox"
-                    aria-expanded={openLocation}
-                    onClick={() => setOpenLocation((v) => !v)}
-                    className="h-16 sm:h-full w-full px-6 sm:px-8 py-2 flex flex-col justify-center rounded-t-3xl sm:rounded-tr-none sm:rounded-l-full hover:bg-subtle transition-colors text-left cursor-pointer"
-                >
-          <span className="text-[12px] font-semibold tracking-wide">
-            Where
-          </span>
-          <span className="text-[15px] sm:w-50 text-muted truncate pr-4 block">
-           {locationLabel}
-          </span>
-                </button>
-
-                {openLocation && (
-                    <div
-                        role="listbox"
-                        aria-label="Pickup location"
-                        className="absolute top-full left-0 mt-3 w-full sm:w-[420px] bg-surface rounded-2xl shadow-2xl border border-line py-3 z-50"
-                    >
-                        <Section label="Airports" />
-                        {LOCATIONS.filter((l) => l.section === 'Airports').map((opt) => (
-                            <LocationOption
-                                key={opt.value}
-                                option={opt}
-                                active={location === opt.value}
-                                onSelect={() => {
-                                    setLocation(opt.value)
-                                    setOpenLocation(false)
-                                }}
-                            />
-                        ))}
-                        <Section label="Cities" />
-                        {LOCATIONS.filter((l) => l.section === 'Cities').map((opt) => (
-                            <LocationOption
-                                key={opt.value}
-                                option={opt}
-                                active={location === opt.value}
-                                onSelect={() => {
-                                    setLocation(opt.value)
-                                    setOpenLocation(false)
-                                }}
-                            />
-                        ))}
-                    </div>
-                )}
-            </div>
-
             {/* Dates (range) */}
-            <div className="relative sm:flex-[1.4] sm:h-full">
+            <div className="relative sm:flex-1 sm:h-full">
                 <button
                     ref={calTriggerRef}
                     type="button"
                     aria-haspopup="dialog"
                     aria-expanded={openCalendar}
                     onClick={() => setOpenCalendar((v) => !v)}
-                    className="h-16 sm:h-full w-full px-6 sm:px-8 py-2 flex flex-col justify-center hover:bg-subtle transition-colors text-left cursor-pointer"
+                    className="h-14 sm:h-full w-full px-6 sm:px-8 py-2 flex flex-col justify-center rounded-t-3xl sm:rounded-tr-none sm:rounded-l-full hover:bg-subtle transition-colors text-left cursor-pointer"
                 >
           <span className="text-[12px] font-semibold tracking-wide">
             Dates
@@ -259,41 +166,5 @@ export function SearchBar({
                 </button>
             </div>
         </div>
-    )
-}
-
-function Section({ label }: { label: string }) {
-    return (
-        <div className="px-4 pb-2 pt-1 text-xs font-semibold text-muted uppercase tracking-wider">
-            {label}
-        </div>
-    )
-}
-
-function LocationOption({
-                            option,
-                            active,
-                            onSelect,
-                        }: {
-    option: { value: LocationCode; label: string }
-    active: boolean
-    onSelect: () => void
-}) {
-    return (
-        <button
-            type="button"
-            role="option"
-            aria-selected={active}
-            onClick={onSelect}
-            className={[
-                'w-full text-left px-4 py-3 flex items-center gap-3 transition-colors cursor-pointer',
-                active ? 'bg-subtle text-ink' : 'hover:bg-subtle text-muted',
-            ].join(' ')}
-        >
-            <div className={['p-2 rounded-lg', active ? 'bg-brand' : 'bg-cream-200'].join(' ')}>
-                <MapPin size={18} className={active ? 'text-on-brand' : 'text-muted'} />
-            </div>
-            <span className="text-sm font-medium">{option.label}</span>
-        </button>
     )
 }

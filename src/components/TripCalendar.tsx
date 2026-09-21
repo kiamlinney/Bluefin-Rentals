@@ -11,6 +11,13 @@
 //
 // The component owns the popover panel, the outside-click listener and Escape
 // handling. Callers own only the open flag and what a selection means.
+//
+// On phones the panel isn't anchored to the trigger at all: it's a bottom
+// sheet over a dimmed page, with the page's own scroll locked. Anchored, it
+// had to share the viewport with whatever sat above the trigger — on a real
+// iPhone (shorter than devtools once Safari's toolbars are counted) that left
+// room for about one week, and a swipe that missed the calendar's own scroller
+// scrolled the page up over it instead.
 
 import {
     useEffect,
@@ -21,6 +28,8 @@ import {
     type ReactNode,
     type RefObject,
 } from 'react'
+import { createPortal } from 'react-dom'
+import { X } from 'lucide-react'
 import { DayPicker, type ClassNames, type Matcher } from 'react-day-picker'
 import 'react-day-picker/style.css'
 import type { DateSpan } from '@/lib/availability.ts'
@@ -64,6 +73,12 @@ export type TripCalendarProps = TripCalendarBase &
 // caller omits the prop.
 const NO_SPANS: DateSpan[] = []
 
+// Below Tailwind's `sm`. The day-cell sizes in tripCalendarClassNames switch at
+// the same breakpoint, so the bigger cells only ever appear inside the sheet.
+const SHEET_QUERY = '(max-width: 639px)'
+
+const SHEET_TITLES = { range: 'Choose dates', start: 'Trip start', end: 'Trip end' } as const
+
 function todayLocalMidnight(): Date {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -82,9 +97,11 @@ export const tripCalendarClassNames: Partial<ClassNames> = {
         'absolute right-2 top-0 w-7 h-7 rounded-md border border-line inline-flex items-center justify-center bg-transparent hover:bg-subtle transition-colors cursor-pointer',
     month_grid: 'w-full border-collapse',
     weekdays: 'flex',
-    weekday: 'w-9 text-center text-[10px] font-medium text-muted uppercase tracking-widest pb-1',
+    // Phones get 44px cells (the sheet is wide enough, and it's a comfortable
+    // tap target); the desktop popover keeps its compact 36px.
+    weekday: 'w-11 sm:w-9 text-center text-[10px] font-medium text-muted uppercase tracking-widest pb-1',
     week: 'flex mt-1',
-    day: 'w-9 h-9 text-center text-sm p-0',
+    day: 'w-11 h-11 sm:w-9 sm:h-9 text-center text-sm p-0',
 
     // Hover changes the background only — never the radius, which belongs to
     // the modifier slots below so the range pill can't reshape under the mouse.
@@ -97,7 +114,7 @@ export const tripCalendarClassNames: Partial<ClassNames> = {
     // `[&>button]:text-gray-300` (0,1,1), which is exactly why booked days used
     // to flash white on hover. Not emitting the rule at all has no such tie.
     day_button: [
-        'w-9 h-9 rounded-full text-sm font-medium text-ink',
+        'w-11 h-11 sm:w-9 sm:h-9 rounded-full text-sm font-medium text-ink',
         'transition-colors focus:outline-none',
         'not-disabled:cursor-pointer',
         'not-disabled:hover:bg-cream-200',
@@ -169,6 +186,11 @@ export function TripCalendar(props: TripCalendarProps) {
     const mode = props.mode
 
     const panelRef = useRef<HTMLDivElement>(null)
+
+    // Read at render rather than tracked: the panel only ever opens from a
+    // click, so this never runs during SSR, and a phone doesn't cross the
+    // breakpoint while a calendar is open.
+    const isSheet = open && typeof window !== 'undefined' && window.matchMedia(SHEET_QUERY).matches
 
     // Where the panel renders and how tall it's allowed to get. Recomputed
     // every time it opens: the home page's hero centers its content
@@ -283,6 +305,8 @@ export function TripCalendar(props: TripCalendarProps) {
             setPlacement({ anchor: 'below' })
             return
         }
+        // The sheet is pinned to the bottom of the screen; nothing to place.
+        if (isSheet) return
         const trigger = triggerRef?.current
         const panelEl = panelRef.current
         if (!trigger || !panelEl) return
@@ -317,7 +341,19 @@ export function TripCalendar(props: TripCalendarProps) {
             anchor,
             maxHeight: naturalHeight > available ? Math.max(available, 200) : undefined,
         })
-    }, [open, mode, triggerRef])
+    }, [open, isSheet, mode, triggerRef])
+
+    // With the page behind the sheet unable to scroll, there's nothing for a
+    // missed swipe to chain into. The previous value is restored rather than
+    // cleared, in case something else had already locked it.
+    useEffect(() => {
+        if (!isSheet) return
+        const previous = document.body.style.overflow
+        document.body.style.overflow = 'hidden'
+        return () => {
+            document.body.style.overflow = previous
+        }
+    }, [isSheet])
 
     useEffect(() => {
         if (!open) return
@@ -364,22 +400,63 @@ export function TripCalendar(props: TripCalendarProps) {
     // action buttons never do. That's what actually keeps them reachable;
     // clamping the whole panel's height alone just moved the same problem
     // from the viewport edge to the scroll boundary.
-    const panel = (children: ReactNode) => (
-        <div
-            ref={panelRef}
-            role="dialog"
-            aria-label="Choose dates"
-            style={placement.maxHeight ? { maxHeight: placement.maxHeight } : undefined}
-            className={cn(
-                'absolute left-0 z-[110] flex flex-col bg-surface text-ink p-5 shadow-2xl rounded-2xl border border-line',
-                placement.anchor === 'below' ? 'top-full mt-2' : 'bottom-full mb-2',
-                className,
-            )}
-        >
-            <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
-            {footer && <div className="flex justify-end gap-2 pt-3 flex-shrink-0">{footer}</div>}
-        </div>
-    )
+    const panel = (children: ReactNode) => {
+        if (!isSheet) {
+            return (
+                <div
+                    ref={panelRef}
+                    role="dialog"
+                    aria-label="Choose dates"
+                    style={placement.maxHeight ? { maxHeight: placement.maxHeight } : undefined}
+                    className={cn(
+                        'absolute left-0 z-[110] flex flex-col bg-surface text-ink p-5 shadow-2xl rounded-2xl border border-line',
+                        placement.anchor === 'below' ? 'top-full mt-2' : 'bottom-full mb-2',
+                        className,
+                    )}
+                >
+                    <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+                    {footer && <div className="flex justify-end gap-2 pt-3 flex-shrink-0">{footer}</div>}
+                </div>
+            )
+        }
+
+        // Portalled to <body> so no ancestor's overflow, transform or stacking
+        // context (the homepage hero has all three nearby) can clip or bury
+        // it. `className` is deliberately not applied: it carries popover
+        // offsets like mt-3 that mean nothing to a sheet.
+        //
+        // The backdrop needs no handler of its own. It's outside panelRef, so
+        // a tap on it reaches the document mousedown listener and closes.
+        return createPortal(
+            <>
+                <div className="fixed inset-0 z-[105] bg-black/40" aria-hidden="true" />
+                <div
+                    ref={panelRef}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={SHEET_TITLES[mode]}
+                    className="fixed inset-x-0 bottom-0 z-[110] flex max-h-[90dvh] flex-col rounded-t-2xl bg-surface text-ink shadow-2xl px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+                >
+                    <div className="flex items-center justify-between pb-2 flex-shrink-0">
+                        <span className="text-base font-semibold">{SHEET_TITLES[mode]}</span>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            aria-label="Close"
+                            className="-mr-2 p-2 rounded-full hover:bg-subtle cursor-pointer"
+                        >
+                            <X size={20} />
+                        </button>
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain flex justify-center">
+                        {children}
+                    </div>
+                    {footer && <div className="flex justify-end gap-2 pt-3 flex-shrink-0">{footer}</div>}
+                </div>
+            </>,
+            document.body,
+        )
+    }
 
     if (props.mode === 'range') {
         return panel(

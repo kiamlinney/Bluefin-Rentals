@@ -2,12 +2,11 @@ import {createFileRoute, Link, notFound, redirect, useNavigate} from "@tanstack/
 import { getCarById } from "@/lib/db.ts";
 import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { z } from "zod";
-import { Users, Fuel, Gauge, ThumbsUp, Settings2, X, ChevronDown } from "lucide-react";
+import { Users, Fuel, Gauge, ThumbsUp, Settings2, ChevronDown, Star, Images } from "lucide-react";
 import { getBookedDates, getCarPriceOverrides, getReviews } from "@/lib/db.ts";
-import { summarizeRatings } from "@/lib/reviews.ts";
+import { formatAverage, summarizeRatings } from "@/lib/reviews.ts";
 import { RatingSummary } from "@/components/reviews/RatingSummary.tsx";
 import { ReviewList } from "@/components/reviews/ReviewList.tsx";
-import { getUser } from "@/lib/auth.ts";
 import { carImageUrl, carMainImageUrl, carPhotoUrl } from "@/lib/car-images.ts";
 import {
     addDays,
@@ -39,6 +38,7 @@ import {
 } from "@/lib/availability.ts";
 import { TripCalendar } from "@/components/TripCalendar.tsx";
 import { PriceBreakdown } from "@/components/PriceBreakdown.tsx";
+import { PhotoGallery } from "@/components/PhotoGallery.tsx";
 import { PickupLocationPicker } from "@/components/PickupLocationPicker.tsx";
 import { DEFAULT_PICKUP, resolvePickup, type PickupSelection } from "@/lib/pickup.ts";
 import { DEFAULT_BOOKING_RATE } from "@/lib/booking-rate.ts";
@@ -81,11 +81,8 @@ export const Route = createFileRoute("/fleet/$carSlug")({
             })
         }
 
-        const [user, reviews] = await Promise.all([
-            getUser().catch(() => null),
-            getReviews({ data: { carId: car.id } }),
-        ])
-        return { car, user, reviews }
+        const reviews = await getReviews({ data: { carId: car.id } })
+        return { car, reviews }
     },
 
     // Meta tag generation to optimize SEO
@@ -126,40 +123,53 @@ export const Route = createFileRoute("/fleet/$carSlug")({
 
 type TimeOption = { value: string; label: string; disabled: boolean };
 
-function TimeDropdown({ value, onChange, options }: {
+// Controlled open state, so the page can chain the two dropdowns: picking a
+// start time opens the end one, the same hand-off the date calendars do.
+function TimeDropdown({ value, onChange, options, isOpen, onOpenChange }: {
     value: string;
     onChange: (v: string) => void;
     options: TimeOption[];
+    isOpen: boolean;
+    onOpenChange: (open: boolean) => void;
 }) {
-    const [isOpen, setIsOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
 
+    // `mousedown`, like TripCalendar: when the start dropdown opens this one
+    // from its option's click, that mousedown is already over by the time the
+    // listener attaches, so it doesn't immediately close again.
     useEffect(() => {
         if (!isOpen) return;
         function handleClick(e: MouseEvent) {
             if (ref.current && !ref.current.contains(e.target as Node)) {
-                setIsOpen(false);
+                onOpenChange(false);
             }
         }
+        function handleKey(e: KeyboardEvent) {
+            if (e.key === "Escape") onOpenChange(false);
+        }
         document.addEventListener("mousedown", handleClick);
-        return () => document.removeEventListener("mousedown", handleClick);
-    }, [isOpen]);
+        document.addEventListener("keydown", handleKey);
+        return () => {
+            document.removeEventListener("mousedown", handleClick);
+            document.removeEventListener("keydown", handleKey);
+        };
+    }, [isOpen, onOpenChange]);
 
     const selected = options.find(o => o.value === value);
 
     const scrollRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        if (!isOpen || !scrollRef.current) return;
+        const list = scrollRef.current;
+        if (!isOpen || !list) return;
 
         // Find the selected button, or fall back to the first enabled one
-        const selected = scrollRef.current.querySelector('[data-selected="true"]') as HTMLElement;
-        const firstEnabled = scrollRef.current.querySelector('[data-disabled="false"]') as HTMLElement;
+        const selected = list.querySelector<HTMLElement>('[data-selected="true"]');
+        const firstEnabled = list.querySelector<HTMLElement>('[data-disabled="false"]');
         const target = selected ?? firstEnabled;
 
         if (target) {
-            // scrollIntoView with block:"center" puts the item in the middle of the visible area
-            target.scrollIntoView({ block: "center" });
+            list.scrollTop = target.offsetTop - (list.clientHeight - target.offsetHeight) / 2;
         }
     }, [isOpen]);
 
@@ -167,10 +177,10 @@ function TimeDropdown({ value, onChange, options }: {
         <div ref={ref} className="relative flex-1">
             <button
                 type="button"
-                onClick={() => setIsOpen(o => !o)}
+                onClick={() => onOpenChange(!isOpen)}
                 className="w-full flex items-center justify-between border border-line rounded-lg px-4 py-3 text-sm hover:border-ink-400 transition-colors cursor-pointer"
             >
-                <span>{selected?.label ?? value}</span>
+                <span>{selected?.label ?? "Select Time"}</span>
                 <ChevronDown size={14} className={`text-muted transition-transform duration-150 ${isOpen ? "rotate-180" : ""}`} />
             </button>
 
@@ -186,7 +196,9 @@ function TimeDropdown({ value, onChange, options }: {
                             data-selected={opt.value === value ? "true" : "false"}
                             data-disabled={opt.disabled ? "true" : "false"}
                             onClick={() => {
-                                if (!opt.disabled) { onChange(opt.value); setIsOpen(false); }
+                                // Close before onChange, so a caller that opens
+                                // another dropdown in onChange isn't overridden.
+                                if (!opt.disabled) { onOpenChange(false); onChange(opt.value); }
                             }}
                             className={[
                                 "w-full text-left px-3 py-2 text-sm",
@@ -249,15 +261,17 @@ const conflictMessage = (conflict: TripConflict): string => {
 const formatTriggerDate = (d: Date) => d.toLocaleDateString("en-US");
 
 function CarDetails() {
-    const { car, user, reviews } = Route.useLoaderData()
+    const { car, reviews } = Route.useLoaderData()
     const reviewSummary = useMemo(() => summarizeRatings(reviews.map((r) => r.rating)), [reviews])
     // The rest of the page works in ids; the slug is only ever a URL concern.
     const carId = String(car.id)
     const search = Route.useSearch()
     const navigate = useNavigate()
     const [showGallery, setShowGallery] = useState(false);
-    const [startTime, setStartTime] = useState("10:00");
-    const [endTime, setEndTime] = useState("22:00");
+    // "" until the customer picks one. These used to default to 10:00 AM and
+    // 10:00 PM, which made it easy to check out on times nobody chose.
+    const [startTime, setStartTime] = useState("");
+    const [endTime, setEndTime] = useState("");
     // One selection, replacing the two independent checkboxes and free-text field
     // this widget used to carry. Those three could disagree — both boxes ticked,
     // or a box ticked *and* an address typed — and the conflict was resolved
@@ -328,6 +342,29 @@ function CarDetails() {
         setEndDate(date);
         setIsEndCalendarOpen(false);
     }, []);
+
+    // Which time dropdown is open, if either. One value rather than two flags,
+    // so the two can never be open at once.
+    const [openTime, setOpenTime] = useState<"start" | "end" | null>(null);
+
+    // Closing only clears the flag if this dropdown still owns it — a close
+    // that lands after the other dropdown opened mustn't shut that one.
+    const setStartTimeOpen = useCallback(
+        (open: boolean) => setOpenTime(cur => (open ? "start" : cur === "start" ? null : cur)),
+        [],
+    );
+    const setEndTimeOpen = useCallback(
+        (open: boolean) => setOpenTime(cur => (open ? "end" : cur === "end" ? null : cur)),
+        [],
+    );
+
+    // Same hand-off as the calendars: choosing a start time opens the end one,
+    // but only while the end time is still owed. Adjusting the start of a trip
+    // that already has both leaves the end alone.
+    const handleStartTimeSelect = useCallback((value: string) => {
+        setStartTime(value);
+        if (endTime === "") setOpenTime("end");
+    }, [endTime]);
 
     // ------------------------------------------------------------------------------------------------------------------------
 
@@ -405,7 +442,9 @@ function CarDetails() {
                     t.disabled
                     || todayIsSpent
                     || minutes < floor
-                    || (isSameDay && minutes >= endMinutes),
+                    // Guarded on endTime: an unchosen "" parses as midnight,
+                    // which would disable every slot on a same-day trip.
+                    || (isSameDay && endTime !== "" && minutes >= endMinutes),
             };
         });
     }, [isSameDay, endTime, baseTimeOptions, earliestStart, leadTimeFloor, startDate, now]);
@@ -421,44 +460,45 @@ function CarDetails() {
                 disabled:
                     t.disabled
                     || minutes > latestEnd
-                    || (isSameDay && minutes <= startMinutes),
+                    || (isSameDay && startTime !== "" && minutes <= startMinutes),
             };
         });
     }, [isSameDay, startTime, baseTimeOptions, latestEnd]);
 
-    // Picking a day whose first free slot is 1:00 PM leaves startTime sitting on
-    // its "10:00" default — a value the dropdown now renders as disabled and the
-    // server would reject. Snap to the first slot that is actually offered.
+    // Changing the date can strand a chosen time — pick 10:00 AM, then move the
+    // start to a day whose first free slot is 1:00 PM. That time is now one the
+    // dropdown renders as disabled and the server would reject, so it's cleared
+    // back to "Select Time". Not snapped to the nearest free slot: times are
+    // always the customer's explicit choice, never one we filled in for them.
     //
     // Guarded on availabilityLoaded so the empty initial map doesn't count as
-    // "everything is free" and overwrite a time the customer just chose.
+    // "everything is free" and wave through a time that's actually taken.
     useEffect(() => {
-        if (!availabilityLoaded) return;
+        if (!availabilityLoaded || !startTime) return;
         const current = startTimeOptions.find(o => o.value === startTime);
-        if (current && !current.disabled) return;
-        const firstFree = startTimeOptions.find(o => !o.disabled);
-        if (firstFree) setStartTime(firstFree.value);
+        if (!current || current.disabled) setStartTime("");
     }, [availabilityLoaded, startTimeOptions, startTime]);
 
     useEffect(() => {
-        if (!availabilityLoaded) return;
+        if (!availabilityLoaded || !endTime) return;
         const current = endTimeOptions.find(o => o.value === endTime);
-        if (current && !current.disabled) return;
-        // Last rather than first: an end time wants to be as late as the day
-        // allows, which is also what the "22:00" default was reaching for.
-        const lastFree = [...endTimeOptions].reverse().find(o => !o.disabled);
-        if (lastFree) setEndTime(lastFree.value);
+        if (!current || current.disabled) setEndTime("");
     }, [availabilityLoaded, endTimeOptions, endTime]);
+
+    // Both ends of the trip fully chosen. Everything below that prices or checks
+    // the trip waits on this: an unchosen time is "", which timeToMinutes would
+    // quietly read as midnight.
+    const tripComplete = !!startDate && !!endDate && startTime !== "" && endTime !== "";
 
     // Duration comes from the pricing module rather than local Date math so the
     // 24-hour minimum enforced here is measured exactly the way billing measures
     // it — no chance of the button enabling a trip the server then rejects.
     const totalDurationDays = useMemo(() => {
-        if (!startDate || !endDate) return 0;
+        if (!tripComplete || !startDate || !endDate) return 0;
         return getTripDurationMinutes(
             toDateKey(startDate), startTime, toDateKey(endDate), endTime,
         ) / (60 * 24);
-    }, [startDate, endDate, startTime, endTime]);
+    }, [tripComplete, startDate, endDate, startTime, endTime]);
 
     // What the chosen pickup costs, what to call it, and whether it can be booked
     // at all. Resolved from the same table the server re-resolves against, so the
@@ -469,10 +509,12 @@ function CarDetails() {
     // then discounted by duration. calculateTripPrice is the same function the
     // server runs in createCheckoutSession, so what's quoted here is what gets
     // charged — see src/lib/pricing.ts.
+    // Blank dates until the trip is complete, which calculateTripPrice answers
+    // with an empty quote — so no total shows until the times are chosen.
     const quote = useMemo(() => calculateTripPrice({
-        startDate: startDate ? toDateKey(startDate) : "",
+        startDate: tripComplete && startDate ? toDateKey(startDate) : "",
         startTime,
-        endDate: endDate ? toDateKey(endDate) : "",
+        endDate: tripComplete && endDate ? toDateKey(endDate) : "",
         endTime,
         // Postgres `numeric` can arrive as a string depending on how PostgREST
         // serializes it — Number() keeps the arithmetic from concatenating.
@@ -484,7 +526,7 @@ function CarDetails() {
         // `quote`, and none of them needed changing.
         pickupFee: resolvedPickup.fee,
         pickupFeeLabel: resolvedPickup.feeLabel,
-    }), [startDate, endDate, startTime, endTime, car.price_per_day, priceOverrides, resolvedPickup]);
+    }), [tripComplete, startDate, endDate, startTime, endTime, car.price_per_day, priceOverrides, resolvedPickup]);
 
     const totalDays = quote.billableDays;
     const subtotal = quote.total;
@@ -532,11 +574,11 @@ function CarDetails() {
     // block sat inside the range and the trip only failed at the Stripe payment
     // step, after driver info and identity verification.
     const conflict = useMemo(() => {
-        if (!startDate || !endDate) return null;
+        if (!tripComplete || !startDate || !endDate) return null;
         return findTripConflict(
             toDateKey(startDate), startTime, toDateKey(endDate), endTime, availability, now,
         );
-    }, [startDate, endDate, startTime, endTime, availability, now]);
+    }, [tripComplete, startDate, endDate, startTime, endTime, availability, now]);
 
     // One message at a time, duration first: a sub-24h range is fixable by
     // nudging a time, and its conflicting-days list would be a confusing single
@@ -551,16 +593,16 @@ function CarDetails() {
     // the commoner mistakes, and the picker already shows its own message inline.
     const validationError = useMemo(() => {
         if (resolvedPickup.error) return resolvedPickup.error;
-        if (!startDate || !endDate) return null;
+        if (!tripComplete) return null;
         if (totalDurationDays < 1) return "Minimum trip duration is 24 hours. Please adjust your dates or times.";
         if (conflict) return conflictMessage(conflict);
         return null;
-    }, [startDate, endDate, totalDurationDays, conflict, resolvedPickup]);
+    }, [tripComplete, totalDurationDays, conflict, resolvedPickup]);
 
     // availabilityLoaded closes the window where a range prefilled from the
     // search bar could reach checkout before we know what's booked.
     const isButtonDisabled =
-        !startDate || !endDate || !availabilityLoaded || validationError !== null;
+        !tripComplete || !availabilityLoaded || validationError !== null;
 
     useEffect(() => {
         async function fetchAvailability() {
@@ -623,8 +665,25 @@ function CarDetails() {
             }
         })
     }
-    
-    const getImageUrl = (fileName: string) => carImageUrl(carId, fileName)
+
+    // The phone bar's button. Until the trip is fully chosen it leads to
+    // whatever is still owed rather than sitting there disabled — the bar is
+    // always on screen, the booking fields may not be. A missing date opens
+    // its calendar; missing times scroll the "Your trip" section into view,
+    // since the time dropdowns open in place rather than as a sheet.
+    const needsDates = !startDate || !endDate;
+    const needsTimes = !needsDates && !tripComplete;
+    const tripSectionRef = useRef<HTMLDivElement>(null);
+    const handleMobileAction = () => {
+        if (!startDate) toggleStartCalendar();
+        else if (!endDate) toggleEndCalendar();
+        else if (needsTimes) tripSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        else handleContinue();
+    };
+    const mobileActionEnabled = needsDates || needsTimes || !isButtonDisabled;
+
+    // Stable so PhotoGallery's keydown listener doesn't resubscribe each render.
+    const closeGallery = useCallback(() => setShowGallery(false), []);
 
     const images = car.gallery_images || [];
     const PREFERRED_ORDER = ["Safety", "Device connectivity", "Convenience", "Additional features"];
@@ -632,68 +691,50 @@ function CarDetails() {
   
     const features = (car.features ?? {}) as Record<string, unknown>;
 
-    if (showGallery) {
-        return (
-            <div className="fixed inset-0 z-[100] overflow-y-auto bg-page">
-                <div className="sticky top-0 backdrop-blur-lg py-4 px-8 flex justify-between items-center border-b-[0.5px] z-50">
-                    <h2 className="text-xl font-bold">{car.make} {car.model} {car.year}</h2>
-                    <button
-                        onClick={() => setShowGallery(false)}
-                        className="p-2 hover:bg-subtle rounded-full transition-colors cursor-pointer"
-                    >
-                        <X size={24} />
-                    </button>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 max-w-8xl mx-auto p-4 flex-col gap-8 mt-4">
-                    {images.map((img: string, index: number) => (
-                        <div key={index} className="w-full rounded-xl overflow-hidden bg-subtle shadow-sm">
-                            <img
-                                src={getImageUrl(img)}
-                                className="w-full h-full object-cover aspect-video"
-                                alt={`${car.year} ${car.make} ${car.model} - gallery image ${index + 1}`}
-                                loading={index < 2 ? "eager" : "lazy"}
-                                decoding="async"
-                            />
-                        </div>
-                    ))}
-                </div>
-            </div>
-        )
-    }
-
     return (
-        <div className="container mx-auto p-4 md:p-8">
-            {/* Info & Specs */}
+        <div className="container mx-auto px-4 md:px-8 lg:py-8">
+            {/* Info & Specs. Below lg the photo comes first (order-1) and the
+                title and specs follow it; from lg the title sits above the
+                photo grid as before. */}
             <div className="flex-1">
-                <h1 className="mt-12 text-4xl"> {car.make} {car.model} {car.year}</h1>
+                <div className="flex flex-col">
+                <div className="order-2 lg:order-1">
+                    <h1 className="mt-4 lg:mt-12 text-2xl lg:text-4xl font-semibold lg:font-normal">
+                        {car.make} {car.model} <span className="text-muted lg:text-ink">{car.year}</span>
+                    </h1>
 
-                {/* Spec Badges */}
-                <div className="flex flex-wrap gap-4 mt-6">
-                    <div className="flex items-center gap-2 bg-subtle px-4 py-2 rounded-lg text-sm">
-                        <Users size={18} /> {car.num_seats} seats
-                    </div>
-                    <div className="flex items-center gap-2 bg-subtle px-4 py-2 rounded-lg text-sm">
-                        <Fuel size={18} /> {car.fuel_type}
-                    </div>
-                    <div className="flex items-center gap-2 bg-subtle px-4 py-2 rounded-lg text-sm">
-                        <Gauge size={18} /> {car.mpg} MPG
-                    </div>
-                    <div className="flex items-center gap-2 bg-subtle px-4 py-2 rounded-lg text-sm">
-                        <Settings2 size={18} /> {car.transmission} transmission
+                    {reviewSummary.count > 0 && (
+                        <p className="mt-1 flex items-center gap-1 text-sm text-muted">
+                            <Star size={14} className="fill-current text-ink" />
+                            <span className="font-semibold text-ink">{formatAverage(reviewSummary.average)}</span>
+                            ({reviewSummary.count} review{reviewSummary.count === 1 ? "" : "s"})
+                        </p>
+                    )}
+
+                    {/* Spec Badges */}
+                    <div className="flex flex-wrap gap-2 lg:gap-4 mt-4 lg:mt-6">
+                        <div className="flex items-center gap-1.5 lg:gap-2 bg-subtle px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs lg:text-sm">
+                            <Users size={16} /> {car.num_seats} seats
+                        </div>
+                        <div className="flex items-center gap-1.5 lg:gap-2 bg-subtle px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs lg:text-sm">
+                            <Fuel size={16} /> {car.fuel_type}
+                        </div>
+                        <div className="flex items-center gap-1.5 lg:gap-2 bg-subtle px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs lg:text-sm">
+                            <Gauge size={16} /> {car.mpg} MPG
+                        </div>
+                        <div className="flex items-center gap-1.5 lg:gap-2 bg-subtle px-3 py-1.5 lg:px-4 lg:py-2 rounded-lg text-xs lg:text-sm">
+                            <Settings2 size={16} /> {car.transmission}<span className="hidden lg:inline"> transmission</span>
+                        </div>
                     </div>
                 </div>
 
-                <div className="mt-6 grid grid-cols-1 lg:grid-cols-4 gap-2 rounded-lg overflow-hidden group cursor-pointer"
+
+                <div className="relative order-1 lg:order-2 -mx-4 md:-mx-8 lg:mx-0 lg:mt-6 grid grid-cols-1 lg:grid-cols-4 gap-2 lg:rounded-lg overflow-hidden group cursor-pointer"
                      onClick={() => setShowGallery(true)}>
 
-                    {/* Main image */}
-                    <div className="lg:col-span-2 lg:row-span-2 relative h-[400px]" >
+                    <div className="lg:col-span-2 lg:row-span-2 relative aspect-[5/3] lg:aspect-auto lg:h-[400px]" >
                         <img
                             src={carMainImageUrl(carId)}
-
-
-
                             className="w-full h-full object-cover"
                             alt={`${car.year} ${car.make} ${car.model} rental - main view`}
                             fetchPriority="high"
@@ -740,7 +781,7 @@ function CarDetails() {
                     </div>
 
                     {/* Bottom Right Image */}
-                    <div className="hidden lg:block h-[196px] relative group border border-line">
+                    <div className="hidden lg:block h-[196px] border border-line">
                         <img
                             src={carPhotoUrl(carId, "bottom_right")}
                             className="w-full h-full object-cover"
@@ -748,25 +789,31 @@ function CarDetails() {
                             decoding="async"
                             loading="lazy"
                         />
-
-                        <button
-                            className="secondary-button bg-gray-800/50 text-white border-white absolute bottom-4 right-4 shadow-md hover:scale-105 transition-transform"
-                            onClick={() => setShowGallery(true)}
-                        >
-                            View all photos
-                        </button>
                     </div>
+
+                    {/* Pinned to the bottom-right of the whole block: the main
+                        photo on a phone, the last tile of the grid on desktop.
+                        The grid's own onClick already opens the gallery; this
+                        is the visible, labelled way in. */}
+                    <button
+                        type="button"
+                        className="absolute bottom-3 right-3 lg:bottom-4 lg:right-4 flex items-center gap-1.5 rounded-lg bg-surface/95 text-ink text-sm font-semibold px-3 py-1.5 shadow-md hover:bg-surface transition-colors cursor-pointer"
+                    >
+                        <Images size={16} />
+                        {images.length > 0 ? `View ${images.length} photos` : "View photos"}
+                    </button>
+                </div>
                 </div>
 
                 {/* The line */}
-                <hr className="my-6" />
+                <hr className="my-5 lg:my-6 border-line" />
 
-                <div className="mt-10 flex flex-col lg:flex-row gap-12">
+                <div className="lg:mt-10 flex flex-col lg:flex-row gap-8 lg:gap-12">
 
                     <div className="flex-1">
-                        <h2 className="text-2xl font-bold mb-6">Vehicle Features</h2>
+                        <h2 className="text-xl lg:text-2xl font-bold mb-4 lg:mb-6">Vehicle Features</h2>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-12">
+                        <div className="grid grid-cols-2 gap-y-6 gap-x-6 lg:gap-x-12 text-sm lg:text-base">
                             {PREFERRED_ORDER.map((category) => {
                                 const raw = features[category];
                                 const list = Array.isArray(raw)
@@ -776,8 +823,8 @@ function CarDetails() {
 
                                 return (
                                     <div key={category}>
-                                        <h3 className="font-bold text-lg mb-3">{category}</h3>
-                                        <ul className="space-y-2">
+                                        <h3 className="font-bold text-base lg:text-lg mb-2 lg:mb-3">{category}</h3>
+                                        <ul className="space-y-1.5 lg:space-y-2">
                                             {list.map((feature) => (
                                                 <li key={feature} className="text-muted font-medium">
                                                     {feature}
@@ -795,7 +842,7 @@ function CarDetails() {
 
                         <hr className="my-6" />
 
-                        <h2 className="text-3xl font-bold mt-6">
+                        <h2 className="text-xl lg:text-3xl font-bold mt-6">
                             Ratings and reviews
                         </h2>
 
@@ -821,22 +868,36 @@ function CarDetails() {
                     </div>
 
                     {/* -------------------------------- Booking Widget --------------------------------  */}
-                    <div className="w-full lg:w-[400px] flex flex-col gap-8 lg:self-start">
-                        {user ? (
-                            <div className="top-24 z-10 rounded-xl border border-line bg-surface shadow-xl">
-                                <div className="p-6 relative">
-                                    <div className="flex items-baseline gap-1">
+                    {/* order-first below lg: on a phone "Your trip" follows the
+                        specs directly */}
+                    <div className="order-first lg:order-none w-full lg:w-[400px] flex flex-col gap-8 lg:self-start">
+                            {/* Shown signed in or not: anyone can price a trip
+                                and press Continue. Checkout sits under _authed,
+                                which asks a signed-out visitor to sign in there
+                                and then carries on with the same trip.
+
+                                Below lg this is a plain section rather than a
+                                floating card; the phone bar at the bottom of the
+                                page carries the price and the Continue button. */}
+                            <div className="top-24 z-10 lg:rounded-xl lg:border lg:border-line lg:bg-surface lg:shadow-xl">
+                                <div className="lg:p-6 relative">
+                                    {/* scroll-mt clears the sticky navbar when the
+                                        phone bar scrolls here. */}
+                                    <div ref={tripSectionRef} className="scroll-mt-20" />
+                                    <h2 className="lg:hidden text-xl font-bold mb-4">Your trip</h2>
+
+                                    <div className="hidden lg:flex items-baseline gap-1">
                                         <span className="text-2xl font-bold">${car.price_per_day}</span>
                                         <span className="text-muted font-medium mb-4">/ day</span>
                                     </div>
 
-                                    <hr className="border-line" />
+                                    <hr className="hidden lg:block border-line" />
 
                                     {totalDays > 0 && (
                                         <button
                                             type="button"
                                             onClick={() => setShowPriceDetails(true)}
-                                            className="mt-4 w-full p-3 bg-subtle rounded-lg flex justify-between items-center font-bold border border-line hover:bg-cream-200 transition-colors cursor-pointer"
+                                            className="hidden mt-4 w-full p-3 bg-subtle rounded-lg lg:flex justify-between items-center font-bold border border-line hover:bg-cream-200 transition-colors cursor-pointer"
                                         >
                                             <span className="flex items-center gap-1.5">
                                                 {totalDays} day trip
@@ -855,7 +916,7 @@ function CarDetails() {
                                         </button>
                                     )}
 
-                                    <p className="text-muted text-sm font-medium mb-6 mt-2">
+                                    <p className="hidden lg:block text-muted text-sm font-medium mb-6 mt-2">
                                         {totalDays > 0 && "Click for price details"}
                                     </p>
 
@@ -876,7 +937,13 @@ function CarDetails() {
                                                     <ChevronDown size={14} className="text-muted" />
                                                 </button>
 
-                                                <TimeDropdown value={startTime} onChange={setStartTime} options={startTimeOptions} />
+                                                <TimeDropdown
+                                                    value={startTime}
+                                                    onChange={handleStartTimeSelect}
+                                                    options={startTimeOptions}
+                                                    isOpen={openTime === "start"}
+                                                    onOpenChange={setStartTimeOpen}
+                                                />
                                             </div>
 
                                                 <TripCalendar
@@ -908,7 +975,13 @@ function CarDetails() {
                                                     <ChevronDown size={14} className="text-muted" />
                                                 </button>
 
-                                                <TimeDropdown value={endTime} onChange={setEndTime} options={endTimeOptions} />
+                                                <TimeDropdown
+                                                    value={endTime}
+                                                    onChange={setEndTime}
+                                                    options={endTimeOptions}
+                                                    isOpen={openTime === "end"}
+                                                    onOpenChange={setEndTimeOpen}
+                                                />
                                             </div>
 
                                                 {/* Gets startDate too, so the chosen start shows as the head of
@@ -948,7 +1021,7 @@ function CarDetails() {
                                         onClick={handleContinue}
                                         disabled={isButtonDisabled}
                                         className={[
-                                            "bg-brand text-on-brand rounded-lg w-full text-lg py-6 shadow-lg transition-all hover:bg-pine-800",
+                                            "hidden lg:block bg-brand text-on-brand rounded-lg w-full text-lg py-6 shadow-lg transition-all hover:bg-pine-800",
                                             isButtonDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
                                         ].join(" ")}
                                     >
@@ -956,33 +1029,6 @@ function CarDetails() {
                                     </button>
                                 </div>
                             </div>
-                        ) : (
-                            <div className="top-24 z-10 rounded-xl border border-line bg-surface shadow-xl">
-                                <div className="p-6 text-center space-y-4">
-                                    <p className="font-semibold text-lg">
-                                        {/*TODO: change this to after selecting dates, in checkout*/}
-                                        Please login to book a vehicle
-                                    </p>
-                                    <p className="text-muted text-sm">
-                                        Create an account or login to continue.
-                                    </p>
-                                    <Link
-                                        to="/login"
-                                        // Carry the dates through the round trip: the booking widget
-                                        // only renders when logged in, so without this a customer who
-                                        // arrives from the search bar comes back to empty calendars.
-                                        search={{
-                                            redirect: search.start && search.end
-                                                ? `/fleet/${carSlug(car)}?start=${search.start}&end=${search.end}`
-                                                : `/fleet/${carSlug(car)}`,
-                                        }}
-                                        className="block w-full py-3 bg-brand shadow-lg text-on-brand rounded-full font-medium hover:bg-pine-800 hover:scale-101 transition-colors"
-                                    >
-                                        Login or Sign Up
-                                    </Link>
-                                </div>
-                            </div>
-                        )}
 
 
                         <div className="mt-4 space-y-4 relative">
@@ -1012,8 +1058,6 @@ function CarDetails() {
                                 </div>
                             </div>
 
-                            {/* Sits outside the `user ?` branch above, so a
-                                logged-out visitor sees it too */}
                             <div className="space-y-3">
                                 <p className="text-lg font-bold">Distance included</p>
                                 <div className="flex items-start gap-3">
@@ -1043,6 +1087,52 @@ function CarDetails() {
                 </div>
             </div>
 
+            {/* Phone booking bar. sticky rather than fixed: it rides the bottom
+                of the screen while the car page is in view, then settles at the
+                end of it, so it never covers the site footer. mt-10 is the gap
+                it leaves above itself once settled. The negative margins cancel
+                the container's padding so it runs edge to edge. */}
+            <div className="lg:hidden sticky bottom-0 z-40 mt-10 -mx-4 md:-mx-8 border-t border-line bg-surface px-4 md:px-8 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center justify-between gap-4 shadow-[0_-4px_16px_rgba(0,0,0,0.06)]">
+                {totalDays > 0 ? (
+                    <button
+                        type="button"
+                        onClick={() => setShowPriceDetails(true)}
+                        className="min-w-0 text-left cursor-pointer"
+                    >
+                        <span className="flex items-baseline gap-2">
+                            {quote.discountAmount + quote.extraDiscountAmount > 0 && (
+                                <span className="text-sm text-muted line-through">
+                                    ${quote.subtotal.toFixed(2)}
+                                </span>
+                            )}
+                            <span className="text-lg font-bold underline underline-offset-2">
+                                ${subtotal.toFixed(2)} total
+                            </span>
+                        </span>
+                        <span className="block text-xs text-muted">
+                            {totalDays} day trip · Price details
+                        </span>
+                    </button>
+                ) : (
+                    <div className="flex items-baseline gap-1">
+                        <span className="text-lg font-bold">${car.price_per_day}</span>
+                        <span className="text-sm text-muted font-medium">/ day</span>
+                    </div>
+                )}
+
+                <button
+                    type="button"
+                    onClick={handleMobileAction}
+                    disabled={!mobileActionEnabled}
+                    className={[
+                        "flex-shrink-0 bg-brand text-on-brand rounded-lg px-6 py-3 font-semibold shadow-md transition-colors hover:bg-pine-800",
+                        mobileActionEnabled ? "cursor-pointer" : "opacity-50 cursor-not-allowed",
+                    ].join(" ")}
+                >
+                    {needsDates ? "Select dates" : needsTimes ? "Select times" : "Continue"}
+                </button>
+            </div>
+
             {/* Rendered outside the booking card so its backdrop covers the page
                 rather than sitting inside the card's stacking context. */}
             {showPriceDetails && totalDays > 0 && (
@@ -1050,6 +1140,14 @@ function CarDetails() {
                     quote={quote}
                     title={`${car.year} ${car.make} ${car.model}`}
                     onClose={() => setShowPriceDetails(false)}
+                />
+            )}
+
+            {showGallery && (
+                <PhotoGallery
+                    title={`${car.make} ${car.model} ${car.year}`}
+                    images={images.map(img => carImageUrl(carId, img))}
+                    onClose={closeGallery}
                 />
             )}
         </div>

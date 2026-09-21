@@ -8,7 +8,6 @@ import { absoluteUrl } from '@/lib/site'
 import { seoMeta } from '@/lib/business'
 
 type FleetSearch = {
-    location?: 'MSP' | 'stpaul-mpls'
     start?: string
     end?: string
 }
@@ -34,7 +33,6 @@ export const Route = createFileRoute('/fleet/')({
     }),
     validateSearch: (search: Record<string, unknown>): FleetSearch => {
         return {
-            location: search?.location === 'stpaul-mpls' ? 'stpaul-mpls' : 'MSP',
             start: asDateKey(search?.start),
             end: asDateKey(search?.end),
         }
@@ -81,9 +79,8 @@ function Fleet() {
         <div className="max-w-7xl mx-auto px-4 py-8">
             <div className="flex items-center gap-3 flex-wrap">
                 <SearchBar
-                    className="max-w-[880px] rounded-xl"
+                    className="max-w-[880px]"
                     initial={{
-                        location: search.location ?? 'MSP',
                         start: search.start,
                         end: search.end,
                     }}
@@ -96,7 +93,7 @@ function Fleet() {
                 </button>
             </div>
 
-            <h1 className="text-5xl mt-8 mb-4">Our Fleet ({cars.length})</h1>
+            <h1 className="text-3xl sm:text-5xl mt-6 sm:mt-8 mb-4">Our Fleet ({cars.length})</h1>
 
             {hasDates && cars.length === 0 ? (
                 <div className="rounded-xl border border-line bg-surface p-6">
