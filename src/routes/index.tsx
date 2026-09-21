@@ -106,7 +106,6 @@ function Home() {
                 scrolls up over it. No overflow-hidden: the video can't overflow
                 (object-cover), and clipping here would cut off the SearchBar's
                 location and date popovers. */}
-            {/*TODO: Once smaller verson is available, a <source media="(max-width: 640px)"> line would serve it to phones only.*/}
             <section className="sticky top-0 h-svh -mt-14">
                 <video
                     ref={videoRef}
@@ -114,15 +113,22 @@ function Home() {
                     muted
                     loop
                     playsInline
-                    poster="/background-poster.jpg"
+                    poster="/background-poster.webp"
                     /* scaleX(-1) mirrors the footage; translateZ(0) puts the video on
                        its own compositing layer so scrolling doesn't re-rasterize it.
                        Both must live in one transform — a second `transform`
                        declaration would drop the first.  [transform:scaleX(-1)_translateZ(0)]*/
                     className="absolute inset-0 h-full w-full object-cover object-center"
                 >
-                    {/*<source src="https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/background-videos/background.mp4" type="video/mp4" />*/}
-                    <source src="/deyaw.mp4" type="video/mp4" />
+                    <source
+                        src="https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/background-videos/background-v2-mobile.mp4"
+                        type="video/mp4"
+                        media="(max-width: 640px)"
+                    />
+                    <source
+                        src="https://fmueikfpthimanfrituz.supabase.co/storage/v1/object/public/background-videos/background-v2.mp4"
+                        type="video/mp4"
+                    />
                     Your browser does not support the video tag.
                 </video>
 

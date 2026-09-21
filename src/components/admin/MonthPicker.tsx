@@ -71,20 +71,25 @@ export function MonthPicker({
     const monthLabel = currentDate
         .toLocaleDateString("en-US", { month: "long", year: "numeric" })
         .toUpperCase()
+    // The corner cell is under half as wide on phones, "SEPTEMBER 2026" doesn't fit
+    const shortMonthLabel = currentDate
+        .toLocaleDateString("en-US", { month: "short", year: "numeric" })
+        .toUpperCase()
 
     // Today at midnight - used to disable past dates in the picker. Since the main grid's dateRange never includes days before today either
     const todayMidnight = new Date()
     todayMidnight.setHours(0, 0, 0, 0)
 
     return (
-        <div ref={containerRef} className="relative flex items-center gap-16">
+        <div ref={containerRef} className="relative flex w-full items-center justify-between gap-1 md:gap-2">
             {/* Month label trigger */}
             <button
                 type="button"
                 onClick={() => setIsOpen((o) => !o)}
-                className="flex items-center gap-2 text-sm text-emerald-700 hover:text-emerald-800 cursor-pointer"
+                className="flex items-center gap-1 md:gap-2 text-xs md:text-sm whitespace-nowrap text-emerald-700 hover:text-emerald-800 cursor-pointer"
             >
-                {monthLabel}
+                <span className="md:hidden">{shortMonthLabel}</span>
+                <span className="hidden md:inline">{monthLabel}</span>
                 {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </button>
 
@@ -92,7 +97,8 @@ export function MonthPicker({
             <button
                 type="button"
                 onClick={onJumpToToday}
-                className="w-8 h-8 rounded-md border border-gray-200 flex items-center justify-center hober:bg-gray-50 cursor-pointer"
+                aria-label="Jump to today"
+                className="w-7 h-7 md:w-8 md:h-8 shrink-0 rounded-md border border-gray-200 flex items-center justify-center hover:bg-gray-50 cursor-pointer"
             >
                 <CalendarFold size={14}/>
             </button>
