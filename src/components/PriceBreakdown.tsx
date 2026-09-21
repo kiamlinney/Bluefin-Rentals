@@ -2,20 +2,8 @@ import { useEffect } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils.ts";
 import type { TripQuote } from "@/lib/pricing.ts";
-import { formatDateKey } from "@/lib/dates.ts";
-
-// Formats a 'YYYY-MM-DD' key as "Mon, Aug 3".
-//
-// formatDayLabel goes through src/lib/dates.ts rather than the Date constructor:
-// new Date('2026-08-03') is parsed as UTC midnight, which renders as Aug 2 for
-// anyone west of Greenwich, so every row would show the day before the one
-// being charged.
-const formatDayLabel = (dateKey: string): string =>
-    formatDateKey(dateKey, {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-    });
+import { groupQuoteDays } from "@/lib/pricing.ts";
+import { formatDayRange } from "@/lib/dates.ts";
 
 const formatMoney = (amount: number): string =>
     `$${amount.toFixed(2)}`;
@@ -73,25 +61,36 @@ export function PriceBreakdown({
                         {quote.billableDays} {quote.billableDays === 1 ? "day" : "days"}
                     </p>
 
-                    {/* A 3-week trip is 21 rows — the list scrolls, the totals below don't. */}
+                    {/* Runs of same-priced days collapse to one row, so a 3-week
+                        trip at a flat rate is a single line and the one day that
+                        isn't stands out instead of being buried in 20 identical
+                        ones. Still scrolls: a trip with alternating overrides
+                        can't collapse at all. */}
                     <div className="max-h-64 overflow-y-auto pr-1 space-y-1.5">
-                        {quote.days.map((day) => (
-                            <div key={day.date} className={rowClass}>
+                        {groupQuoteDays(quote.days).map((group) => (
+                            <div key={group.start} className={rowClass}>
                                 <span className="text-muted">
-                                    {formatDayLabel(day.date)}
-                                    {day.isOverride && (
+                                    {formatDayRange(group.start, group.end)}
+                                    {group.isOverride && (
                                         <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-pine-500">
                                             Special rate
+                                        </span>
+                                    )}
+                                    {/* Only on a collapsed run — "1 day ×" next
+                                        to a single date would be filler. */}
+                                    {group.days > 1 && (
+                                        <span className="ml-2 text-xs text-ink-400">
+                                            {group.days} days × {formatMoney(group.price)}
                                         </span>
                                     )}
                                 </span>
                                 <span
                                     className={cn(
                                         "font-medium tabular-nums",
-                                        day.isOverride ? "text-pine-700 font-semibold" : "text-ink"
+                                        group.isOverride ? "text-pine-700 font-semibold" : "text-ink"
                                     )}
                                 >
-                                    {formatMoney(day.price)}
+                                    {formatMoney(group.subtotal)}
                                 </span>
                             </div>
                         ))}

@@ -133,6 +133,15 @@
     @apply bg-white text-neutral-900;
 }
 
+/* iOS Safari zooms the whole page into any field under 16px when it's focused,
+   and doesn't zoom back out — which strands you mid-calendar after editing a
+   price. Phones only, so desktop keeps its text-sm inputs. */
+@media (max-width: 767px) {
+    .admin-shell :is(input, select, textarea) {
+        font-size: 16px;
+    }
+}
+
 /* ==========================================================================
    4. Animations
    ========================================================================== */

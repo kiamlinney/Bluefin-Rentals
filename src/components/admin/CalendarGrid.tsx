@@ -1,7 +1,7 @@
 import {useRef, useMemo, useState, useEffect, useCallback} from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { X } from "lucide-react"
-import { BookingWithRelations, Car, CarBlockedDate } from "src/types.ts";
+import { BookingWithRelations, Car, CarBlockedDate, TuroBooking } from "src/types.ts";
 import { MonthPicker } from "@/components/admin/MonthPicker.tsx";
 import { SelectionPanel } from "@/components/admin/SelectionPanel.tsx";
 import { businessDayStart } from "@/lib/dates.ts";
@@ -10,7 +10,11 @@ import { carMainImageUrl } from "@/lib/car-images.ts";
 
 const column_width = 64 // pixels - width of one day column
 const row_height = 80 // pixels - height of one car's price row
-const car_column_width = 220 // pixels - width of the sticky left car info column
+// Width of the sticky left car info column: 120px on phones, 220px from md up.
+// A CSS variable rather than a number so the breakpoint is decided by CSS - no
+// window-width state, nothing for SSR and hydration to disagree about.
+const car_column_class = '[--car-col:120px] md:[--car-col:220px]'
+const car_column_width = 'var(--car-col)'
 const days_to_show = 365 // full year
 
 
@@ -19,7 +23,6 @@ const days_to_show = 365 // full year
 // Example: "3:7" is car with id 3, the column 7 days from today
 // Using a string key means O(1) lookup
 type CellKey = string
-type TuroBooking = { id: string; car_id: number; start_time: string; end_time: string; renter_name: string | null }
 
 function makeCellKey(carId: number, dateIndex: number): CellKey {
     return `${carId}:${dateIndex}`
@@ -284,6 +287,11 @@ export function CalendarGrid({
     // the start of the shift-click range
     const [anchorCell, setAnchorCell] = useState<CellKey | null>(null)
 
+    // Touch screens have no shift key, so the selection panel offers a "Select
+    // range" toggle instead: while it's on, the next tap behaves like a
+    // shift-click from the anchor, then it switches itself back off.
+    const [rangeMode, setRangeMode] = useState(false)
+
     // whether the right side panel is visible
     const [panelOpen, setPanelOpen] = useState(false)
 
@@ -325,6 +333,7 @@ export function CalendarGrid({
                 setSelectedCells(new Set())
                 setAnchorCell(null)
                 setPanelOpen(false)
+                setRangeMode(false)
             }
         }
         window.addEventListener('keydown', handleKeyDown)
@@ -374,8 +383,9 @@ export function CalendarGrid({
         // Prevent the click from bubbling up to the scroll container
         e.stopPropagation()
 
-        if (e.shiftKey && anchorCell) {
+        if ((e.shiftKey || rangeMode) && anchorCell) {
             handleShiftClick(carId, dateIndex)
+            setRangeMode(false)
             return
         }
 
@@ -404,14 +414,15 @@ export function CalendarGrid({
 
         // Update anchor on every non-shift click so future shift-clicks extend from here
         setAnchorCell(key)
-    }, [anchorCell, handleShiftClick])
+    }, [anchorCell, rangeMode, handleShiftClick])
 
     // Column header click handler
         // Clicking a date header selects the entire column
     const handleColumnHeaderClick = useCallback((dateIndex: number, e: React.MouseEvent) => {
         e.stopPropagation()
 
-        if (e.shiftKey && anchorCell) {
+        if ((e.shiftKey || rangeMode) && anchorCell) {
+            setRangeMode(false)
             const { dateIndex: anchorDateIndex } = parseCellKey(anchorCell)
             const minDateIndex = Math.min(anchorDateIndex, dateIndex)
             const maxDateIndex = Math.max(anchorDateIndex, dateIndex)
@@ -451,7 +462,7 @@ export function CalendarGrid({
                 setAnchorCell(makeCellKey(cars[0]!.id, dateIndex))
             }
         }
-    }, [anchorCell, cars, selectedCells])
+    }, [anchorCell, rangeMode, cars, selectedCells])
 
 
     // Derived selection info
@@ -479,19 +490,22 @@ export function CalendarGrid({
         setSelectedCells(new Set())
         setAnchorCell(null)
         setPanelOpen(false)
+        setRangeMode(false)
     }, [])
 
     return (
-        <div className="border border-gray-200 bg-white">
+        <div className={`flex-1 min-h-0 flex flex-col border border-gray-200 bg-white ${car_column_class}`}>
             {/*
                 The single scroll container. overflow-auto enables BOTH horizontal
                 and vertical scrolling within this one element. Everything sticky
                 (the header row, the car-name column) is positioned relative to
-                this container's scroll, not the page's scroll.
+                this container's scroll, not the page's scroll - which is why it
+                has to fill a bounded height (flex-1 min-h-0) rather than grow
+                with its rows, or the page scrolls instead and the header leaves.
             */}
             <div
                 ref={scrollContainerRef}
-                className="relative overflow-auto"
+                className="relative flex-1 min-h-0 overflow-auto overscroll-contain"
             >
                 {/*
                     This inner div's width is set to the car-info column plus the
@@ -501,7 +515,7 @@ export function CalendarGrid({
                 */}
                 <div
                     className="relative"
-                    style={{ width: car_column_width  + totalGridWidth }}
+                    style={{ width: `calc(${car_column_width} + ${totalGridWidth}px)` }}
                 >
                     {/* ── HEADER ROW — sticky to the top ──────────────────────── */}
                     <div
@@ -512,7 +526,7 @@ export function CalendarGrid({
                             above everything else (highest z-index) since it has
                             to stay fixed no matter which way the user scrolls. */}
                         <div
-                            className="sticky left-0 z-30 bg-white border-r border-gray-200 flex items-center px-4 text-xs text-gray-500"
+                            className="sticky left-0 z-30 bg-white border-r border-gray-200 flex items-center px-2 md:px-4 text-xs text-gray-500"
                             style={{ width: car_column_width, flexShrink: 0 }}
                         >
                             <MonthPicker
@@ -589,24 +603,23 @@ export function CalendarGrid({
                                 {/* Sticky left column - car info, fixed horizontally */}
                                 <div
                                     className={[
-                                        'sticky left-0 z-10 border-r border-gray-200 flex items-center px-4 text-xs',
+                                        'sticky left-0 z-10 border-r border-gray-200 flex items-center px-2 md:px-4 text-xs',
                                         isCarRowSelected
                                             ? 'bg-[#b2e0d1] text-gray-800' // #b2e0d1 is the same as emerald-600/30
                                             : 'bg-white text-gray-800',
                                     ].join(' ')}
                                     style={{width: car_column_width, flexShrink: 0}}
                                 >
-                                    <div className="flex flex-row gap-4 items-center justify-center">
-                                        <div className="w-full rounded-md md:w-12 h-8 flex-shrink-0">
-                                            <img
-                                                src={carMainImageUrl(car.id)}
-                                                alt={`${car.year} ${car.make} ${car.model}`}
-                                                className="w-12 h-8 object-cover rounded-sm flex-shrink-0"
-                                                loading="lazy"
-                                                decoding="async"
-                                            />
-                                        </div>
-                                        <div className="flex flex-col text-left">
+                                    <div className="flex flex-row gap-4 items-center min-w-0">
+                                        {/* No room for the photo in the phone-width column */}
+                                        <img
+                                            src={carMainImageUrl(car.id)}
+                                            alt={`${car.year} ${car.make} ${car.model}`}
+                                            className="hidden md:block w-12 h-8 object-cover rounded-sm flex-shrink-0"
+                                            loading="lazy"
+                                            decoding="async"
+                                        />
+                                        <div className="flex flex-col text-left min-w-0">
                                             <p className="text-xs text-black mt-1">{car.make} {car.model} {car.year}</p>
                                             <p className="text-xs text-gray-600">{car.license_plate}</p>
                                         </div>
@@ -785,8 +798,11 @@ export function CalendarGrid({
                     activeTab={activeTab}
                     setActiveTab={setActiveTab}
                     onClose={handleClosePanel}
+                    rangeMode={rangeMode}
+                    setRangeMode={setRangeMode}
                     selectedCells={selectedCells}
                     bookings={bookings}
+                    turoBookings={turoBookings}
                     cars={cars}
                     dateRange={dateRange}
                     dateToIndex={dateToIndex}

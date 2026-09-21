@@ -356,17 +356,14 @@ function PaymentSection({
                 <span className="font-bold text-ink">Total paid</span>
                 <span className="font-bold text-ink">${booking.total_price}</span>
             </div>
-
-            {card?.receiptUrl && (
-                <a
-                    href={card.receiptUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-block text-sm font-semibold text-pine-500 hover:underline"
-                >
-                    View full receipt →
-                </a>
-            )}
+            
+            <Link
+                to="/trips/$bookingId/receipt"
+                params={{ bookingId: booking.id }}
+                className="inline-block text-sm font-semibold text-pine-500 hover:underline"
+            >
+                View full receipt →
+            </Link>
         </div>
     )
 }

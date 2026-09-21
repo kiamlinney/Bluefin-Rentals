@@ -2,9 +2,9 @@ import {ChevronDown, Search} from "lucide-react";
 
 export function CalendarToolbar() {
     return (
-        <div className="flex items-center gap-3 mb-4">
-            {/* Search field */}
-            <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 w-72">
+        <div className="flex flex-wrap items-center gap-2 md:gap-3 mb-3 md:mb-4">
+            {/* Search field - full row on phones, the buttons wrap beneath it */}
+            <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 w-full sm:w-72">
                 <input
                     type="text"
                     placeholder="Make, model, plate #"

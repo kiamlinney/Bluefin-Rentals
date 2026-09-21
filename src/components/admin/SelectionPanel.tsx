@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { X, CarFront} from 'lucide-react'
 import { Link } from "@tanstack/react-router";
-import { BookingWithRelations, Car, CarBlockedDate } from 'src/types.ts'
+import { BookingWithRelations, Car, CarBlockedDate, TuroBooking } from 'src/types.ts'
 import { upsertPriceOverrides, createBlockedDates, deleteBlockedDate } from "@/lib/db.ts";
 import { formatBusinessDate, formatBusinessTime, formatDateKey } from "@/lib/dates.ts";
 import { dateKeyToLocalDate } from "@/lib/pricing.ts";
@@ -14,8 +14,11 @@ export type SelectionPanelProps = {
     activeTab: PanelTab
     setActiveTab: (tab: PanelTab) => void
     onClose: () => void
+    rangeMode: boolean
+    setRangeMode: (on: boolean) => void
     selectedCells: Set<string>
     bookings: BookingWithRelations[]
+    turoBookings: TuroBooking[]
     cars: Car[]
     dateRange: Date[]
     dateToIndex: (isoString: string) => number
@@ -48,14 +51,18 @@ const formatLocalDate = formatBusinessDate
 
 // --- Selection Panel
 // A fixed position panel that overlays the right edge of the screen whenever one or more
-// calendar cells are selected. It does not push or compress the grid, it floats on top.`
+// calendar cells are selected. It does not push or compress the grid, it floats on top.
+// On phones it's a bottom sheet instead, leaving the top of the grid tappable.
 export function SelectionPanel({
     selectionInfo,
     activeTab,
     setActiveTab,
     onClose,
+    rangeMode,
+    setRangeMode,
     selectedCells,
     bookings,
+    turoBookings,
     cars,
     dateRange,
     dateToIndex,
@@ -66,7 +73,7 @@ export function SelectionPanel({
     onBlockDeleted,
 }: SelectionPanelProps) {
     return (
-        <div className="fixed right-0 top-19.5 h-160 w-90 z-50 rounded-xl bg-white border-1 border-gray-200 shadow-2xl flex flex-col">
+        <div className="fixed inset-x-0 bottom-0 h-[50dvh] rounded-t-2xl md:inset-x-auto md:bottom-auto md:right-0 md:top-19.5 md:h-160 md:w-90 md:rounded-xl z-50 bg-white border-1 border-gray-200 shadow-2xl flex flex-col">
 
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
@@ -86,15 +93,33 @@ export function SelectionPanel({
                     </p>
                 </div>
 
-                {/* Close button */}
-                <button
-                    type="button"
-                    onClick={onClose}
-                    className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-900 hover:text-gray-700 transition-colors cursor-pointer"
-                    aria-label="Close panel"
-                >
-                    <X size={16} />
-                </button>
+                <div className="flex items-center gap-2">
+                    {/* Shift-click for touch screens: the next tap fills a rectangle
+                        from the last cell tapped. Desktop still has shift, so phones only. */}
+                    <button
+                        type="button"
+                        onClick={() => setRangeMode(!rangeMode)}
+                        aria-pressed={rangeMode}
+                        className={[
+                            'md:hidden px-3 py-1.5 rounded-full border text-xs font-medium transition-colors cursor-pointer',
+                            rangeMode
+                                ? 'bg-emerald-700 border-emerald-700 text-white'
+                                : 'border-gray-300 text-gray-700',
+                        ].join(' ')}
+                    >
+                        {rangeMode ? 'Tap end cell' : 'Select range'}
+                    </button>
+
+                    {/* Close button */}
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-900 hover:text-gray-700 transition-colors cursor-pointer"
+                        aria-label="Close panel"
+                    >
+                        <X size={16} />
+                    </button>
+                </div>
             </div>
 
             {/*--- Tab Bar ----------------------*/}
@@ -152,8 +177,8 @@ export function SelectionPanel({
                     <TripsTab
                         selectedCells={selectedCells}
                         bookings={bookings}
+                        turoBookings={turoBookings}
                         cars={cars}
-                        dateRange={dateRange}
                         dateToIndex={dateToIndex}
                     />
                 )}
@@ -601,17 +626,27 @@ function UnavailabilityTab({
 // A booking is relevant if: Its car_id is in the selected car IDs, AND
 // its date range overlaps at least one selected date index
 
+// Turo trips are listed alongside direct bookings, tagged so each card knows
+// where to link: our reservation page, or the trip on turo.com.
+type TripItem =
+    | { kind: 'direct'; booking: BookingWithRelations }
+    | { kind: 'turo'; trip: TuroBooking }
+
+function turoReservationUrl(turoTripId: string) {
+    return `https://turo.com/us/en/reservation/${turoTripId}`
+}
+
 function TripsTab({
      selectedCells,
      bookings,
+     turoBookings,
      cars,
-     dateRange,
      dateToIndex,
 }: {
     selectedCells: Set<string>
     bookings: BookingWithRelations[]
+    turoBookings: TuroBooking[]
     cars: Car[]
-    dateRange: Date[]
     dateToIndex: (iso: string) => number
 }) {
     const carsById = useMemo(() => {
@@ -633,29 +668,36 @@ function TripsTab({
         return { selectedCarDateMap: carDateMap }
     }, [selectedCells])
 
-    // Filter bookings to only those relevant to the current selection
-    const relevantBookings = useMemo(() => {
-        return bookings
-            .filter(booking => {
-                const carSelectedDates = selectedCarDateMap.get(booking.car_id)
+    // Filter both kinds of trip to only those relevant to the current selection,
+    // through the same overlap rule so a Turo trip and a direct booking on the
+    // same cells can't disagree about whether they're "selected"
+    const relevantTrips = useMemo(() => {
+        const overlapsSelection = (trip: { car_id: number; start_time: string; end_time: string }) => {
+            const carSelectedDates = selectedCarDateMap.get(trip.car_id)
 
-                if (!carSelectedDates || carSelectedDates.size === 0) return false
+            if (!carSelectedDates || carSelectedDates.size === 0) return false
 
-                const bookingStart = dateToIndex(booking.start_time)
-                const bookingEnd = dateToIndex(booking.end_time)
+            const tripStart = dateToIndex(trip.start_time)
+            const tripEnd = dateToIndex(trip.end_time)
 
-                for (const di of carSelectedDates) {
-                    if (di >= bookingStart && di <= bookingEnd) return true
-                }
-                return false
-            })
-            .sort((a, b) =>
-                // Sort soonest first
-                new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
-            )
-    }, [bookings, selectedCarDateMap, dateToIndex])
+            for (const di of carSelectedDates) {
+                if (di >= tripStart && di <= tripEnd) return true
+            }
+            return false
+        }
 
-    if (relevantBookings.length === 0) {
+        const items: TripItem[] = [
+            ...bookings.filter(overlapsSelection).map(booking => ({ kind: 'direct' as const, booking })),
+            ...turoBookings.filter(overlapsSelection).map(trip => ({ kind: 'turo' as const, trip })),
+        ]
+        const startOf = (item: TripItem) =>
+            new Date(item.kind === 'direct' ? item.booking.start_time : item.trip.start_time).getTime()
+
+        // Sort soonest first
+        return items.sort((a, b) => startOf(a) - startOf(b))
+    }, [bookings, turoBookings, selectedCarDateMap, dateToIndex])
+
+    if (relevantTrips.length === 0) {
         return (
             <div className="p-5 flex flex-col items-center justify-center text-center gap-4 h-full">
                 <CarFront size={32} className="text-gray-200" />
@@ -672,100 +714,150 @@ function TripsTab({
     return (
         <div className="divide-y divide-gray-100">
             <p className="px-5 pt-4 pb-2 text-xs text-gray-400">
-                Showing {relevantBookings.length} {relevantBookings.length === 1 ? 'trip' : 'trips'} for the selected days.
+                Showing {relevantTrips.length} {relevantTrips.length === 1 ? 'trip' : 'trips'} for the selected days.
             </p>
 
-            {relevantBookings.map(booking => {
-                const car = carsById.get(booking.car_id)
+            {relevantTrips.map(item => {
+                if (item.kind === 'direct') {
+                    const booking = item.booking
+                    const profile = booking.profiles
+                    const renterName = profile?.full_name ?? profile?.email?.split('@')[0] ?? 'Guest'
+                    const shortId = booking.id.slice(0, 8).toUpperCase()
 
-                // Determine whether this trip is active, upcoming, or past
-                const now = new Date()
-                const startTime = new Date(booking.start_time)
-                const endTime = new Date(booking.end_time)
-
-                const isActive = startTime <= now && endTime > now
-                //const isPast = endTime <= now
-                const isUpcoming = startTime > now
-
-                let statusLabel = ''
-                let statusClass = ''
-
-                if (isActive) {
-                    statusLabel = `Ending ${formatLocalDate(booking.end_time)} at ${formatLocalTime(booking.end_time)}`
-                    statusClass = 'text-red-600 bg-red-50'
-                } else if (isUpcoming) {
-                    statusLabel = `Starting ${formatLocalDate(booking.start_time)} at ${formatLocalTime(booking.start_time)}`
-                    statusClass = 'text-green-700 bg-green-50'
-                } else {
-                    // Completed / past trip — show the date range
-                    statusLabel = `${formatLocalDate(booking.start_time)} – ${formatLocalDate(booking.end_time)}`
-                    statusClass = 'text-gray-500 bg-gray-100'
+                    return (
+                        <Link
+                            key={booking.id}
+                            to="/admin/reservation/$bookingId"
+                            params={{ bookingId: booking.id }}
+                            className="block px-2 mb-2"
+                        >
+                            <TripCardBody
+                                startTime={booking.start_time}
+                                endTime={booking.end_time}
+                                address={booking.pickup_location}
+                                renterName={renterName}
+                                reference={`#${shortId}`}
+                                car={carsById.get(booking.car_id)}
+                            />
+                        </Link>
+                    )
                 }
 
-                const profile = booking.profiles
-                const renterName = profile?.full_name ?? profile?.email?.split('@')[0] ?? 'Guest'
-                const shortId = booking.id.slice(0, 8).toUpperCase()
+                const trip = item.trip
+                const body = (
+                    <TripCardBody
+                        startTime={trip.start_time}
+                        endTime={trip.end_time}
+                        address={null}
+                        renterName={trip.renter_name ?? 'Turo guest'}
+                        reference={trip.turo_trip_id ? `Turo ID #${trip.turo_trip_id}` : 'Turo'}
+                        car={carsById.get(trip.car_id)}
+                        isTuro
+                    />
+                )
+
+                // Rows synced before the reservation id was captured have nothing
+                // to link to, so they're shown but not clickable
+                if (!trip.turo_trip_id) {
+                    return <div key={trip.id} className="block px-2 mb-2">{body}</div>
+                }
 
                 return (
-                    <Link
-                        key={booking.id}
-                        to="/admin/reservation/$bookingId"
-                        params={{ bookingId: booking.id }}
+                    <a
+                        key={trip.id}
+                        href={turoReservationUrl(trip.turo_trip_id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="block px-2 mb-2"
                     >
-
-                        <div className="flex items-stretch justify-between gap-4 border border-gray-300 rounded-xl px-4 py-4 hover:shadow-sm hover:border-gray-300 transition-colors">
-                            {/* Left – dates, address, renter */}
-                            <div className="flex-1 min-w-0">
-                                {/* Dates row */}
-                                <div className="grid grid-cols-[auto_24px_auto] items-center gap-4">
-                                    {/* Start date */}
-                                    <div>
-                                        <div className="text-lg font-bold text-gray-900 leading-6">{formatLocalDate(booking.start_time)}</div>
-                                        <div className="text-base text-gray-800 mt-0.5">{formatLocalTime(booking.start_time)}</div>
-                                    </div>
-
-                                    {/* Arrow */}
-                                    <div className="text-black text-center text-2xl">→</div>
-
-                                    {/* End date */}
-                                    <div className="text-right">
-                                        <div className="text-lg font-bold text-gray-900 leading-6">{formatLocalDate(booking.end_time)}</div>
-                                        <div className="text-base text-gray-800 mt-0.5">{formatLocalTime(booking.end_time)}</div>
-                                    </div>
-                                </div>
-
-                                {/* Address */}
-                                {booking.pickup_location && (
-                                    <p className="text-sm text-gray-700 mt-3 truncate">{booking.pickup_location}</p>
-                                )}
-
-                                {/* Renter */}
-                                <div className="flex items-center gap-2 mt-3">
-                                    <div className="w-6 h-6 rounded-full bg-gray-200 text-gray-800 text-xs font-semibold flex items-center justify-center">
-                                        {renterName[0]?.toUpperCase() ?? 'G'}
-                                    </div>
-                                    <span className="text-xs text-gray-700 truncate">{renterName} #{shortId}</span>
-                                </div>
-                            </div>
-
-                            {/* Right – car tile */}
-                            {car && (
-                                <div className="flex flex-col items-center gap-2 shrink-0">
-                                    <img
-                                        src={carMainImageUrl(car.id)}
-                                        alt={`${car.year} ${car.make} ${car.model}`}
-                                        className="w-20 h-14 object-cover rounded-md border border-gray-100"
-                                        loading="lazy"
-                                        decoding="async"
-                                    />
-                                    <div className="text-xs text-gray-600">{car.license_plate}</div>
-                                </div>
-                            )}
-                        </div>
-                    </Link>
+                        {body}
+                    </a>
                 )
             })}
+        </div>
+    )
+}
+
+// The card itself, shared by direct bookings and Turo trips so the two read the
+// same in the list. Turo trips get a violet badge, matching their bar on the grid.
+function TripCardBody({
+    startTime,
+    endTime,
+    address,
+    renterName,
+    reference,
+    car,
+    isTuro = false,
+}: {
+    startTime: string
+    endTime: string
+    address: string | null
+    renterName: string
+    reference: string
+    car: Car | undefined
+    isTuro?: boolean
+}) {
+    return (
+        <div className={`flex items-stretch justify-between gap-4 border border-gray-300 rounded-xl px-4 py-4 hover:shadow-sm hover:border-gray-300 transition-colors
+            ${isTuro && 'bg-violet-500/10'}`}
+        >
+            {/* Left – dates, address, renter */}
+            <div className="flex-1 min-w-0">
+                {/* Dates row */}
+                <div className="grid grid-cols-[auto_24px_auto] items-center gap-4">
+                    {/* Start date */}
+                    <div>
+                        <div className="text-lg font-bold text-gray-900 leading-6">{formatLocalDate(startTime)}</div>
+                        <div className="text-base text-gray-800 mt-0.5">{formatLocalTime(startTime)}</div>
+                    </div>
+
+                    {/* Arrow */}
+                    <div className="text-black text-center text-2xl">→</div>
+
+                    {/* End date */}
+                    <div className="text-right">
+                        <div className="text-lg font-bold text-gray-900 leading-6">{formatLocalDate(endTime)}</div>
+                        <div className="text-base text-gray-800 mt-0.5">{formatLocalTime(endTime)}</div>
+                    </div>
+                </div>
+
+
+                {/* Address */}
+                {address && (
+                    <p className="text-sm text-gray-700 mt-3 truncate">{address}</p>
+                )}
+
+                {/* Renter */}
+                <div className="flex items-center gap-2 mt-3">
+                    <div className="w-6 h-6 rounded-full bg-gray-200 text-gray-800 text-xs font-semibold flex items-center justify-center">
+                        {renterName[0]?.toUpperCase() ?? 'G'}
+                    </div>
+                    <span className="text-xs text-gray-700 truncate">{renterName} {reference}</span>
+                </div>
+
+                {isTuro && (
+                    <p className="text-xs text-gray-700 italic mt-3 truncate">Click to open reservation in Turo.</p>
+                )}
+            </div>
+
+            {/* Right – car tile */}
+            {car && (
+                <div className="flex flex-col items-center gap-2 shrink-0">
+                    {isTuro && (
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-200 rounded-full px-2 py-0.5">
+                            Turo
+                        </span>
+                    )}
+                    <img
+                        src={carMainImageUrl(car.id)}
+                        alt={`${car.year} ${car.make} ${car.model}`}
+                        className="w-20 h-14 object-cover rounded-md border border-gray-100"
+                        loading="lazy"
+                        decoding="async"
+                    />
+                    <div className="text-xs text-gray-600">{car.license_plate}</div>
+                </div>
+            )}
         </div>
     )
 }

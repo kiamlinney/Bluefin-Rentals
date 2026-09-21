@@ -30,7 +30,9 @@ export const Route = createFileRoute('/admin/calendar')({
 function Calendar() {
     const { cars, bookings, turoBookings, priceOverrides, blockedDates } = Route.useLoaderData()
     return (
-        <div className="p-6">
+        // Full-height column so the grid can take whatever the toolbar leaves and
+        // scroll both ways inside itself, keeping its sticky header/car column in view
+        <div className="p-3 md:p-6 h-full flex flex-col">
             <CalendarToolbar />
             <CalendarGrid cars={cars} bookings={bookings} turoBookings={turoBookings} priceOverrides={priceOverrides} blockedDates={blockedDates} />
         </div>

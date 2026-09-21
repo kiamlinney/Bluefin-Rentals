@@ -24,7 +24,7 @@ function RatingsReviewsPage() {
     const summary = summarizeRatings(reviews.map((r) => r.rating))
 
     return (
-        <div className="min-h-screen py-16 px-4 md:px-8">
+        <div className="py-8 md:py-16 px-4 md:px-8">
             <div className="max-w-6xl mx-auto">
                 <div className="flex flex-wrap items-center justify-between gap-4 mb-10">
                     <h1 className="text-3xl text-black font-bold">Ratings &amp; reviews</h1>

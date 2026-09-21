@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import {BookingWithRelations} from "@/types.ts";
 import {formatBusinessDate, formatBusinessTime} from "@/lib/dates.ts";
 import {carMainImageUrl} from "@/lib/car-images.ts";
+import {money} from "@/lib/email-template.ts";
 
 export function TripCard({ booking }: { booking: BookingWithRelations }) {
     const car = booking.cars
@@ -111,7 +112,7 @@ export function TripCard({ booking }: { booking: BookingWithRelations }) {
 
                 {(isCompleted || isCanceled) && (
                     <p className="pt-4 text-xs text-gray-600 text-center">
-                        Total Paid: ${booking.total_price}
+                        Total Paid: {money(booking.total_price)}
                     </p>
                 )}
 

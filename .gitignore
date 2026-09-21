@@ -27,3 +27,5 @@ supabase/.branches
 *.njsproj
 *.sln
 *.sw?
+
+public/*.mov

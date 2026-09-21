@@ -161,7 +161,7 @@ function SidebarContent({
                                                 : <span className="truncate">{item.label}</span>
                                             }
                                     </span>
-                                    {!collapsed && (open ? <ChevronDown size={16} /> : <ChevronUp size={16} />)}
+                                    {!collapsed && (open ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}
                                 </button>
 
                                 {/* Expanded mode children list */}
@@ -305,9 +305,9 @@ export function AdminSidebar({ user }: { user: any }) {
     }
 
     return (
-        <div className="h-full flex flex-col shrink-0">
-            {/* Mobile trigger */}
-            <div className="md:hidden p-2 border-b flex items-center justify-between">
+        <div className="md:h-full flex flex-col shrink-0">
+            {/* Mobile trigger - a full-width bar above the page, not a column beside it */}
+            <div className="md:hidden p-2 border-b border-gray-200 bg-white flex items-center justify-between">
                 <button
                     className="inline-flex items-center gap-2 rounded px-3 py-2 border"
                     onClick={() => setMobileOpen(true)}
@@ -318,7 +318,7 @@ export function AdminSidebar({ user }: { user: any }) {
             </div>
 
             {/* Desktop sidebar */}
-            <div className="hidden md:block sticky top-0 h-screen">
+            <div className="hidden md:block sticky top-0 z-40 h-screen">
                 <SidebarContent
                     collapsed={collapsed}
                     setCollapsed={setCollapsed}

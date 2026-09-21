@@ -79,7 +79,7 @@ function HistoryPage() {
     const groups = groupBookingsByDate(bookings)
 
     return (
-        <div className="min-h-screen py-16 px-4 md:px-8">
+        <div className="py-8 md:py-16 px-4 md:px-8">
             <div className="max-w-2xl mx-auto">
                 <h1 className="mb-8 text-3xl text-black font-bold">History</h1>
 

@@ -27,10 +27,12 @@ export const Route = createFileRoute('/admin')({
 function AdminLayout() {
     const { user } = Route.useRouteContext();
     return (
-        <div className="flex h-screen w-screen overflow-hidden admin-shell">
+        // Column on phones (menu bar on top), row from md up (sidebar on the left).
+        // h-dvh rather than h-screen so iOS Safari's address bar doesn't cover the bottom.
+        <div className="flex flex-col md:flex-row h-dvh w-full overflow-hidden admin-shell">
             <AdminSidebar user={user}/>
 
-            <main className="flex-1 h-full overflow-y-auto">
+            <main className="flex-1 min-h-0 overflow-y-auto">
                 <Outlet />
             </main>
         </div>

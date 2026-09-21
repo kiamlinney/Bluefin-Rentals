@@ -150,6 +150,20 @@ export function formatDateKey(
     return date ? date.toLocaleDateString('en-US', options) : ''
 }
 
+// A run of billed days, as one label: "Fri, Sep 26" for a single day and
+// "Sep 24 – Sep 28" for a range.
+//
+// Both halves go through formatDateKey rather than the Date constructor: these
+// are 'YYYY-MM-DD' keys with no instant in them, and `new Date('2026-09-24')`
+// parses as UTC midnight, which renders as Sep 23 everywhere west of Greenwich.
+export function formatDayRange(startKey: string, endKey: string): string {
+    if (startKey === endKey) {
+        return formatDateKey(startKey, { weekday: 'short', month: 'short', day: 'numeric' })
+    }
+    const short: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
+    return `${formatDateKey(startKey, short)} – ${formatDateKey(endKey, short)}`
+}
+
 // True when the instant falls on today's business date. Used for the "Today"
 // heading on the admin trip lists, which was previously decided by comparing
 // the viewer's calendar day against a UTC-derived one.

@@ -41,6 +41,7 @@ import { Route as AdminBusinessEarningsRouteImport } from './routes/admin/busine
 import { Route as AuthedTripsBookingIdRouteImport } from './routes/_authed.trips.$bookingId'
 import { Route as AuthedProfileEditRouteImport } from './routes/_authed.profile_.edit'
 import { Route as AuthedCheckoutCarIdRouteImport } from './routes/_authed.checkout.$carId'
+import { Route as AuthedTripsBookingIdReceiptRouteImport } from './routes/_authed.trips.$bookingId_.receipt'
 import { Route as AuthedTripsBookingIdPhotosRouteImport } from './routes/_authed.trips.$bookingId_.photos'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
@@ -204,6 +205,12 @@ const AuthedCheckoutCarIdRoute = AuthedCheckoutCarIdRouteImport.update({
   path: '/checkout/$carId',
   getParentRoute: () => AuthedRoute,
 } as any)
+const AuthedTripsBookingIdReceiptRoute =
+  AuthedTripsBookingIdReceiptRouteImport.update({
+    id: '/trips/$bookingId_/receipt',
+    path: '/trips/$bookingId/receipt',
+    getParentRoute: () => AuthedRoute,
+  } as any)
 const AuthedTripsBookingIdPhotosRoute =
   AuthedTripsBookingIdPhotosRouteImport.update({
     id: '/trips/$bookingId_/photos',
@@ -244,6 +251,7 @@ export interface FileRoutesByFullPath {
   '/admin/user/$userId': typeof AdminUserUserIdRoute
   '/api/cron/sync-turo': typeof ApiCronSyncTuroRoute
   '/trips/$bookingId/photos': typeof AuthedTripsBookingIdPhotosRoute
+  '/trips/$bookingId/receipt': typeof AuthedTripsBookingIdReceiptRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -277,6 +285,7 @@ export interface FileRoutesByTo {
   '/admin/user/$userId': typeof AdminUserUserIdRoute
   '/api/cron/sync-turo': typeof ApiCronSyncTuroRoute
   '/trips/$bookingId/photos': typeof AuthedTripsBookingIdPhotosRoute
+  '/trips/$bookingId/receipt': typeof AuthedTripsBookingIdReceiptRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -313,6 +322,7 @@ export interface FileRoutesById {
   '/admin/user/$userId': typeof AdminUserUserIdRoute
   '/api/cron/sync-turo': typeof ApiCronSyncTuroRoute
   '/_authed/trips/$bookingId_/photos': typeof AuthedTripsBookingIdPhotosRoute
+  '/_authed/trips/$bookingId_/receipt': typeof AuthedTripsBookingIdReceiptRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -349,6 +359,7 @@ export interface FileRouteTypes {
     | '/admin/user/$userId'
     | '/api/cron/sync-turo'
     | '/trips/$bookingId/photos'
+    | '/trips/$bookingId/receipt'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -382,6 +393,7 @@ export interface FileRouteTypes {
     | '/admin/user/$userId'
     | '/api/cron/sync-turo'
     | '/trips/$bookingId/photos'
+    | '/trips/$bookingId/receipt'
   id:
     | '__root__'
     | '/'
@@ -417,6 +429,7 @@ export interface FileRouteTypes {
     | '/admin/user/$userId'
     | '/api/cron/sync-turo'
     | '/_authed/trips/$bookingId_/photos'
+    | '/_authed/trips/$bookingId_/receipt'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -664,6 +677,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedCheckoutCarIdRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/trips/$bookingId_/receipt': {
+      id: '/_authed/trips/$bookingId_/receipt'
+      path: '/trips/$bookingId/receipt'
+      fullPath: '/trips/$bookingId/receipt'
+      preLoaderRoute: typeof AuthedTripsBookingIdReceiptRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/_authed/trips/$bookingId_/photos': {
       id: '/_authed/trips/$bookingId_/photos'
       path: '/trips/$bookingId/photos'
@@ -681,6 +701,7 @@ interface AuthedRouteChildren {
   AuthedProfileEditRoute: typeof AuthedProfileEditRoute
   AuthedTripsBookingIdRoute: typeof AuthedTripsBookingIdRoute
   AuthedTripsBookingIdPhotosRoute: typeof AuthedTripsBookingIdPhotosRoute
+  AuthedTripsBookingIdReceiptRoute: typeof AuthedTripsBookingIdReceiptRoute
 }
 
 const AuthedRouteChildren: AuthedRouteChildren = {
@@ -690,6 +711,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedProfileEditRoute: AuthedProfileEditRoute,
   AuthedTripsBookingIdRoute: AuthedTripsBookingIdRoute,
   AuthedTripsBookingIdPhotosRoute: AuthedTripsBookingIdPhotosRoute,
+  AuthedTripsBookingIdReceiptRoute: AuthedTripsBookingIdReceiptRoute,
 }
 
 const AuthedRouteWithChildren =

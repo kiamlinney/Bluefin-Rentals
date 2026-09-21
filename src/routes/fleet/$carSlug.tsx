@@ -2,7 +2,7 @@ import {createFileRoute, Link, notFound, redirect, useNavigate} from "@tanstack/
 import { getCarById } from "@/lib/db.ts";
 import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { z } from "zod";
-import { Users, Fuel, Gauge, Settings2, X, ChevronDown } from "lucide-react";
+import { Users, Fuel, Gauge, ThumbsUp, Settings2, X, ChevronDown } from "lucide-react";
 import { getBookedDates, getCarPriceOverrides, getReviews } from "@/lib/db.ts";
 import { summarizeRatings } from "@/lib/reviews.ts";
 import { RatingSummary } from "@/components/reviews/RatingSummary.tsx";
@@ -789,9 +789,9 @@ function CarDetails() {
                             })}
                         </div>
 
-                        <h2 className="text-2xl font-bold mt-6">Convenience</h2>
-                        <h2 className="text-2xl font-bold mt-6">Peace of mind</h2>
-                        <h2 className="text-2xl font-bold mt-6">Road rules</h2>
+                        {/*<h2 className="text-2xl font-bold mt-6">Convenience</h2>*/}
+                        {/*<h2 className="text-2xl font-bold mt-6">Peace of mind</h2>*/}
+                        {/*<h2 className="text-2xl font-bold mt-6">Road rules</h2>*/}
 
                         <hr className="my-6" />
 
@@ -986,12 +986,34 @@ function CarDetails() {
 
 
                         <div className="mt-4 space-y-4 relative">
-                            <p className="text-lg font-bold">Cancellation policy</p>
+                            <div className="space-y-3">
+                                <p className="text-lg font-bold">Cancellation policy</p>
+                                <div className="flex items-start gap-3">
+                                    <ThumbsUp size={22} className="flex-shrink-0 mt-0.5" />
+                                    <div>
+                                        <p className="text-base">
+                                            Free cancellation
+                                        </p>
+
+                                        <p className="text-sm text-muted mt-0.5">
+                                            Full refund within 24 hours of booking. More flexible options available at checkout.
+                                            View the full policy {' '}
+                                            <Link
+                                                to="/policies/cancellation"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="underline cursor-pointer hover:text-gray-700"
+                                            >
+                                               here
+                                            </Link>
+
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
 
                             {/* Sits outside the `user ?` branch above, so a
-                                logged-out visitor sees it too — they have no
-                                booking widget and therefore no dates, which is
-                                exactly the undated case handled below. */}
+                                logged-out visitor sees it too */}
                             <div className="space-y-3">
                                 <p className="text-lg font-bold">Distance included</p>
                                 <div className="flex items-start gap-3">
@@ -1014,7 +1036,8 @@ function CarDetails() {
                                 </div>
                             </div>
 
-                            <p className="text-lg font-bold">Insurance & protection</p>
+                            {/*TODO: Complete insurance information*/}
+                            {/*<p className="text-lg font-bold">Insurance & protection</p>*/}
                         </div>
                     </div>
                 </div>

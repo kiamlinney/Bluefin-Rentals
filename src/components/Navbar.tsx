@@ -145,7 +145,7 @@ const Navbar = ({ user }: { user: any | null }) => {
             // px-6 on phones lines the logo up with the page content below,
             // which also uses px-6. px-8 from md.
             className={cn(
-                "sticky top-0 h-14 w-full z-50 flex items-center justify-between px-6 md:px-8 border-b-[0.5px] transition-colors duration-300",
+                "sticky top-0 h-14 w-full z-50 flex items-center justify-between px-6 md:px-8 border-b-[0.5px] transition-colors duration-300 print:hidden",
                 overHero
                     ? "bg-transparent border-white/25 text-white"
                     : "bg-page/90 backdrop-blur-md border-line text-ink",

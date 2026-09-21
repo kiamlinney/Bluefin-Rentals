@@ -17,6 +17,8 @@ import {carMainImageUrl} from "@/lib/car-images.ts";
 import {carSlug} from "@/lib/slug.ts";
 import {buildOverrideMap, calculateTripPrice} from "@/lib/pricing.ts";
 import {calculateOverage, distanceFeeForTrip, formatMiles, milesIncluded} from "@/lib/distance.ts";
+import {buildReceipt} from "@/lib/receipt.ts";
+import {money} from "@/lib/email-template.ts";
 
 export const Route = createFileRoute('/admin/reservation/$bookingId')({
     loader: async ({ params }) => {
@@ -53,7 +55,20 @@ function ReservationDetailsPage() {
 
     // ── Mileage ──────────────────────────────────────────────────────────────
     // The rate falls with trip length (src/lib/distance.ts), so this needs the
-    // trip's quote, not just its dates.
+    // trip's quote, not just its dates — and the quote it needs is the one the
+    // guest was actually charged against.
+    //
+    // buildReceipt reads that off bookings.price_quote, which is also what the
+    // receipt page prints. Recomputing here instead would price the trip against
+    // *today's* per-day overrides, so editing a September price in the calendar
+    // would change the allowance shown for a trip that was booked in August —
+    // and this page and the receipt it links to would disagree about the same
+    // trip.
+    const receipt = buildReceipt(booking, car)
+
+    // Only for bookings predating the price_quote column, which have no snapshot
+    // to read. Recomputing is wrong in principle and right in practice here: the
+    // alternative for a legacy row is no mileage figure at all.
     //
     // The stored timestamps are UTC instants and calculateTripPrice wants
     // wall-clock strings, so they go through businessDateKey/businessWallClockTime
@@ -64,14 +79,16 @@ function ReservationDetailsPage() {
     // No pickup fee: it doesn't enter the ratio, and the row stores only the
     // rendered location string so the selection can't be reconstructed anyway
     // (see the known gap in src/lib/checkout-search.ts).
-    const tripQuote = calculateTripPrice({
-        startDate: businessDateKey(startDate),
-        startTime: businessWallClockTime(startDate),
-        endDate: businessDateKey(endDate),
-        endTime: businessWallClockTime(endDate),
-        basePricePerDay: Number(car.price_per_day),
-        overrides: buildOverrideMap(priceOverrides),
-    })
+    const fallbackQuote = receipt.quote
+        ? null
+        : calculateTripPrice({
+            startDate: businessDateKey(startDate),
+            startTime: businessWallClockTime(startDate),
+            endDate: businessDateKey(endDate),
+            endTime: businessWallClockTime(endDate),
+            basePricePerDay: Number(car.price_per_day),
+            overrides: buildOverrideMap(priceOverrides),
+        })
 
     // What the guest was told about cancelling — and, since cancelBooking now
     // enforces the policy, also the rule it applies. effectiveFreeCancellation-
@@ -84,8 +101,12 @@ function ReservationDetailsPage() {
         tripStart: startDate,
     })
 
-    const totalMilesIncluded = milesIncluded(tripQuote.billableDays)
-    const perMileFee = distanceFeeForTrip(car, tripQuote, Number(car.price_per_day))
+    const totalMilesIncluded = fallbackQuote
+        ? milesIncluded(fallbackQuote.billableDays)
+        : receipt.milesIncluded
+    const perMileFee = fallbackQuote
+        ? distanceFeeForTrip(car, fallbackQuote, Number(car.price_per_day))
+        : receipt.perMileFee
     const overage = calculateOverage(booking.miles_driven ?? 0, totalMilesIncluded, perMileFee)
 
     // The phone column is nullable and free-form — it's whatever the renter typed,
@@ -125,17 +146,17 @@ function ReservationDetailsPage() {
     }
 
     return (
-        <div className="min-h-screen py-16 px-4 md:px-8">
+        <div className="py-8 md:py-16 px-4 md:px-8">
             <div className="max-w-5xl mx-auto">
 
-                {/* Car Title & Thumbnail Grid Header */}
-                <header className="flex justify-between items-start border-b border-gray-300 pb-4 mb-8">
+                {/* Car Title & Thumbnail Grid Header - stacked on phones, car info above the title */}
+                <header className="flex flex-col-reverse gap-4 sm:flex-row sm:justify-between sm:items-start border-b border-gray-300 pb-4 mb-8">
                     <div>
-                        <h1 className="mb-6 text-4xl text-black tracking-tight font-bold">
+                        <h1 className="sm:mb-6 text-3xl sm:text-4xl text-black tracking-tight font-bold">
                             {isPastTrip ? 'Past trip' : 'Booked trip'}
                         </h1>
                     </div>
-                    <div className="flex items-center gap-3 text-right">
+                    <div className="flex flex-row-reverse sm:flex-row items-center justify-end gap-3 sm:text-right">
                         <div>
                             <h2 className="text-s font-semibold text-gray-800">
                                 {car.year} {car.make} {car.model}
@@ -163,7 +184,7 @@ function ReservationDetailsPage() {
                     {/* LEFT COLUMN, 1fr width */}
                     <div className="space-y-8">
                         {/* Date/Time Banner */}
-                        <section className="flex items-center gap-6 border-b border-gray-200 pb-6">
+                        <section className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:gap-6 border-b border-gray-200 pb-6">
                             <div>
                                 <span className="text-xs font-bold uppercase tracking-wider text-black">
                                     {renterName?.split(' ')[0]}'s Trip
@@ -171,9 +192,10 @@ function ReservationDetailsPage() {
                                 <div className="text-lg font-bold mt-0.5">{formatDate(startDate)}</div>
                                 <div className="text-sm text-gray-500">{formatTime(startDate)}</div>
                             </div>
-                            <div className="h-0.5 w-8 bg-gray-400 " />
+                            {/* Dash and spacer label only line up when the dates sit side by side */}
+                            <div className="hidden sm:block h-0.5 w-8 bg-gray-400 " />
                             <div>
-                                <span className="text-xs font-bold uppercase tracking-wider text-gray-400 invisible">
+                                <span className="hidden sm:inline text-xs font-bold uppercase tracking-wider text-gray-400 invisible">
                                     End
                                 </span>
                                 <div className="text-lg font-bold mt-0.5">{formatDate(endDate)}</div>
@@ -206,10 +228,14 @@ function ReservationDetailsPage() {
 
                         <section className="space-y-1">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-black">Total Earnings</h3>
-                            <p className="text-lg text-gray-700">${booking.total_price}</p>
-                            <button className="text-sm font-semibold text-emerald-700 hover:underline cursor-pointer block pt-1">
+                            <p className="text-lg text-gray-700">{money(booking.total_price)}</p>
+                            <Link
+                                to="/trips/$bookingId/receipt"
+                                params={{ bookingId: booking.id }}
+                                className="text-sm font-semibold text-emerald-700 hover:underline cursor-pointer block pt-1"
+                            >
                                 View detailed receipt
-                            </button>
+                            </Link>
                         </section>
 
                         <section className="space-y-1">

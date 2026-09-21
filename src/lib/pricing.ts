@@ -418,3 +418,67 @@ export function calculateTripPrice(input: TripQuoteInput): TripQuote {
         total: roundMoney(tripPrice + refundableSurchargeAmount + pickupFee),
     }
 }
+
+// ── Display ──────────────────────────────────────────────────────────────────
+
+// Consecutive days that cost the same, collapsed into one row.
+//
+// A 21-day trip is 21 identical lines in a breakdown, which is a wall of
+// "$56.00" that buries the one day that isn't. Collapsing runs puts the
+// exception in front of the reader: a uniform trip is a single range, and a day
+// with its own price is a row of its own because it can't merge with either
+// neighbour.
+export type QuoteDayGroup = {
+    /** First and last day of the run. Equal when the run is a single day. */
+    start: string
+    end: string
+    days: number
+    /** The per-day price every day in this run shares. */
+    price: number
+    /** price × days. */
+    subtotal: number
+    /** True only when every day in the run came from a price override, so a
+     *  merged run can't be badged "special rate" on the strength of one day. */
+    isOverride: boolean
+}
+
+// Grouped on price alone, not on (price, isOverride). An override set to the
+// same number as the base rate is not a different price to the person paying
+// it, and splitting the run there would print three rows showing one figure —
+// the noise this function exists to remove.
+//
+// Adjacency is re-checked with addDays rather than assumed from array order.
+// calculateTripPrice does build `days` as consecutive calendar days, but this
+// also takes quotes read back out of bookings.price_quote, which are whatever
+// was written months ago — a gap there should end a run, not silently print one
+// range across it.
+export function groupQuoteDays(days: QuoteDay[]): QuoteDayGroup[] {
+    const groups: QuoteDayGroup[] = []
+
+    for (const day of days) {
+        const current = groups[groups.length - 1]
+        const continues =
+            current !== undefined &&
+            current.price === day.price &&
+            addDays(current.end, 1) === day.date
+
+        if (continues) {
+            current.end = day.date
+            current.days += 1
+            current.subtotal = roundMoney(current.price * current.days)
+            current.isOverride = current.isOverride && day.isOverride
+            continue
+        }
+
+        groups.push({
+            start: day.date,
+            end: day.date,
+            days: 1,
+            price: day.price,
+            subtotal: day.price,
+            isOverride: day.isOverride,
+        })
+    }
+
+    return groups
+}

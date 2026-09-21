@@ -19,16 +19,10 @@ export const Route = createFileRoute('/about')({
 function About() {
     return (
         <>
-            {/* Two layers, so the background runs edge to edge while the content
-                lines up with the rest of the site. The outer <section> is full
-                width and carries the colour. The inner div is the same
-                max-w-6xl mx-auto px-6 container that the contact page and
-                footer use. */}
             <section className="bg-subtle">
                 <div className="max-w-6xl mx-auto px-6 py-16 md:py-24 grid gap-10 md:grid-cols-2 md:items-center">
                     <div>
                         <h1 className="text-4xl md:text-5xl tracking-tight mb-6">About Us</h1>
-                        {/* max-w-prose caps the line length at about 65 characters*/}
                         <div className="space-y-4 text-lg text-muted leading-relaxed max-w-prose">
                             <p>
                                 BlueFin Rentals is a small, locally owned car rental company
@@ -37,8 +31,7 @@ function About() {
                             </p>
                             <p>
                                 There's no rental counter and no call center. When you book with
-                                us, you're dealing with the people who own the car, clean it and
-                                hand you the keys.
+                                us, you're dealing with the people who own the car... blah blah stuff
                             </p>
                         </div>
                     </div>
@@ -48,11 +41,6 @@ function About() {
             </section>
 
             <section className="max-w-6xl mx-auto px-6 py-16 md:py-24 grid gap-10 md:grid-cols-2 md:items-center">
-                {/* The text comes first in the source even though the photo shows
-                    on the left from md up. Source order is reading order: on a
-                    phone the columns stack in this order, and screen readers
-                    always follow it. `md:order-first` on the photo moves it left
-                    only visually, only on wider screens. */}
                 <div>
                     <h2 className="text-3xl md:text-4xl tracking-tight mb-6">Why book direct</h2>
                     <div className="space-y-4 text-lg text-muted leading-relaxed max-w-prose">

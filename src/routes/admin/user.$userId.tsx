@@ -23,7 +23,7 @@ function AdminUserProfilePage() {
     const { profile, trips } = Route.useLoaderData()
 
     return (
-        <div className="min-h-screen py-16 px-4 md:px-8">
+        <div className="py-8 md:py-16 px-4 md:px-8">
             <div className="max-w-5xl mx-auto">
                 <Link
                     to="/admin/trips/booked"

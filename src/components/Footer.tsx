@@ -8,7 +8,8 @@ const Footer = () => {
     const year = new Date().getFullYear();
 
     return (
-        <footer className="border-t border-line mt-20">
+        // print:hidden for the same reason the navbar is — see Navbar.tsx.
+        <footer className="border-t border-line mt-20 print:hidden">
             <div className="max-w-6xl mx-auto px-6 py-12 grid gap-10 md:grid-cols-4">
                 <div className="md:col-span-2">
                     <p className="text-2xl">
