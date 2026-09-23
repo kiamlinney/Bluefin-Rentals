@@ -37,6 +37,8 @@ import {
     sendBookingConfirmedEmail,
 } from './booking-email'
 import { notifyBookingCanceled } from './cancellation-email'
+// TEMPORARY pre-launch stop — delete with src/lib/bookings-paused.ts.
+import { BOOKINGS_PAUSED, BOOKINGS_PAUSED_MESSAGE } from './bookings-paused'
 import {
     REVIEWER_NAME_MAX,
     firstName,
@@ -752,6 +754,13 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         bookingRate?: BookingRate
     }) => input)
     .handler(async ({ data }) => {
+        // TEMPORARY pre-launch stop — see src/lib/bookings-paused.ts for how to
+        // remove it. First thing in the handler on purpose: everything below
+        // either creates a PaymentIntent or a `pending` row, and a paused site
+        // should leave neither behind. Hiding the button client-side is not
+        // enough, since server functions are callable directly.
+        if (BOOKINGS_PAUSED) throw new Error(BOOKINGS_PAUSED_MESSAGE)
+
         const supabase = getSupabaseServerClient()
         const authResult = await supabase.auth.getUser()
         const user = authResult.data.user

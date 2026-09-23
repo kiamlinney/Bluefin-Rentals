@@ -2,6 +2,8 @@ import { useState } from 'react'
 import {Link, useNavigate} from '@tanstack/react-router'
 import { PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 import { confirmBooking } from '@/lib/db'
+// TEMPORARY pre-launch stop — delete with src/lib/bookings-paused.ts.
+import { BOOKINGS_PAUSED, BOOKINGS_PAUSED_MESSAGE } from '@/lib/bookings-paused'
 
 // Must be a child of <Elements> — useStripe() and useElements() only work
 // inside the Elements provider tree. PaymentSection owns the "Choose when to
@@ -190,13 +192,24 @@ export function PaymentStep({
                 </div>
             )}
 
-            <button
-                type="submit"
-                disabled={!stripe || processing || !agreedToTerms}
-                className="mt-6 w-full py-4 bg-brand hover:bg-pine-800 disabled:opacity-50 disabled:cursor-not-allowed text-on-brand font-bold rounded-xl text-lg transition-colors cursor-pointer"
-            >
-                {processing ? 'Processing payment...' : `Book trip · $${subtotal.toFixed(2)}`}
-            </button>
+            {/* TEMPORARY pre-launch stop — delete this whole conditional, keeping
+                the button, and remove the import above. See
+                src/lib/bookings-paused.ts. createCheckoutSession refuses too, so
+                this notice is the courtesy, not the enforcement. */}
+            {BOOKINGS_PAUSED ? (
+                <div className="mt-6 rounded-xl border border-line bg-subtle p-4">
+                    <p className="font-bold text-ink">Not quite open yet</p>
+                    <p className="text-sm text-muted mt-1">{BOOKINGS_PAUSED_MESSAGE}</p>
+                </div>
+            ) : (
+                <button
+                    type="submit"
+                    disabled={!stripe || processing || !agreedToTerms}
+                    className="mt-6 w-full py-4 bg-brand hover:bg-pine-800 disabled:opacity-50 disabled:cursor-not-allowed text-on-brand font-bold rounded-xl text-lg transition-colors cursor-pointer"
+                >
+                    {processing ? 'Processing payment...' : `Book trip · $${subtotal.toFixed(2)}`}
+                </button>
+            )}
 
             {/*<p className="text-center text-muted text-xs mt-3">Secured by Stripe</p>*/}
         </form>
