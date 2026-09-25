@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-BlueFin Rentals — a self-hosted car rental platform migrating BlueFin Rentals LLC off Turo to cut commission fees. React 19 + TypeScript + TanStack Start (full-stack, SSR) + Tailwind CSS v4, with Supabase (Postgres + Auth) and Stripe (payments + identity verification).
+Bluefin Rentals — a self-hosted car rental platform migrating BlueFin Rentals LLC off Turo to cut commission fees. React 19 + TypeScript + TanStack Start (full-stack, SSR) + Tailwind CSS v4, with Supabase (Postgres + Auth) and Stripe (payments + identity verification).
 
 ## Commands
 
@@ -87,6 +87,185 @@ For the same reason `getBookingById`'s fallback treats `expired` as revivable al
 
 `getUserBookings` filters on the stored status only, so it is the one surface that *doesn't* apply the read-time cutoff: between a hold lapsing and the hourly sweep running, My Bookings still lists an abandoned checkout under "Pending Checkouts". Harmless — the car isn't held — but it looks like a bug when you hit the window. Filtering `pending` rows older than `PENDING_HOLD_MS` there would make the page independent of the cron schedule, like everything else.
 
+### Extras (`src/lib/extras.ts`)
+
+Optional add-ons — prepaid refuel, unlimited mileage, a child seat, post-trip cleaning.
+**The whole catalogue is one array, `EXTRAS`.** Adding or removing an offering is editing one
+entry; nothing else in the codebase enumerates them, because every surface iterates that array.
+
+Pure and isomorphic like `pricing.ts`. Extras are priced **inside `calculateTripPrice`**, not
+passed in pre-priced the way `pickupFee` is: a per-day extra needs `billableDays`, which is
+computed in there, and pricing them outside would mean a second implementation of the
+ceil-of-duration rule. `TripQuoteInput.extraIds` is optional so in-flight requests across a
+deploy fall back to no extras — the one value that can never overcharge.
+
+- Extras are **added last and never discounted**, and are **not** in the base the refundable
+  premium is a percentage of. That premium buys flexibility on the trip, not on a child seat.
+- Each line is **snapshotted** into `price_quote` with its name and unit price, like
+  `QuoteDay.price`, so a receipt reprinted after an extra is retired or repriced still shows
+  what that guest bought.
+- `resolveExtras` canonicalises — unknown ids dropped, duplicates collapsed, `EXTRAS` order.
+  That stable order is load-bearing: `createCheckoutSession` compares canonicalised id lists to
+  decide whether a pending booking needs re-quoting.
+- **Extras are refunded in full on cancellation**, same as the delivery fee — see below.
+- **`unlimited-mileage` changes four mileage displays.** `hasUnlimitedMileage(quote)` gates
+  `TripSummaryCard`, `TripReceipt`, the guest trip page and `admin/reservation.$bookingId.tsx`,
+  where it must also zero `calculateOverage`. Selling unlimited miles and then billing for them
+  is the failure this guards.
+
+Chosen on the **checkout payment step**, not the car page — same pattern `bookingRate` set: in
+the URL with a `.catch()` fallback, re-resolved server-side, with a snap-back when the server
+declines. `initKey` on the checkout page must include the extras, alongside `paymentMode` and
+`bookingRate`; leaving an amount input out means the control moves, the summary updates, and
+Stripe charges the previous total.
+
+The two resume paths in `createCheckoutSession` differ on purpose: the **dedup path** re-quotes
+when the rate *or* the extras changed (it matched on the exact trip range, so `data` provably
+describes that row), while the **`bookingId` path** never re-quotes from `data` and returns the
+row's own extras for the client to snap back to.
+
+**Extras live in two places, answering two different questions.** This is the one thing to
+understand before touching them:
+
+- **`bookings.price_quote.extras`** — the *frozen pricing record*: what was quoted, agreed and
+  charged at booking. `refundForCancellation` reads it, and it is never rewritten once a trip
+  is paid for. That is what makes a refund describe the money Stripe actually took.
+- **`booking_extras`** — *what the trip has now*. Mutable. Every page asking "what extras does
+  this trip have?" reads this, including the add-extras form deciding what to hide.
+
+Checkout extras are written to both (`source: 'checkout'`, `charged: true`) by
+`syncCheckoutExtras`, which is called after the booking insert **and** after the dedup-path
+re-quote — a pending booking can be re-quoted repeatedly before payment, so the rows have to
+follow the quote. It's best-effort: `price_quote` remains the authority on what was charged, so
+failing a checkout over a mirror table would be the tail wagging the dog.
+
+**Post-booking extras are a request the owners answer.** `/trips/$bookingId/extras` →
+`requestTripExtras` inserts `source: 'post-booking'`, `status: 'requested'`, `charged: false`
+and emails the owners. `decideTripExtra` (admin-only) flips it to `approved` or `declined` from
+the Approve / Decline buttons on the admin reservation page. Only an *approved* row is on the
+trip.
+
+Nothing is charged at any point, because **there is no saved payment method after checkout** —
+an approved extra is settled in person at pickup. It deliberately does not touch the card,
+`total_price`, or `price_quote`. Writing them into `price_quote` is the obvious-looking shortcut
+and would make a later cancellation refund money that was never taken.
+
+**Requesting is gated on `start_time`, not `end_time`.** Extras are handed over at pickup and
+settled there, so a request made mid-trip has no moment to be fulfilled in.
+
+**`checkoutOnly: true` on an `ExtraDefinition` keeps it out of post-booking requests entirely.**
+Unlimited mileage carries it: that extra is a *billing term*, not an item handed over at pickup,
+so requesting it once a trip is priced is a way to erase a mileage bill the guest can already
+see coming. `checkoutOnlyExtraIds()` is read by both the request form (to leave them out) and
+`requestTripExtras` (to refuse them), so the rule has one definition. Checkout is unaffected —
+the full catalogue is offered there.
+
+`decideTripExtra` claims the transition conditionally (`.eq('status', 'requested')`), so a
+double-clicked button or two open tabs can't flip an answered request back and forth — the same
+pattern as `cancelBooking`.
+
+**Declined rows are kept, and `loadTripExtras` filters them out.** The unique index on
+`(booking_id, extra_id)` is partial (`where status <> 'declined'`), so a decline is an answer to
+one request rather than a permanent ban — without that, declining a child seat in March makes it
+impossible to ask again in April, failing as a raw constraint violation. That index is also the
+real guard against duplicates: the form hiding an owned extra and the server filtering it are
+both good, but neither survives a retry or two tabs.
+
+**An extra a trip already owns is excluded from that form, and refused by the server.**
+`ownedExtraIds(quote)` drives both — `ExtrasSection`'s `exclude` prop hides them, and
+`requestTripExtras` filters them out and errors if nothing is left. Asking to add unlimited
+mileage to a trip that already has it describes nothing, and acting on it would mean charging
+twice for the same thing.
+
+**Both reservation pages must show what a trip bought.** `TripExtrasSection` renders
+`price_quote.extras` on the guest trip page and the admin one. Extras were charged, stored and
+itemised on the receipt for a while before either page said a word about them, and the only
+visible sign was the mileage line reading "Unlimited" — which is how the duplicate-request bug
+above went unnoticed.
+
+### Additional drivers
+
+`booking_additional_drivers`, one row per extra driver. Name, email and date of birth, captured
+by the guest and **deliberately unverified** — no invite flow and no Stripe Identity check, so
+the licence is checked in person at pickup. `validateDriver`'s age floor is the only automatic
+gate. Same write posture as `reviews`: no policies, service-role writes behind each server
+function's own `assertBookingAccess`.
+
+Pages use `TripDriver` from `src/lib/additional-drivers.ts`, not the generated Row type — it
+leaves out `created_by`, which no page displays. Same reasoning as `BOOKING_PROFILE_COLUMNS`.
+
+`removeAdditionalDriver` reads the row to find its booking *before* authorizing, because a
+driver id alone must not be enough to delete someone off another guest's trip.
+
+### Guest welcome email (`src/lib/welcome-message.ts`, `src/lib/welcome-email.ts`)
+
+The arrival instructions a guest gets when payment clears, modelled on the message BlueFin sent
+by hand through Turo. `welcome-message.ts` is pure and isomorphic and is the **single source of
+the text**: the email builds from it and the trip page's Messages section renders the same
+output, so the two cannot drift.
+
+`notifyGuestBookingConfirmed` mirrors `notifyAdminBookingConfirmed` exactly, claiming on
+`bookings.guest_notified_at`. **There are now four confirmation paths, not three** — both
+webhook events, `confirmBooking`, and the revival branch in `getTripForGuest` that confirms a
+booking whose webhook never arrived. All four call **both** notify functions; a fifth must too.
+
+The **lockbox code lives in `car_secrets`, not on `cars`** — `cars` is readable by `anon` with
+`GRANT ALL`, so a column there would publish every car's door code with the anon key. A
+column-level `REVOKE` does not fix that (a table-level grant isn't narrowed by one). The table
+has no policies at all and is granted only to `service_role`; `getTripForGuest` reads it fresh
+each load, so a rotated code is right on the page even when the emailed one has gone stale.
+
+**There is no admin UI for the codes yet — rows are inserted by hand in Supabase.** The table
+starts empty, and an empty table is silent: `buildWelcomeMessage` drops the code sentences
+entirely rather than printing "null", so the email and trip page simply say the code will follow.
+If a guest reports not getting a code, check for a row before debugging anything else.
+
+```sql
+insert into public.car_secrets (car_id, lockbox_code)
+select id, '<code>' from public.cars where is_available
+on conflict (car_id) do update
+  set lockbox_code = excluded.lockbox_code, updated_at = now();
+```
+
+Rotating a code is a one-row `update`; the trip page is correct immediately. **The emailed copy
+goes stale**, which is the tradeoff of putting the code in the booking email — when codes start
+rotating per trip, that is the signal to drop it from that email in favour of a day-before send.
+
+### Money is a legal record, not just an implementation detail
+
+**Every payment behaviour must be written down here and stated on a customer-facing
+page, in the same change that implements it.** What is charged, when, on whose
+consent, and what is refundable. The terms and policy pages are what a customer will
+hold the business to, so a charge that exists only in code — with no written statement
+of when it applies — is a promise nobody can check.
+
+This covers the checkout charge, extras, trip extensions, damage billing, deposits and
+holds, refunds and cancellation fees. It is the general form of the cancellation-policy
+rule below.
+
+**Never invent a price, fee or offering.** If a number or a rule didn't come from the
+owners, it doesn't go in the product — ask, or leave an obvious placeholder. A
+plausible invented detail is worse than a visible gap because nobody questions it.
+
+**What exists today, precisely:**
+
+- The **only** charge is the one at checkout, for `quote.total`, as a one-off
+  PaymentIntent.
+- **Cards are not saved.** No Stripe Customer, no `setup_future_usage` anywhere. Once a
+  booking's payment succeeds there is no stored payment method, so **the business cannot
+  charge that guest again** — not for extras, extensions, damages or fees.
+- `setup_future_usage` can only be set on the *original* checkout payment, since that is
+  when the guest consents. It cannot be added retroactively, so **every booking taken
+  before card-saving is added is permanently un-chargeable.**
+- Anything owed beyond the checkout total is therefore collected out of band, in person
+  or by a manually sent payment link.
+
+**If post-checkout charging is ever built**, the model is *one booking, many charges* —
+an append-only ledger of PaymentIntents, each with its own amount, reason and refund
+state. **Do not make `price_quote` or the receipt mutable.** A receipt records a
+transaction; rewriting it destroys the ability to answer "what did we charge, and when?",
+which is exactly what a disputed charge turns on.
+
 ### Cancellation & refunds — the policy page is part of the code
 
 `src/lib/cancellation-policy.ts` owns the refund rules (modelled on Turo's published policy, `ClaudeFiles/turocancellationpolicy.pdf`). It is pure and isomorphic like `pricing.ts`, because the cancel dialog quotes the guest a figure and `cancelBooking` re-derives it server-side — two implementations would eventually disagree, and the failure mode is showing a customer one refund and paying another. **Never accept a refund amount from the client.**
@@ -101,6 +280,28 @@ Two rules that are easy to get wrong and have both already caused bugs:
 `scripts/verify-cancellation-policy.ts` (`node --experimental-strip-types scripts/verify-cancellation-policy.ts`) is the standing suite — 19 checks including an invariant sweep over 290 lead-time × cancel-time combinations asserting refundable is never worse than non-refundable. Run it after touching the deadline logic. There's no test framework in the repo; it's a plain script that exits non-zero.
 
 `cancelBooking` claims the status transition *before* refunding and releases the claim if Stripe fails, so a refund can never succeed against a row that stayed `confirmed`. The refund carries `idempotencyKey: refund_<bookingId>`, so a retry returns the same refund rather than making a second one.
+
+**Extras are refunded in full**, alongside the delivery fee and for the same reason: a prepaid
+tank, a child seat and a cleaning are all services rendered *during* a trip, so a trip that
+never happens bought none of them. They're also excluded from the day rate the cancellation fee
+is a fraction of — that fee is a fraction of the *trip*, and letting it eat the extras would
+quietly undo the decision to refund them.
+
+**Cancelling a `pending` hold is not cancelling a trip.** A hold was never charged, so
+`cancelBooking` skips the refund computation entirely, marks the row **`expired`** rather than
+`canceled` (so `getUserBookings` filters it out of the guest's list instead of showing a trip
+that never was), and **sends no email to either side**. Sending "your trip was cancelled" for a
+checkout somebody wandered away from was the bug this fixes. The PaymentIntent is still
+cancelled and the row is still never deleted.
+
+The claim is `.eq('status', existing.status)`, not `.in([...])`. Just as strong, but it pins the
+branch to the status actually read — with `.in`, a row flipping `pending → confirmed` between
+the read and the claim got cancelled down the *pending* path: no refund, no emails, money kept.
+
+`CancelTripDialog` only ever sees confirmed trips now. It exists to quote a refund, and a hold
+has none — discarding a pending checkout gets a plain inline confirm on the my-bookings card
+instead. **Cancelling a confirmed trip lives on the guest trip page**, not on the my-bookings
+card, which is what let that card become a plain `<Link>` instead of an overlay-anchor wrapper.
 
 ### Ratings & reviews (`src/lib/reviews.ts`, review functions at the end of `db.ts`)
 
@@ -162,6 +363,30 @@ It reads Gmail via the `googleapis` OAuth2 client (refresh token in env) to find
   - **Bottom bar:** a sticky bar carries the total and a single button that walks through "Select dates", "Select times", then "Continue". It's `sticky`, not `fixed`, so it settles above the site footer instead of covering it.
 - **`PhotoGallery`** (`src/components/PhotoGallery.tsx`) opens *on top of* the car page rather than replacing it, so closing it keeps the scroll position. Tapping a photo opens a lightbox (arrow buttons, arrow keys, swipe), and Esc backs out one layer at a time: lightbox, then grid, then the page.
 - `src/components/admin/*` are admin-shell-only components (sidebar, calendar grid/toolbar, trip cards); everything else under `src/components/` is used by the public-facing site.
+- **Vehicles read make → model → year** everywhere a person sees them (`carName()` in
+  `email-template.ts`, and every page). The one exception is `carSlug()` in `src/lib/slug.ts`,
+  which stays year-first because it is a live, indexed URL — reordering it would change every
+  car's address for a cosmetic gain.
+- **Pages shared between guest and host must carry `admin-shell` when the viewer is an admin.**
+  `/trips/$bookingId/photos` and `/trips/$bookingId/receipt` live outside `/admin`, so without
+  it an admin lands in the cream guest theme mid-admin-session. The class redefines the colour
+  tokens, so it is the entire fix.
+- **Business facts live in `src/lib/business.ts`** — `BUSINESS`, `CONTACT_EMAIL`,
+  `CONTACT_PHONE`/`CONTACT_PHONE_HREF`. Never type a phone number, address or the company name
+  into a page. The brand is **"Bluefin"**, lowercase `f`, everywhere: in copy, in email subjects
+  and in the `SENDER_NAME` in `email.ts`.
+- **`src/components/trip/*` is shared by the guest trip page and the admin reservation page.**
+  `.admin-shell` in `src/index.css` redefines `--color-surface/-subtle/-line/-ink/-muted`, so a
+  component written with the semantic tokens re-themes to the admin greys for free — sharing
+  costs nothing and is why those two pages no longer carry five duplicated sections between
+  them. Components take a `voice: 'guest' | 'host'` prop where the copy differs, rather than
+  being forked.
+- `isAirportPickup()` in `src/components/trip/TripLocation.tsx` replaced three hard-coded
+  comparisons against the frozen `'MSP - Minneapolis, MN'` literal. It's a lookup in
+  `PICKUP_LOCATIONS`, so that constant is now free to change.
+- `src/components/trips/*` (plural) is the my-bookings list: `UpcomingTripCard`,
+  `PendingCheckoutCard`, `TripHistoryRow`, `NoTripsIllustration`. These replaced a single
+  `BookingCard` that tried to be all three.
 
 ## Deployment (Railway + Namecheap)
 
