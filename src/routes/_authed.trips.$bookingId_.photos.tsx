@@ -85,8 +85,12 @@ function TripPhotosPage() {
     const formatTripDate = (value: string) => formatBusinessDate(value)
 
     return (
+        // Shared guest/host page living outside /admin, so an admin opening it
+        // landed in the cream guest theme mid-admin-session. .admin-shell
+        // redefines the semantic colour tokens (src/index.css), so the class is
+        // the whole fix — the grid, lightbox and dropzone below all use tokens.
         <div
-            className="min-h-screen py-16 px-4 md:px-8"
+            className={`min-h-screen py-16 px-4 md:px-8 ${viewer.is_admin ? 'admin-shell' : ''}`}
             onDragOver={event => { event.preventDefault(); setIsDragging(true) }}
             onDragLeave={event => { if (event.currentTarget === event.target) setIsDragging(false) }}
             onDrop={event => {
@@ -135,7 +139,7 @@ function TripPhotosPage() {
                     <div>
                         <h1 className="text-4xl text-ink tracking-tight font-bold">Trip photos</h1>
                         <p className="mt-2 text-sm text-muted">
-                            {car.year} {car.make} {car.model} ·{' '}
+                            {car.make} {car.model} {car.year} ·{' '}
                             {formatTripDate(booking.start_time)} – {formatTripDate(booking.end_time)}
                         </p>
                     </div>

@@ -1,5 +1,8 @@
-import {createFileRoute, Link} from '@tanstack/react-router'
-import {cancelBooking, getBookingById, getCarPriceOverrides} from "@/lib/db.ts";
+import {createFileRoute, Link, useRouter} from '@tanstack/react-router'
+import {cancelBooking, getAdditionalDrivers, getBookingById, getCarPriceOverrides, getTripExtras, getTripLockboxCode} from "@/lib/db.ts";
+import {AdditionalDriversSection} from "@/components/trip/AdditionalDriversSection";
+import {TripExtrasSection} from "@/components/trip/TripExtrasSection";
+import {TripMessages} from "@/components/trip/TripMessages";
 import {
     businessDateKey,
     businessWallClockTime,
@@ -12,11 +15,12 @@ import {bookingRateLabel} from "@/lib/booking-rate.ts";
 import {effectiveFreeCancellationDeadline} from "@/lib/cancellation-policy.ts";
 import { Plane, CarFront, Check, X} from 'lucide-react';
 import {useState} from "react";
-import {displayName, formatPhone} from "@/lib/profile.ts";
+import {displayName, firstName, formatPhone} from "@/lib/profile.ts";
 import {carMainImageUrl} from "@/lib/car-images.ts";
 import {carSlug} from "@/lib/slug.ts";
 import {buildOverrideMap, calculateTripPrice} from "@/lib/pricing.ts";
 import {calculateOverage, distanceFeeForTrip, formatMiles, milesIncluded} from "@/lib/distance.ts";
+import {hasUnlimitedMileage} from "@/lib/extras.ts";
 import {buildReceipt} from "@/lib/receipt.ts";
 import {money} from "@/lib/email-template.ts";
 
@@ -27,13 +31,16 @@ export const Route = createFileRoute('/admin/reservation/$bookingId')({
         // booking has come back. Needed because the mileage rate is derived from
         // the trip's average daily price, which is override-dependent.
         const priceOverrides = await getCarPriceOverrides({ data: String(booking.cars.id) })
-        return { booking, priceOverrides }
+        const drivers = await getAdditionalDrivers({ data: params.bookingId })
+        const lockboxCode = await getTripLockboxCode({ data: params.bookingId })
+        const extras = await getTripExtras({ data: params.bookingId })
+        return { booking, priceOverrides, drivers, lockboxCode, extras }
     },
     component: ReservationDetailsPage,
 })
 
 function ReservationDetailsPage() {
-    const { booking, priceOverrides } = Route.useLoaderData()
+    const { booking, priceOverrides, drivers, lockboxCode, extras } = Route.useLoaderData()
     const car = booking.cars
     const profile = booking.profiles
     // Shared with the trip list and the profile pages, so the same renter reads
@@ -107,7 +114,13 @@ function ReservationDetailsPage() {
     const perMileFee = fallbackQuote
         ? distanceFeeForTrip(car, fallbackQuote, Number(car.price_per_day))
         : receipt.perMileFee
-    const overage = calculateOverage(booking.miles_driven ?? 0, totalMilesIncluded, perMileFee)
+    // An unlimited-mileage trip has no allowance to exceed, so there is nothing
+    // to charge however far it was driven. Zeroed here rather than hidden at
+    // render, so no figure exists to be read off the page and billed by hand.
+    const unlimitedMiles = hasUnlimitedMileage(receipt.quote)
+    const overage = unlimitedMiles
+        ? { milesOver: 0, amount: 0 }
+        : calculateOverage(booking.miles_driven ?? 0, totalMilesIncluded, perMileFee)
 
     // The phone column is nullable and free-form — it's whatever the renter typed,
     // so it isn't guaranteed to be 10 digits. The old version sliced blindly,
@@ -129,19 +142,30 @@ function ReservationDetailsPage() {
     const hasStarted = now >= startDate
     const hasEnded = now >= endDate
 
+    const router = useRouter()
+
     const [initialCancel, setInitialCancel] = useState(false)
     const [confirmCancel, setConfirmCancel] = useState(false)
+    const [cancelError, setCancelError] = useState<string | null>(null)
 
     const handleCancel = async () => {
-        setConfirmCancel(true);
+        setConfirmCancel(true)
+        setCancelError(null)
         try {
-            await cancelBooking({ data: { bookingId: booking.id } });
-            window.location.reload(); // Refreshing page
-        } catch (err) {
-            alert("Failed to cancel trip. Please contact support.");
-            setConfirmCancel(false);
+            await cancelBooking({ data: { bookingId: booking.id } })
+            // invalidate() rather than the full reload this used to do: the
+            // loader refetches and the page re-renders in place, keeping scroll
+            // position. Same change the guest cancel flow made.
+            await router.invalidate()
+            setInitialCancel(false)
+        } catch (err: unknown) {
+            // Shown on the page rather than in an alert(). cancelBooking's
+            // errors are specific — "could not process refund through Stripe,
+            // nothing was changed" is actionable, and a generic alert threw
+            // that away.
+            setCancelError(err instanceof Error ? err.message : 'Could not cancel this trip.')
         } finally {
-            setConfirmCancel(false);
+            setConfirmCancel(false)
         }
     }
 
@@ -159,7 +183,7 @@ function ReservationDetailsPage() {
                     <div className="flex flex-row-reverse sm:flex-row items-center justify-end gap-3 sm:text-right">
                         <div>
                             <h2 className="text-s font-semibold text-gray-800">
-                                {car.year} {car.make} {car.model}
+                                {car.make} {car.model} {car.year}
                             </h2>
                             <Link
                                 to="/fleet/$carSlug"
@@ -170,7 +194,7 @@ function ReservationDetailsPage() {
                         </div>
                         <img
                             src={carMainImageUrl(car.id)}
-                            alt={`${car.year} ${car.make} ${car.model}`}
+                            alt={`${car.make} ${car.model} ${car.year}`}
                             className="w-28 h-18 object-cover rounded-md border border-gray-100 shrink-0"
                             decoding="async"
                         />
@@ -240,10 +264,21 @@ function ReservationDetailsPage() {
 
                         <section className="space-y-1">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-black">Total Miles Included</h3>
-                            <p className="text-lg text-gray-700">{formatMiles(totalMilesIncluded)} miles</p>
+                            <p className="text-lg text-gray-700">
+                                {unlimitedMiles ? 'Unlimited' : `${formatMiles(totalMilesIncluded)} miles`}
+                            </p>
                             <p className="text-sm text-gray-500 max-w-md">
-                                {renterName?.split(' ')[0]} can be charged ${perMileFee.toFixed(2)} for every mile
-                                over the total included for the trip.
+                                {unlimitedMiles ? (
+                                    <>
+                                        {renterName?.split(' ')[0]} added unlimited mileage to this trip.
+                                        No per-mile charge applies, however far it was driven.
+                                    </>
+                                ) : (
+                                    <>
+                                        {renterName?.split(' ')[0]} can be charged ${perMileFee.toFixed(2)} for every mile
+                                        over the total included for the trip.
+                                    </>
+                                )}
                             </p>
                         </section>
 
@@ -303,10 +338,36 @@ function ReservationDetailsPage() {
                             </Link>
                         </section>
 
-                        <section className="space-y-1">
-                            <h3 className="text-xs font-bold uppercase tracking-wider text-black">Additional Drivers</h3>
-                            <p className="text-lg text-gray-500">- -</p>
-                        </section>
+                        {/* The rest of this column is the guest page's own
+                            components, so the two sides cannot disagree about
+                            what is on a trip. voice="host" swaps the copy and
+                            drops the controls the guest owns. They re-theme to
+                            the admin greys on their own — .admin-shell
+                            redefines the semantic colour tokens. */}
+                        <TripExtrasSection
+                            bookingId={booking.id}
+                            extras={extras}
+                            voice="host"
+                            canRequestMore={false}
+                        />
+
+                        <AdditionalDriversSection
+                            bookingId={booking.id}
+                            drivers={drivers}
+                            voice="host"
+                            canManage={false}
+                        />
+
+                        {/* The exact message the guest was sent on booking,
+                            lockbox code included — so when they call about it,
+                            the answer is on screen rather than in an inbox. */}
+                        {booking.status === 'confirmed' && (
+                            <TripMessages
+                                guestFirstName={firstName(profile)}
+                                lockboxCode={lockboxCode}
+                                sentAt={booking.created_at}
+                            />
+                        )}
                     </div>
 
                     {/* RIGHT COLUMN, 360px width*/}
@@ -340,24 +401,51 @@ function ReservationDetailsPage() {
                                             </button>
                                         ) : (
                                             <div className="flex flex-col items-end gap-2 w-full">
-                                                {/* A host-initiated cancellation always refunds
-                                                    in full — the guest's rate and the free
-                                                    cancellation window govern what *they* get
-                                                    back when *they* cancel, and neither applies
-                                                    when the decision is ours. Spelled out because
-                                                    the button sits next to a booking whose page
-                                                    shows a non-refundable policy right above it. */}
+                                                {/* Two genuinely different actions behind one
+                                                    button, so the copy has to say which one is
+                                                    about to happen.
+
+                                                    A confirmed trip: a host cancellation always
+                                                    refunds in full. The guest's rate and free
+                                                    window govern what *they* get back when *they*
+                                                    cancel, and neither applies when the decision
+                                                    is ours — worth spelling out, since a
+                                                    non-refundable policy is shown right above.
+
+                                                    A pending hold: never charged, so there is
+                                                    nothing to refund and nobody is emailed. It
+                                                    is marked expired rather than canceled and
+                                                    drops off the guest's trip list. Saying
+                                                    "refund in full" here would promise money
+                                                    that was never taken. */}
                                                 <span className="text-xs text-gray-700 text-right">
-                                                    Cancel and refund the guest <strong>in full</strong>?
-                                                    This ignores the {bookingRateLabel(booking.booking_rate).toLowerCase()} policy.
+                                                    {booking.status === 'pending' ? (
+                                                        <>
+                                                            Discard this unpaid hold? Nothing was charged,
+                                                            so nothing is refunded and the guest is not
+                                                            emailed. The dates go back on sale.
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            Cancel and refund the guest{' '}
+                                                            <strong>{money(booking.total_price)}</strong> in full?
+                                                            This ignores the {bookingRateLabel(booking.booking_rate).toLowerCase()} policy,
+                                                            and emails both of you.
+                                                        </>
+                                                    )}
                                                 </span>
+                                                {cancelError && (
+                                                    <span className="text-xs text-red-700 text-right">{cancelError}</span>
+                                                )}
                                                 <div className="flex items-center gap-3">
                                                     <button
                                                         onClick={handleCancel}
                                                         disabled={confirmCancel}
                                                         className="text-s text-black bg-red-700/80 px-3 py-1 rounded-md hover:bg-red-500 border border-black disabled:opacity-50 cursor-pointer"
                                                     >
-                                                        {confirmCancel ? '...' : 'Yes'}
+                                                        {confirmCancel
+                                                            ? '...'
+                                                            : booking.status === 'pending' ? 'Discard' : 'Yes'}
                                                     </button>
                                                     <button
                                                         onClick={() => setInitialCancel(false)}

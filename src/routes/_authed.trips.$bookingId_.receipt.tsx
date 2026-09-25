@@ -34,7 +34,12 @@ function TripReceiptPage() {
     const { bookingId } = Route.useParams()
 
     return (
-        <div className="min-h-screen px-4 py-24 md:px-8">
+        // This page is shared by the guest and the host, and lives outside
+        // /admin — so an admin opening it used to land in the cream guest theme
+        // mid-admin-session. .admin-shell redefines the semantic colour tokens
+        // (see src/index.css), so adding the class is all it takes to bring the
+        // page into the plain white admin scheme; nothing below needs to know.
+        <div className={`min-h-screen px-4 py-24 md:px-8 ${isAdmin ? 'admin-shell' : ''}`}>
             <div className="mx-auto max-w-3xl">
 
                 {/* Page chrome. None of it belongs on paper — the print rules

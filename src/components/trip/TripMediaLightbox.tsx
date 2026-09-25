@@ -72,13 +72,22 @@ export function TripMediaLightbox({
 
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
+            // The delete confirm sits on top of this, so it gets the keys while
+            // it's open: Escape backs out of the confirm rather than closing the
+            // photo underneath it, and the arrows don't navigate away from the
+            // very item being confirmed. Suppressed entirely mid-delete, the
+            // same rule CancelTripDialog uses while its request is in flight.
+            if (confirmingDelete) {
+                if (event.key === 'Escape' && !deleting) setConfirmingDelete(false)
+                return
+            }
             if (event.key === 'Escape') onClose()
             if (event.key === 'ArrowLeft' && index > 0) onNavigate(index - 1)
             if (event.key === 'ArrowRight' && index < items.length - 1) onNavigate(index + 1)
         }
         document.addEventListener('keydown', onKeyDown)
         return () => document.removeEventListener('keydown', onKeyDown)
-    }, [index, items.length, onNavigate, onClose])
+    }, [index, items.length, onNavigate, onClose, confirmingDelete, deleting])
 
     // The page behind the overlay should not scroll while it is open.
     useEffect(() => {
@@ -116,7 +125,7 @@ export function TripMediaLightbox({
     }
 
     const aspectRatio = item.width && item.height ? `${item.width} / ${item.height}` : undefined
-    const uploader = item.profiles?.full_name ?? 'BlueFin'
+    const uploader = item.profiles?.full_name ?? 'Bluefin'
     const takenAt = formatBusinessDateTime(
         item.created_at,
         { month: 'short', day: 'numeric', year: 'numeric' },
@@ -221,9 +230,7 @@ export function TripMediaLightbox({
                         </p>
                     </div>
 
-                    {/* Same inline confirm the reservation page uses to cancel a
-                        trip — a second modal on top of this one would be worse. */}
-                    {!canModify ? null : !confirmingDelete ? (
+                    {canModify && (
                         <button
                             onClick={() => setConfirmingDelete(true)}
                             aria-label="Delete"
@@ -231,23 +238,6 @@ export function TripMediaLightbox({
                         >
                             <Trash2 size={20} />
                         </button>
-                    ) : (
-                        <div className="shrink-0 flex items-center gap-3">
-                            <span className="text-s text-ink">Delete this?</span>
-                            <button
-                                onClick={handleDelete}
-                                disabled={deleting}
-                                className="text-s text-ink bg-red-700/80 px-3 py-1 rounded-md hover:bg-red-500 border border-ink disabled:opacity-50 cursor-pointer"
-                            >
-                                {deleting ? '...' : 'Yes'}
-                            </button>
-                            <button
-                                onClick={() => setConfirmingDelete(false)}
-                                className="text-xs text-ink hover:text-muted cursor-pointer"
-                            >
-                                Back
-                            </button>
-                        </div>
                     )}
                 </div>
 
@@ -255,6 +245,66 @@ export function TripMediaLightbox({
                     {index + 1} of {items.length} · Use ← and → to move, Esc to close
                 </div>
             </div>
+
+            {/* A proper dialog rather than the cramped inline "Delete this? Yes
+                / Back" row that used to sit in the caption bar. Deleting a photo
+                is permanent, and the confirm should look like the other
+                destructive confirms on the site (CancelTripDialog), not like a
+                toolbar afterthought.
+
+                z-[210] puts it above this lightbox's own z-[200] backdrop, and
+                the click-outside handler is stopped from reaching the lightbox
+                behind it so dismissing the confirm doesn't also close the photo. */}
+            {confirmingDelete && (
+                <div
+                    onMouseDown={(e) => {
+                        e.stopPropagation()
+                        if (e.target === e.currentTarget && !deleting) setConfirmingDelete(false)
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="fixed inset-0 z-[210] bg-black/60 flex items-center justify-center p-4"
+                >
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="delete-media-title"
+                        className="bg-surface border border-line rounded-2xl w-full max-w-sm shadow-xl"
+                    >
+                        <div className="p-5 border-b border-line">
+                            <h2 id="delete-media-title" className="text-lg font-bold text-ink">
+                                Delete this {item.kind === 'video' ? 'video' : 'photo'}?
+                            </h2>
+                        </div>
+
+                        <div className="p-5">
+                            <p className="text-sm text-muted">
+                                This removes it for everyone and can't be undone. Trip photos are
+                                the record of the car's condition at handover, so it's worth being
+                                sure.
+                            </p>
+                        </div>
+
+                        <div className="flex justify-end gap-3 p-5 border-t border-line">
+                            <button
+                                type="button"
+                                onClick={() => setConfirmingDelete(false)}
+                                disabled={deleting}
+                                className="px-4 py-2.5 text-sm font-semibold text-muted hover:text-ink transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                                Keep it
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleDelete}
+                                disabled={deleting}
+                                className="px-4 py-2.5 rounded-xl bg-red-700 text-white text-sm font-bold hover:bg-red-800 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                                {deleting ? 'Deleting…' : 'Delete'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

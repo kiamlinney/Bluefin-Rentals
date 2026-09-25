@@ -7,6 +7,7 @@ import type { TripPaymentCard, TripPaymentState } from '@/lib/db.ts'
 import type { BookingWithDetails } from '@/types.ts'
 import { bookingRateLabel } from '@/lib/booking-rate.ts'
 import { MILES_INCLUDED_PER_DAY, formatMiles } from '@/lib/distance.ts'
+import { hasUnlimitedMileage } from '@/lib/extras.ts'
 import { displayName } from '@/lib/profile.ts'
 import {
     formatBusinessDate,
@@ -172,6 +173,9 @@ export function TripReceipt({
     const profile = booking.profiles
     const quote = receipt.quote
 
+    // Off the snapshot, so a legacy row with no extras simply reads false.
+    const unlimitedMiles = hasUnlimitedMileage(quote)
+
     const wasRefunded = receipt.refundedAmount > 0
 
     // A receipt must not claim money that hasn't moved — but it must not deny
@@ -223,7 +227,7 @@ export function TripReceipt({
             <section className="space-y-6 border-b border-line px-6 py-6 sm:px-8">
                 <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
                     <div>
-                        <p className="text-sm text-muted">BlueFin</p>
+                        <p className="text-sm text-muted">Bluefin</p>
                         <p className="mt-0.5 text-2xl font-bold text-ink">
                             {/* trim is nullable — filter rather than interpolate,
                                 so a car without one prints no trailing space. */}
@@ -292,10 +296,18 @@ export function TripReceipt({
             {/* Not a price line. The overage is settled after the trip against a
                 real odometer reading, and never enters the total below. */}
             <section className="border-b border-line px-6 py-4 sm:px-8">
+                {/* The per-mile sub-line disappears entirely on a trip that
+                    bought unlimited mileage — it describes the exact charge
+                    that extra removes, and a receipt is the worst place to
+                    restate a fee the guest paid not to owe. */}
                 <Line
                     label="Distance included"
-                    value={`${formatMiles(receipt.milesIncluded)} mi`}
-                    sub={`$${receipt.perMileFee.toFixed(2)} / mile will be charged for miles driven over this allotment.`}
+                    value={unlimitedMiles ? 'Unlimited' : `${formatMiles(receipt.milesIncluded)} mi`}
+                    sub={
+                        unlimitedMiles
+                            ? 'Unlimited mileage was added to this trip. No per-mile charge applies.'
+                            : `$${receipt.perMileFee.toFixed(2)} / mile will be charged for miles driven over this allotment.`
+                    }
                 />
             </section>
 
@@ -365,6 +377,23 @@ export function TripReceipt({
                                 value={`+${formatMoney(quote.pickupFee)}`}
                             />
                         )}
+
+                        {/* Beside delivery for the same reason: added last and
+                            never discounted. Labels come from the snapshot, not
+                            from today's catalogue, so a receipt reprinted after
+                            an extra is retired or repriced still shows what this
+                            guest actually bought. */}
+                        {quote.extras.map((extra) => (
+                            <Line
+                                key={extra.id}
+                                label={
+                                    extra.billing === 'per-day'
+                                        ? `${extra.name} (${extra.quantity} × ${formatMoney(extra.unitPrice)})`
+                                        : extra.name
+                                }
+                                value={`+${formatMoney(extra.amount)}`}
+                            />
+                        ))}
                     </>
                 ) : (
                     // A booking made before bookings.price_quote existed. There
