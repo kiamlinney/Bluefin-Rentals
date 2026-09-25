@@ -17,7 +17,14 @@ import { refundForCancellation } from './cancellation-policy.ts'
 // Pure module — safe to import here without dragging anything into the browser
 // bundle. It owns the one narrowing of a stored price_quote.
 import { storedQuote } from './receipt'
-import { resolveExtras } from './extras'
+import { checkoutOnlyExtraIds, resolveExtras } from './extras'
+import { MAX_ADDITIONAL_DRIVERS, validateDriver } from './additional-drivers'
+import { notifyAdminDriverAdded } from './additional-driver-email'
+import { sendExtrasRequestedEmail } from './extras-email'
+
+// Same bounding reasoning as MAX_CANCELLATION_REASON: free text from a guest
+// that ends up in the owners' inbox.
+const MAX_EXTRAS_MESSAGE = 1000
 import {
     DELIVERY_RADIUS_MILES,
     findPickupLocation,
@@ -901,6 +908,7 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
             const extrasChanged =
                 canonical(data.extras ?? []) !==
                 canonical(storedQuote(existingBooking)?.extras.map(e => e.id) ?? [])
+
             let bookingRow = existingBooking
             if (existingBooking.booking_rate !== requestedRate || extrasChanged) {
                 const pickup = await resolvePickupOnServer(data)
@@ -940,8 +948,10 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
 
                 if (repriceErr) throw new Error(repriceErr.message)
                 bookingRow = repriced
+
                 // The quote just changed, so the mirror has to follow it — a
                 // pending booking can be re-quoted repeatedly before payment.
+                await syncCheckoutExtras(getServiceRoleClient(), existingBooking.id, requote.extras)
             }
 
             const intent = await intentForMode(
@@ -1070,6 +1080,12 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
             .single()
 
         if (error) throw new Error(error.message)
+
+        // Mirror into booking_extras so both reservation pages have one place to
+        // read "what does this trip have". price_quote above stays the frozen
+        // pricing record the refund math reads.
+        await syncCheckoutExtras(getServiceRoleClient(), booking!.id, quote.extras)
+
         // After the null check above, TS now knows booking is not null
         return {
             clientSecret: paymentIntent.client_secret,
@@ -2746,4 +2762,411 @@ export const adminImportReview = createServerFn({ method: 'POST' })
 
         if (error) throw new Error(error.message)
         return { id: inserted.id }
+    })
+// ── Additional drivers ───────────────────────────────────────────────────────
+//
+// A second person allowed to drive on a booking. Captured, shown to both sides
+// and emailed to the owners — deliberately NOT verified: there is no invite
+// flow and no Stripe Identity check for these, so the licence is checked in
+// person at pickup. validateDriver's age floor is the only automatic gate.
+//
+// Each function does its own access check rather than leaning on the route, the
+// same rule every other privileged function here follows: server functions are
+// callable directly.
+
+export const getAdditionalDrivers = createServerFn({ method: 'GET' })
+    .inputValidator((bookingId: string) => bookingId)
+    .handler(async ({ data: bookingId }) => {
+        const { supabaseAdmin } = await assertBookingAccess(bookingId)
+
+        const { data, error } = await supabaseAdmin
+            .from('booking_additional_drivers')
+            .select('id, booking_id, full_name, email, date_of_birth, created_at')
+            .eq('booking_id', bookingId)
+            .order('created_at', { ascending: true })
+
+        if (error) throw new Error(error.message)
+        return data ?? []
+    })
+
+export const addAdditionalDriver = createServerFn({ method: 'POST' })
+    .inputValidator((input: {
+        bookingId: string
+        fullName: string
+        email: string
+        dateOfBirth: string
+    }) => input)
+    .handler(async ({ data }) => {
+        const { user, isAdmin, supabaseAdmin } = await assertBookingAccess(data.bookingId)
+
+        const { data: booking, error: readErr } = await supabaseAdmin
+            .from('bookings')
+            .select('status, start_time')
+            .eq('id', data.bookingId)
+            .single()
+
+        if (readErr || !booking) throw new Error('Booking not found')
+
+        // Only on a trip that is actually happening. Adding a driver to an
+        // unpaid hold or a cancelled trip means nothing, and would leave rows
+        // behind describing people on trips that never ran.
+        if (booking.status !== 'confirmed') {
+            throw new Error('Drivers can only be added to a confirmed trip.')
+        }
+
+        // Once the car has been handed over, who is on the trip is settled in
+        // person. An admin can still correct the record afterwards.
+        if (!isAdmin && new Date(booking.start_time) <= new Date()) {
+            throw new Error('Drivers must be added before the trip starts.')
+        }
+
+        const validation = validateDriver({
+            fullName: data.fullName,
+            email: data.email,
+            dateOfBirth: data.dateOfBirth,
+        })
+        if (!validation.ok) throw new Error(validation.error)
+
+        // Counted rather than enforced by the database, so the guest gets a
+        // sentence explaining the limit instead of a constraint violation.
+        const { count, error: countErr } = await supabaseAdmin
+            .from('booking_additional_drivers')
+            .select('id', { count: 'exact', head: true })
+            .eq('booking_id', data.bookingId)
+
+        if (countErr) throw new Error(countErr.message)
+        if ((count ?? 0) >= MAX_ADDITIONAL_DRIVERS) {
+            throw new Error(`You can add up to ${MAX_ADDITIONAL_DRIVERS} extra drivers to a trip.`)
+        }
+
+        const { data: inserted, error } = await supabaseAdmin
+            .from('booking_additional_drivers')
+            .insert({
+                booking_id: data.bookingId,
+                full_name: validation.value.fullName,
+                email: validation.value.email,
+                date_of_birth: validation.value.dateOfBirth,
+                created_by: user.id,
+            })
+            .select('id, booking_id, full_name, email, date_of_birth, created_at')
+            .single()
+
+        // 23505 is the unique index on (booking_id, lower(email)) — the same
+        // person added twice, which is a message rather than a failure.
+        if (error) {
+            if ((error as any).code === '23505') {
+                throw new Error('That driver has already been added to this trip.')
+            }
+            throw new Error(error.message)
+        }
+
+        // After the insert and never awaited for its success: the driver is on
+        // the trip whether or not the email lands, and notifyAdminDriverAdded
+        // swallows its own errors.
+        await notifyAdminDriverAdded(supabaseAdmin, data.bookingId, validation.value)
+
+        return inserted
+    })
+
+export const removeAdditionalDriver = createServerFn({ method: 'POST' })
+    .inputValidator((input: { driverId: string }) => input)
+    .handler(async ({ data }) => {
+        const supabaseAdmin = getServiceRoleClient()
+
+        // Read the row first to find which booking it belongs to, then authorize
+        // against that. Without this step, knowing a driver id would be enough
+        // to delete a driver off somebody else's trip.
+        const { data: driver, error: readErr } = await supabaseAdmin
+            .from('booking_additional_drivers')
+            .select('id, booking_id')
+            .eq('id', data.driverId)
+            .single()
+
+        if (readErr || !driver) throw new Error('Driver not found')
+
+        const { isAdmin } = await assertBookingAccess(driver.booking_id)
+
+        const { data: booking } = await supabaseAdmin
+            .from('bookings')
+            .select('start_time')
+            .eq('id', driver.booking_id)
+            .single()
+
+        if (!isAdmin && booking && new Date(booking.start_time) <= new Date()) {
+            throw new Error('Drivers cannot be removed once the trip has started.')
+        }
+
+        const { error } = await supabaseAdmin
+            .from('booking_additional_drivers')
+            .delete()
+            .eq('id', data.driverId)
+
+        if (error) throw new Error(error.message)
+        return { success: true }
+    })
+
+// ── Post-booking extras requests ─────────────────────────────────────────────
+//
+// A guest asking for extras on a trip they've already paid for. Deliberately a
+// request and not a charge: it emails the owners and writes nothing. No second
+// PaymentIntent, no change to total_price, and — the important one — no change
+// to price_quote, so the refund arithmetic in cancellation-policy.ts keeps
+// describing exactly what was actually charged.
+// ── booking_extras helpers ───────────────────────────────────────────────────
+//
+// booking_extras is "what does this trip have now"; bookings.price_quote is the
+// frozen record of what was quoted and charged at booking. Refunds read the
+// latter, pages read the former. See the migration for why they're separate.
+
+export type TripExtraStatus = 'approved' | 'requested' | 'declined'
+
+export type TripExtraRow = {
+    id: string
+    extra_id: string
+    name: string
+    billing: 'per-trip' | 'per-day'
+    unit_price: number
+    quantity: number
+    amount: number
+    source: 'checkout' | 'post-booking'
+    status: TripExtraStatus
+    charged: boolean
+    created_at: string
+    decided_at: string | null
+}
+
+async function loadTripExtras(
+    supabaseAdmin: ReturnType<typeof getServiceRoleClient>,
+    bookingId: string,
+): Promise<TripExtraRow[]> {
+    const { data, error } = await supabaseAdmin
+        .from('booking_extras')
+        .select('id, extra_id, name, billing, unit_price, quantity, amount, source, status, charged, created_at, decided_at')
+        .eq('booking_id', bookingId)
+        // Declined rows are history, not part of the trip. Kept in the table so
+        // the answer is on record and the partial unique index lets the guest
+        // ask again, but no page lists them.
+        .neq('status', 'declined')
+        .order('created_at', { ascending: true })
+
+    if (error) throw new Error(error.message)
+    // numeric comes back as a string from PostgREST depending on the driver.
+    return (data ?? []).map(row => ({
+        ...row,
+        unit_price: Number(row.unit_price),
+        amount: Number(row.amount),
+    })) as TripExtraRow[]
+}
+
+/**
+ * Mirrors the extras in a fresh or re-quoted booking into booking_extras.
+ *
+ * Delete-then-insert of the `checkout` rows only, because a pending booking can
+ * be re-quoted any number of times before payment and the row set has to follow
+ * the quote exactly. Post-booking rows are never touched — they describe a
+ * different transaction and are not part of any quote.
+ *
+ * Best-effort: the booking and its PaymentIntent are already correct, and
+ * price_quote remains the authority on what was charged. Failing a checkout
+ * over a mirror table would be the tail wagging the dog.
+ */
+async function syncCheckoutExtras(
+    supabaseAdmin: ReturnType<typeof getServiceRoleClient>,
+    bookingId: string,
+    extras: { id: string; name: string; billing: 'per-trip' | 'per-day'; unitPrice: number; quantity: number; amount: number }[],
+): Promise<void> {
+    try {
+        await supabaseAdmin
+            .from('booking_extras')
+            .delete()
+            .eq('booking_id', bookingId)
+            .eq('source', 'checkout')
+
+        if (extras.length === 0) return
+
+        await supabaseAdmin.from('booking_extras').insert(extras.map(extra => ({
+            booking_id: bookingId,
+            extra_id: extra.id,
+            name: extra.name,
+            billing: extra.billing,
+            unit_price: extra.unitPrice,
+            quantity: extra.quantity,
+            amount: extra.amount,
+            source: 'checkout',
+            charged: true,
+        })))
+    } catch (err: any) {
+        console.error('[extras] could not sync checkout extras:', err?.message || err)
+    }
+}
+
+export const requestTripExtras = createServerFn({ method: 'POST' })
+    .inputValidator((input: {
+        bookingId: string
+        extraIds: string[]
+        message?: string
+    }) => input)
+    .handler(async ({ data }) => {
+        const { supabaseAdmin } = await assertBookingAccess(data.bookingId)
+
+        const { data: booking, error } = await supabaseAdmin
+            .from('bookings')
+            .select('status, start_time, price_quote')
+            .eq('id', data.bookingId)
+            .single()
+
+        if (error || !booking) throw new Error('Booking not found')
+        if (booking.status !== 'confirmed') {
+            throw new Error('Extras can only be added to a confirmed trip.')
+        }
+        // Gated on start_time, not end_time. Extras are handed over at pickup
+        // and settled there, so a request made mid-trip has no moment to be
+        // fulfilled in — and unlimited mileage asked for after the driving is
+        // done is a way to rewrite the mileage bill after the fact.
+        if (new Date(booking.start_time) <= new Date()) {
+            throw new Error('Extras have to be requested before the trip starts. Give us a call and we will sort it out.')
+        }
+
+        // Priced server-side even though nothing is charged, so the figure the
+        // owners see is one this code produced rather than one the browser
+        // asserted. Billable days come off the stored quote.
+        const quote = storedQuote(booking)
+        const billableDays = quote?.billableDays ?? 1
+
+        // Checkout-only extras are refused outright, not merely hidden on the
+        // form. Unlimited mileage is the one: it rewrites how the trip is
+        // billed, so requesting it after the trip is priced is a way to erase a
+        // mileage bill that is already coming.
+        const checkoutOnly = new Set(checkoutOnlyExtraIds())
+        if (data.extraIds.some(id => checkoutOnly.has(id))) {
+            throw new Error('That extra can only be added when you book the trip.')
+        }
+
+        // Already on the trip or already asked for. Declined rows are excluded
+        // by loadTripExtras, so a previous "no" doesn't block asking again.
+        const existing = await loadTripExtras(supabaseAdmin, data.bookingId)
+        const taken = new Set(existing.map(extra => extra.extra_id))
+        const requested = data.extraIds.filter(id => !taken.has(id))
+
+        const { items } = resolveExtras(requested, billableDays)
+
+        if (items.length === 0) {
+            throw new Error(
+                data.extraIds.some(id => taken.has(id))
+                    ? 'Those extras are already on this trip.'
+                    : 'Choose at least one extra.',
+            )
+        }
+
+        // status 'requested': asked for, not yet on the trip. Nothing is charged
+        // and price_quote is untouched, so the refund math keeps describing
+        // exactly what Stripe took. The owners answer on the reservation page.
+        const { error: insertErr } = await supabaseAdmin
+            .from('booking_extras')
+            .insert(items.map(item => ({
+                booking_id: data.bookingId,
+                extra_id: item.id,
+                name: item.name,
+                billing: item.billing,
+                unit_price: item.unitPrice,
+                quantity: item.quantity,
+                amount: item.amount,
+                source: 'post-booking',
+                status: 'requested',
+                charged: false,
+            })))
+
+        if (insertErr) {
+            if ((insertErr as any).code === '23505') {
+                throw new Error('Those extras are already on this trip.')
+            }
+            throw new Error(insertErr.message)
+        }
+
+        const message = (data.message ?? '').trim().slice(0, MAX_EXTRAS_MESSAGE) || null
+
+        // Best-effort: the request is recorded whether or not Gmail is
+        // reachable, and the owners will see it on the reservation page either
+        // way. Failing the call over a mail outage would tell the guest their
+        // request didn't go through when it did.
+        try {
+            await sendExtrasRequestedEmail(supabaseAdmin, data.bookingId, items, message)
+        } catch (err: any) {
+            console.error('[email] extras-requested notification failed:', err?.message || err)
+        }
+
+        return { requested: items.length }
+    })
+
+/**
+ * The owners answering an extras request.
+ *
+ * Admin-only and checked here rather than at the route: server functions are
+ * callable directly, and this is the difference between a guest asking for
+ * something and it being on their trip.
+ */
+export const decideTripExtra = createServerFn({ method: 'POST' })
+    .inputValidator((input: { extraId: string; approve: boolean }) => input)
+    .handler(async ({ data }) => {
+        await requireAdmin()
+        const supabaseAdmin = getServiceRoleClient()
+
+        // Conditional on it still being 'requested', so a double-clicked button
+        // or two open tabs can't flip an already-answered request back and
+        // forth. Same claim pattern as cancelBooking.
+        const { data: updated, error } = await supabaseAdmin
+            .from('booking_extras')
+            .update({
+                status: data.approve ? 'approved' : 'declined',
+                decided_at: new Date().toISOString(),
+            })
+            .eq('id', data.extraId)
+            .eq('status', 'requested')
+            .select('id, booking_id, name, status')
+            .maybeSingle()
+
+        if (error) throw new Error(error.message)
+        // Lost the race, or it was already answered. Not an error: the caller's
+        // intent already holds.
+        if (!updated) return { alreadyDecided: true }
+
+        return { alreadyDecided: false, status: updated.status }
+    })
+
+/** Every extra currently on a trip, checkout and post-booking alike. */
+export const getTripExtras = createServerFn({ method: 'GET' })
+    .inputValidator((bookingId: string) => bookingId)
+    .handler(async ({ data: bookingId }) => {
+        const { supabaseAdmin } = await assertBookingAccess(bookingId)
+        return loadTripExtras(supabaseAdmin, bookingId)
+    })
+
+/**
+ * The car's current lockbox code for one booking.
+ *
+ * Its own function rather than a field on getBookingById, because that one is
+ * also the loader for the photos page and shouldn't be shipping door codes to
+ * render a photo grid. Guarded by assertBookingAccess like everything else
+ * here, then read with the service-role client — car_secrets is granted to no
+ * client role at all.
+ *
+ * Null once the trip has ended, matching getTripForGuest: the code opens a real
+ * car, and there is no reason to keep serving it for a trip that is over.
+ */
+export const getTripLockboxCode = createServerFn({ method: 'GET' })
+    .inputValidator((bookingId: string) => bookingId)
+    .handler(async ({ data: bookingId }) => {
+        const { supabaseAdmin } = await assertBookingAccess(bookingId)
+
+        const { data: booking } = await supabaseAdmin
+            .from('bookings')
+            .select('car_id, status, end_time')
+            .eq('id', bookingId)
+            .single()
+
+        if (!booking) return null
+        if (booking.status !== 'confirmed') return null
+        if (new Date(booking.end_time) <= new Date()) return null
+
+        return lockboxCodeForCar(supabaseAdmin, booking.car_id)
     })
