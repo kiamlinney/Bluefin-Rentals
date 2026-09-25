@@ -18,8 +18,10 @@
 // a forgotten env var fails open rather than quietly killing the business.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { CONTACT_PHONE } from './business'
+
 export const BOOKINGS_PAUSED = import.meta.env.VITE_BOOKINGS_PAUSED === 'true'
 
 export const BOOKINGS_PAUSED_MESSAGE =
     "We're not taking online bookings just yet — we're finishing a few things first. " +
-    'Give us a call at (651) 262-9552 and we\'ll get you booked directly.'
+    `Give us a call at ${CONTACT_PHONE} and we'll get you booked directly.`

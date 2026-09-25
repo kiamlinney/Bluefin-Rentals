@@ -163,7 +163,7 @@ export function PaymentStep({
                     className="mt-0.5 w-4 h-4 rounded border-line accent-brand cursor-pointer flex-shrink-0"
                 />
                 <span className="text-sm text-muted">
-                    I agree to pay the total shown and to the BlueFin Rentals {' '}
+                    I agree to pay the total shown and to the Bluefin Rentals {' '}
                     <Link
                         to="/policies/terms"
                         target="_blank"

@@ -66,10 +66,14 @@ export function firstName(fullName: string | null): string {
     return fullName?.trim().split(/\s+/)[0] || 'A guest'
 }
 
+// Make, then model, then year — the order the business says them in, and the
+// order every surface on the site uses. Kept consistent deliberately: "2017
+// Honda CR-V" and "Honda CR-V 2017" on different pages read as two different
+// listings to someone scanning quickly.
 export function carName(
     car: { year: number; make: string; model: string } | null,
 ): string {
-    return car ? `${car.year} ${car.make} ${car.model}` : 'your car'
+    return car ? `${car.make} ${car.model} ${car.year}` : 'your car'
 }
 
 // Gmail proxies every remote image through googleusercontent and caches it

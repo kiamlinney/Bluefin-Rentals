@@ -286,7 +286,7 @@ function TripHistory({ trips }: { trips: UserTripSummary[] }) {
                                 >
                                     <div>
                                         <p className="font-semibold text-ink">
-                                            {car.year} {car.make} {car.model}
+                                            {car.make} {car.model} {car.year}
                                         </p>
                                         <p
                                             className={`text-sm text-muted ${isCanceled ? 'line-through' : ''}`}

@@ -629,7 +629,7 @@ export function CalendarGrid({
                                         {/* No room for the photo in the phone-width column */}
                                         <img
                                             src={carMainImageUrl(car.id)}
-                                            alt={`${car.year} ${car.make} ${car.model}`}
+                                            alt={`${car.make} ${car.model} ${car.year}`}
                                             className="hidden md:block w-12 h-8 object-cover rounded-sm flex-shrink-0"
                                             loading="lazy"
                                             decoding="async"

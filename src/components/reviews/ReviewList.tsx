@@ -44,7 +44,7 @@ export function ReviewItem({ review, showCar = false }: { review: PublicReview; 
                     params={{ carSlug: carSlug(car) }}
                     className="inline-block mt-2 text-sm font-semibold text-ink hover:underline"
                 >
-                    {car.year} {car.make} {car.model}
+                    {car.make} {car.model} {car.year}
                 </Link>
             )}
 

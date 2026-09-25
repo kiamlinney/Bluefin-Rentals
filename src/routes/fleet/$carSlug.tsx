@@ -96,7 +96,7 @@ export const Route = createFileRoute("/fleet/$carSlug")({
                 children: JSON.stringify({
                     "@context": "https://schema.org",
                     "@type": "Car",
-                    "name": `${loaderData?.car.year} ${loaderData?.car.make} ${loaderData?.car.model}`,
+                    "name": `${loaderData?.car.make} ${loaderData?.car.model} ${loaderData?.car.year}`,
                     "offers": {
                         "@type": "Offer",
                         "price": loaderData?.car.price_per_day,
@@ -110,10 +110,10 @@ export const Route = createFileRoute("/fleet/$carSlug")({
             }
         ],
         meta: [
-            { title: `${loaderData?.car.year} ${loaderData?.car.make} ${loaderData?.car.model} rental in Saint Paul, MN | Bluefin Rentals` },
-            { name: "description", content: `Rent this ${loaderData?.car.year} ${loaderData?.car.make} ${loaderData?.car.model} in Saint Paul. Featuring ${loaderData?.car.num_seats} seats, ${loaderData?.car.mpg} MPG.` },
-            { property: "og:title", content: `${loaderData?.car.year} ${loaderData?.car.make} ${loaderData?.car.model} Rental - Bluefin Rentals` },
-            { property: "og:description", content: `Rent a ${loaderData?.car.year} ${loaderData?.car.make} ${loaderData?.car.model} in Saint Paul, MN for $${loaderData?.car.price_per_day}/day.` },
+            { title: `${loaderData?.car.make} ${loaderData?.car.model} ${loaderData?.car.year} rental in Saint Paul, MN | Bluefin Rentals` },
+            { name: "description", content: `Rent this ${loaderData?.car.make} ${loaderData?.car.model} ${loaderData?.car.year} in Saint Paul. Featuring ${loaderData?.car.num_seats} seats, ${loaderData?.car.mpg} MPG.` },
+            { property: "og:title", content: `${loaderData?.car.make} ${loaderData?.car.model} ${loaderData?.car.year} Rental - Bluefin Rentals` },
+            { property: "og:description", content: `Rent a ${loaderData?.car.make} ${loaderData?.car.model} ${loaderData?.car.year} in Saint Paul, MN for $${loaderData?.car.price_per_day}/day.` },
             { property: "og:type", content: "website" },
             { property: "og:image", content: loaderData ? carMainImageUrl(loaderData.car.id) : DEFAULT_OG_IMAGE },
         ],
@@ -736,7 +736,7 @@ function CarDetails() {
                         <img
                             src={carMainImageUrl(carId)}
                             className="w-full h-full object-cover"
-                            alt={`${car.year} ${car.make} ${car.model} rental - main view`}
+                            alt={`${car.make} ${car.model} ${car.year} rental - main view`}
                             fetchPriority="high"
                             decoding="async"
                         />
@@ -747,7 +747,7 @@ function CarDetails() {
                         <img
                             src={carPhotoUrl(carId, "top_left")}
                             className="w-full h-full object-cover"
-                            alt={`${car.year} ${car.make} ${car.model} rental - front interior view`}
+                            alt={`${car.make} ${car.model} ${car.year} rental - front interior view`}
                             decoding="async"
                             // These four are `hidden lg:block`. Without lazy the
                             // browser fetches them on phones too, where they never
@@ -763,7 +763,7 @@ function CarDetails() {
                         <img
                             src={carPhotoUrl(carId, "top_right")}
                             className="w-full h-full object-cover"
-                            alt={`${car.year} ${car.make} ${car.model} rental - back view`}
+                            alt={`${car.make} ${car.model} ${car.year} rental - back view`}
                             decoding="async"
                             loading="lazy"
                         />
@@ -774,7 +774,7 @@ function CarDetails() {
                         <img
                             src={carPhotoUrl(carId, "bottom_left")}
                             className="w-full h-full object-cover"
-                            alt={`${car.year} ${car.make} ${car.model} rental - front view`}
+                            alt={`${car.make} ${car.model} ${car.year} rental - front view`}
                             decoding="async"
                             loading="lazy"
                         />
@@ -785,7 +785,7 @@ function CarDetails() {
                         <img
                             src={carPhotoUrl(carId, "bottom_right")}
                             className="w-full h-full object-cover"
-                            alt={`${car.year} ${car.make} ${car.model} rental - back interior view`}
+                            alt={`${car.make} ${car.model} ${car.year} rental - back interior view`}
                             decoding="async"
                             loading="lazy"
                         />
@@ -1138,7 +1138,7 @@ function CarDetails() {
             {showPriceDetails && totalDays > 0 && (
                 <PriceBreakdown
                     quote={quote}
-                    title={`${car.year} ${car.make} ${car.model}`}
+                    title={`${car.make} ${car.model} ${car.year}`}
                     onClose={() => setShowPriceDetails(false)}
                 />
             )}

@@ -21,7 +21,7 @@ type Props =
 function tripLabel(trip: ReviewableTrip) {
     const { year, make, model } = trip.cars
     const range = `${formatBusinessDate(trip.start_time)} – ${formatBusinessDate(trip.end_time)}`
-    return `${year} ${make} ${model} · ${range}`
+    return `${make} ${model} ${year} · ${range}`
 }
 
 export function ReviewDialog(props: Props) {
@@ -124,7 +124,7 @@ export function ReviewDialog(props: Props) {
                         </label>
                     ) : car ? (
                         <p className="text-sm text-muted">
-                            {car.year} {car.make} {car.model}
+                            {car.make} {car.model} {car.year}
                         </p>
                     ) : null}
 

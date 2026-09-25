@@ -295,7 +295,7 @@ function ImportReviewDialog({ cars, onClose }: { cars: ImportCar[]; onClose: () 
                         <select value={carId} onChange={(e) => setCarId(Number(e.target.value))} className={inputClass}>
                             {cars.map((car) => (
                                 <option key={car.id} value={car.id}>
-                                    {car.year} {car.make} {car.model}
+                                    {car.make} {car.model} {car.year}
                                     {car.license_plate ? ` • ${car.license_plate}` : ''}
                                     {car.is_available ? '' : ' (retired)'}
                                 </option>

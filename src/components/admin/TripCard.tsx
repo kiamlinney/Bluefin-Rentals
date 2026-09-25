@@ -100,7 +100,7 @@ export function TripCard({ booking }: { booking: BookingWithRelations }) {
             <div className="flex flex-col items-center justify-center">
                 <img
                     src={carMainImageUrl(car.id)}
-                    alt={`${car.year} ${car.make} ${car.model}`}
+                    alt={`${car.make} ${car.model} ${car.year}`}
                     className="w-24 h-16 object-cover rounded-lg flex-shrink-0"
                     loading="lazy"
                     decoding="async"

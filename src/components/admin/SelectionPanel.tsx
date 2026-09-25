@@ -850,7 +850,7 @@ function TripCardBody({
                     )}
                     <img
                         src={carMainImageUrl(car.id)}
-                        alt={`${car.year} ${car.make} ${car.model}`}
+                        alt={`${car.make} ${car.model} ${car.year}`}
                         className="w-20 h-14 object-cover rounded-md border border-gray-100"
                         loading="lazy"
                         decoding="async"

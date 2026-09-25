@@ -13,6 +13,11 @@ export function slugify(value: string): string {
 }
 
 export function carSlug(car: CarNameParts): string {
+    // Year first here ONLY. Display everywhere else is make-model-year, but this
+    // string is a URL: /fleet/2017-honda-cr-v-9 is live, indexed and linked from
+    // the sitemap. Reordering it would change every car's address and break
+    // every existing link for a cosmetic gain nobody sees. The trailing id is
+    // what actually resolves the route, so the words are free to be "wrong".
     return `${slugify(`${car.year} ${car.make} ${car.model}`)}-${car.id}`
 }
 
