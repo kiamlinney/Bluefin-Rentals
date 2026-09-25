@@ -14,6 +14,107 @@ export type Database = {
   }
   public: {
     Tables: {
+      booking_additional_drivers: {
+        Row: {
+          booking_id: string
+          created_at: string
+          created_by: string | null
+          date_of_birth: string
+          email: string
+          full_name: string
+          id: string
+        }
+        Insert: {
+          booking_id: string
+          created_at?: string
+          created_by?: string | null
+          date_of_birth: string
+          email: string
+          full_name: string
+          id?: string
+        }
+        Update: {
+          booking_id?: string
+          created_at?: string
+          created_by?: string | null
+          date_of_birth?: string
+          email?: string
+          full_name?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_additional_drivers_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_additional_drivers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      booking_extras: {
+        Row: {
+          amount: number
+          billing: string
+          booking_id: string
+          charged: boolean
+          created_at: string
+          decided_at: string | null
+          extra_id: string
+          id: string
+          name: string
+          quantity: number
+          source: string
+          status: string
+          unit_price: number
+        }
+        Insert: {
+          amount: number
+          billing: string
+          booking_id: string
+          charged?: boolean
+          created_at?: string
+          decided_at?: string | null
+          extra_id: string
+          id?: string
+          name: string
+          quantity: number
+          source: string
+          status?: string
+          unit_price: number
+        }
+        Update: {
+          amount?: number
+          billing?: string
+          booking_id?: string
+          charged?: boolean
+          created_at?: string
+          decided_at?: string | null
+          extra_id?: string
+          id?: string
+          name?: string
+          quantity?: number
+          source?: string
+          status?: string
+          unit_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_extras_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bookings: {
         Row: {
           admin_notified_at: string | null
@@ -25,6 +126,7 @@ export type Database = {
           car_id: number
           created_at: string
           end_time: string
+          guest_notified_at: string | null
           id: string
           miles_driven: number | null
           pickup_location: string
@@ -48,6 +150,7 @@ export type Database = {
           car_id: number
           created_at?: string
           end_time: string
+          guest_notified_at?: string | null
           id?: string
           miles_driven?: number | null
           pickup_location: string
@@ -71,6 +174,7 @@ export type Database = {
           car_id?: number
           created_at?: string
           end_time?: string
+          guest_notified_at?: string | null
           id?: string
           miles_driven?: number | null
           pickup_location?: string
@@ -166,6 +270,32 @@ export type Database = {
             foreignKeyName: "car_price_overrides_car_id_fkey"
             columns: ["car_id"]
             isOneToOne: false
+            referencedRelation: "cars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      car_secrets: {
+        Row: {
+          car_id: number
+          lockbox_code: string | null
+          updated_at: string
+        }
+        Insert: {
+          car_id: number
+          lockbox_code?: string | null
+          updated_at?: string
+        }
+        Update: {
+          car_id?: number
+          lockbox_code?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "car_secrets_car_id_fkey"
+            columns: ["car_id"]
+            isOneToOne: true
             referencedRelation: "cars"
             referencedColumns: ["id"]
           },

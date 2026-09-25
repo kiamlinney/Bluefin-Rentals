@@ -7,6 +7,9 @@ export type CarPriceOverride = Database['public']['Tables']['car_price_overrides
 export type CarBlockedDate = Database['public']['Tables']['car_blocked_dates']['Row']
 export type Review = Database['public']['Tables']['reviews']['Row']
 export type TuroBooking = Database['public']['Tables']['turo_bookings']['Row']
+// The full row. Pages use TripDriver from src/lib/additional-drivers.ts instead,
+// which leaves out created_by — see the note there.
+export type AdditionalDriver = Database['public']['Tables']['booking_additional_drivers']['Row']
 
 // --- Composite row types -----------------------------------------------------
 //
