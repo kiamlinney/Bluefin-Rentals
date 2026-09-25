@@ -3,6 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
 import { notifyAdminBookingConfirmed } from '../../lib/booking-email'
+import { notifyGuestBookingConfirmed } from '../../lib/welcome-email'
 
 export const Route = createFileRoute('/api/stripe-webhook')({
     server: {
@@ -75,6 +76,11 @@ export const Route = createFileRoute('/api/stripe-webhook')({
                             // never throws, so a Gmail outage can't push this
                             // handler into the 500 path and start retries.
                             await notifyAdminBookingConfirmed(supabaseAdmin, rows[0]!.id)
+                            // The guest's own copy, claimed separately on
+                            // guest_notified_at so the two can't starve each
+                            // other: if one has already been sent and the other
+                            // hasn't, a retry still delivers the missing one.
+                            await notifyGuestBookingConfirmed(supabaseAdmin, rows[0]!.id)
                             break
                         }
                         case 'payment_intent.payment_failed': {
@@ -170,6 +176,7 @@ export const Route = createFileRoute('/api/stripe-webhook')({
                             }
                             console.log(`Booking confirmed via charge for PaymentIntent: ${piId}`)
                             await notifyAdminBookingConfirmed(supabaseAdmin, rows[0]!.id)
+                            await notifyGuestBookingConfirmed(supabaseAdmin, rows[0]!.id)
                             break
                         }
                         case 'identity.verification_session.verified': {

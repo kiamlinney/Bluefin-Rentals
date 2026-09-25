@@ -41,6 +41,12 @@ import {
     sendBookingConfirmedEmail,
 } from './booking-email'
 import { notifyBookingCanceled } from './cancellation-email'
+import {
+    WELCOME_EMAIL_SELECT,
+    lockboxCodeForCar,
+    notifyGuestBookingConfirmed,
+    sendWelcomeEmail,
+} from './welcome-email'
 // TEMPORARY pre-launch stop — delete with src/lib/bookings-paused.ts.
 import { BOOKINGS_PAUSED, BOOKINGS_PAUSED_MESSAGE } from './bookings-paused'
 import {
@@ -1107,6 +1113,11 @@ export const confirmBooking = createServerFn({ method: 'POST' })
         // three gets here first sends; the others find the claim taken and do
         // nothing. Never throws, so a mail failure can't fail the confirmation.
         await notifyAdminBookingConfirmed(supabaseAdmin, data.bookingId)
+        // The third confirmation path, so it sends the guest's copy too. Each
+        // email holds its own claim, so whichever path arrives first sends both
+        // and the others no-op. A fourth confirmation path added later must call
+        // both of these, not just one.
+        await notifyGuestBookingConfirmed(supabaseAdmin, data.bookingId)
 
         return booking
     })
@@ -1116,7 +1127,9 @@ export const confirmBooking = createServerFn({ method: 'POST' })
 // trip. Admin-only and checked here rather than at the route: server functions
 // are callable directly.
 export const sendTestBookingEmail = createServerFn({ method: 'POST' })
-    .inputValidator((input: { bookingId: string }) => input)
+    // `template` defaults to 'admin' so the existing call site in
+    // admin/trips/booked.tsx keeps working untouched.
+    .inputValidator((input: { bookingId: string; template?: 'admin' | 'guest' }) => input)
     .handler(async ({ data }) => {
         const supabase = getSupabaseServerClient()
         const authResult = await supabase.auth.getUser()
@@ -1128,6 +1141,24 @@ export const sendTestBookingEmail = createServerFn({ method: 'POST' })
         if (!profile?.is_admin) throw new Error('Not authorized')
 
         const supabaseAdmin = getServiceRoleClient()
+
+        // Each template needs different columns, so the select follows the
+        // choice rather than fetching a union of both.
+        if (data.template === 'guest') {
+            const { data: booking, error } = await supabaseAdmin
+                .from('bookings')
+                .select(WELCOME_EMAIL_SELECT)
+                .eq('id', data.bookingId)
+                .single()
+
+            if (error || !booking) throw new Error('Booking not found')
+
+            const row = booking as any
+            const lockboxCode = await lockboxCodeForCar(supabaseAdmin, row.car_id)
+            await sendWelcomeEmail(row, lockboxCode, { isTest: true })
+            return { sent: true }
+        }
+
         const { data: booking, error } = await supabaseAdmin
             .from('bookings')
             .select(BOOKING_EMAIL_SELECT)
@@ -1455,12 +1486,29 @@ export const getTripForGuest = createServerFn({ method: 'GET' })
 
         const terminal = terminalStateOf(booking.status)
 
+        // The car's current lockbox code, for the welcome message on the page.
+        //
+        // Read here rather than sent to the browser with the car, because
+        // car_secrets is service-role only — this function has already
+        // authorized the caller, the public car queries have not.
+        //
+        // Gated on a live, paid trip: the code opens a real car, so there is no
+        // reason to keep serving it once the trip has ended, and none to serve
+        // it before the booking is paid for. Reading it fresh each load also
+        // means a rotated code is correct on the page even when the emailed one
+        // has gone stale.
+        const lockboxCode =
+            booking.status === 'confirmed' && new Date(booking.end_time) > new Date()
+                ? await lockboxCodeForCar(supabaseAdmin, booking.car_id)
+                : null
+
         // Hand-entered off-platform bookings never had an intent, so there is
         // nothing to verify and nothing to put on a receipt.
         if (!booking.stripe_payment_intent_id) {
             return {
                 booking,
                 isAdmin,
+                lockboxCode,
                 paymentState: terminal ?? (booking.status === 'confirmed' ? 'confirmed' : 'unpaid'),
                 card: null as TripPaymentCard | null,
             }
@@ -1481,6 +1529,7 @@ export const getTripForGuest = createServerFn({ method: 'GET' })
             return {
                 booking,
                 isAdmin,
+                lockboxCode,
                 paymentState: terminal ?? (booking.status === 'confirmed' ? 'confirmed' : 'processing'),
                 card: null as TripPaymentCard | null,
             }
@@ -1495,7 +1544,7 @@ export const getTripForGuest = createServerFn({ method: 'GET' })
             }
             : null
 
-        if (terminal) return { booking, isAdmin, paymentState: terminal, card }
+        if (terminal) return { booking, isAdmin, lockboxCode, paymentState: terminal, card }
 
         let paymentState: TripPaymentState
         switch (intent.status) {
@@ -1531,6 +1580,7 @@ export const getTripForGuest = createServerFn({ method: 'GET' })
         // alone, and it's why expire_stale_pending_bookings marks rows instead
         // of deleting them.
         const revivable = booking.status === 'pending' || booking.status === 'expired'
+        let currentLockboxCode = lockboxCode
         if (paymentState === 'confirmed' && revivable) {
             const { error: updateErr } = await supabaseAdmin
                 .from('bookings')
@@ -1542,10 +1592,27 @@ export const getTripForGuest = createServerFn({ method: 'GET' })
                 console.error('Could not confirm booking from trip page', bookingId, updateErr.message)
             } else {
                 booking.status = 'confirmed'
+
+                // This is a confirmation path like any other, so it owes the
+                // same notifications — see CLAUDE.md. It was silently missing
+                // them: a booking whose webhook never arrived got confirmed
+                // here and the owners were never told a trip had been booked.
+                // Both claim their own send, so the usual path having already
+                // mailed makes these no-ops.
+                await notifyAdminBookingConfirmed(supabaseAdmin, bookingId)
+                await notifyGuestBookingConfirmed(supabaseAdmin, bookingId)
+
+                // The code was skipped above while this row still read pending.
+                // Fetch it now rather than making the guest reload to see the
+                // message they were just emailed.
+                currentLockboxCode =
+                    new Date(booking.end_time) > new Date()
+                        ? await lockboxCodeForCar(supabaseAdmin, booking.car_id)
+                        : null
             }
         }
 
-        return { booking, isAdmin, paymentState, card }
+        return { booking, isAdmin, lockboxCode: currentLockboxCode, paymentState, card }
     })
 
 // Fetches current user profile's row
