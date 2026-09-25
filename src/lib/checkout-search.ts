@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { businessDateKey, businessWallClockTime } from './dates'
 import type { BookingRate } from './booking-rate.ts'
+import { serializeExtraIds } from './extras'
+import { storedQuote } from './receipt'
 
 // Zod validates that the URL search params are exactly the right shape
 // before the loader or component even runs. If a param is missing or
@@ -47,6 +49,19 @@ export const checkoutSearchSchema = z.object({
     // by hand changes the price, but only to a price the radio button offers
     // anyway — and the server re-derives the charge from it either way.
     bookingRate: z.enum(['non-refundable', 'refundable']).catch('non-refundable'),
+    // Selected extras, as a comma-separated list of ids — see src/lib/extras.ts,
+    // which owns the encoding. Chosen on this page like bookingRate, and in the
+    // URL for the same two reasons: the selection survives a refresh mid-checkout
+    // and buildCheckoutSearch can restore it when resuming a pending booking.
+    //
+    // A CSV of slugs rather than a JSON array because the router percent-encodes
+    // an array as JSON, which makes the checkout URL unreadable, and a string
+    // takes .catch(undefined) cleanly.
+    //
+    // Same .catch reasoning as the two above: a mangled link falls back to no
+    // extras, the one value that can never overcharge. An unknown id is dropped
+    // rather than rejected, server-side as well, so this is belt and braces.
+    extras: z.string().optional().catch(undefined),
     // bookingId is optional — only present when resuming an existing
     // pending booking rather than creating a fresh one
     bookingId: z.string().optional(),
@@ -77,6 +92,8 @@ export type CheckoutSearch = z.infer<typeof checkoutSearchSchema>
  *
  * `booking_rate` has no such gap — it is persisted, so a resumed booking
  * comes back on the rate it was priced at rather than snapping to the default.
+ * Nor do extras: they're snapshotted inside price_quote, so they're restored
+ * from the row rather than lost the way the pickup selection is.
  */
 export function buildCheckoutSearch(booking: {
     id: string
@@ -85,6 +102,9 @@ export function buildCheckoutSearch(booking: {
     total_price: number
     pickup_location: string
     booking_rate: BookingRate
+    // Optional so the callers that only hold a narrow booking shape keep
+    // compiling; a row without it simply resumes with no extras selected.
+    price_quote?: unknown
 }): CheckoutSearch {
     const start = new Date(booking.start_time)
     const end = new Date(booking.end_time)
@@ -101,6 +121,7 @@ export function buildCheckoutSearch(booking: {
         pickupId: undefined,
         pickupAddress: undefined,
         bookingRate: booking.booking_rate,
+        extras: serializeExtraIds(storedQuote({ price_quote: booking.price_quote ?? null })?.extras.map(e => e.id) ?? []),
         bookingId: booking.id,
     }
 }

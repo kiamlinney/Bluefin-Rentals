@@ -16,7 +16,9 @@ import {
 import { resolvePickup, type PickupSelection } from '@/lib/pickup'
 import { checkoutSearchSchema, type Step } from '@/lib/checkout-search'
 import type { BookingRate } from '@/lib/booking-rate'
+import { parseExtraIds, serializeExtraIds } from '@/lib/extras'
 import { BookingRateSection } from '@/components/checkout/BookingRateSection'
+import { ExtrasSection } from '@/components/checkout/ExtrasSection'
 import { CheckoutHeader } from '@/components/checkout/CheckoutHeader'
 import { StepIndicator } from '@/components/checkout/StepIndicator'
 import { TripSummaryCard } from '@/components/checkout/TripSummaryCard'
@@ -183,6 +185,10 @@ function CheckoutFlow() {
 
     const overrides = useMemo(() => buildOverrideMap(priceOverrides), [priceOverrides])
 
+    // The URL is the source of truth for the selection, same as bookingRate, so
+    // a refresh mid-checkout keeps the extras. parseExtraIds owns the decoding.
+    const selectedExtras = useMemo(() => parseExtraIds(search.extras), [search.extras])
+
     // Both rates are quoted, not just the selected one: the booking-rate radio
     // prints a price against each option, and quoting them through the same
     // function with the same inputs is what guarantees they differ only by the
@@ -199,7 +205,11 @@ function CheckoutFlow() {
         pickupFee: resolvedPickup.fee,
         pickupFeeLabel: resolvedPickup.feeLabel,
         bookingRate,
-    }), [search.startDate, search.startTime, search.endDate, search.endTime, car.price_per_day, overrides, resolvedPickup])
+        // Priced into both rate quotes, so the radio compares like with like:
+        // leaving extras out of one side would make the cheaper rate look
+        // cheaper by the price of a child seat.
+        extraIds: selectedExtras,
+    }), [search.startDate, search.startTime, search.endDate, search.endTime, car.price_per_day, overrides, resolvedPickup, selectedExtras])
 
     const quote = useMemo(() => quoteFor(search.bookingRate), [quoteFor, search.bookingRate])
 
@@ -215,26 +225,49 @@ function CheckoutFlow() {
         void navigate({ to: '.', search: (prev) => ({ ...prev, bookingRate }), replace: true })
     }
 
+    // Same treatment as the rate: in the URL, `replace` so ticking boxes doesn't
+    // fill the back button with history entries.
+    const setExtras = (ids: string[]) => {
+        void navigate({
+            to: '.',
+            search: (prev) => ({ ...prev, extras: serializeExtraIds(ids) }),
+            replace: true,
+        })
+    }
+
+    // Every input that changes what Stripe charges, in one string. Declared here
+    // because two things key off it: the PaymentIntent refetch below, and the
+    // server total just under this — they must agree on what "the current
+    // selection" means, or one of them goes stale while the other doesn't.
+    //
+    // paymentMode decides which payment methods the intent allows; bookingRate
+    // and the extras each decide its amount.
+    const initKey = `${paymentMode}:${search.bookingRate}:${search.extras ?? ''}`
+
     // The price the server actually charged. createCheckoutSession recomputes the
     // real total and returns it, and that's the number shown everywhere once it
     // arrives. Before then the local quote stands in — computed from the same
     // override rows the server reads, unlike search.subtotal, which is only a
     // hint travelling through an address bar the customer can edit.
-    // Held with the rate it was quoted for, not as a bare number. A total alone
-    // outlives the choice that produced it: switching rates left the previous
-    // rate's figure on screen — it wins over `quote` — until the refetch landed,
-    // and if the server declined to re-price it never went away at all.
+    // Held with the inputs it was quoted for, not as a bare number. A total
+    // alone outlives the choice that produced it: switching rates left the
+    // previous rate's figure on screen — it wins over `quote` — until the
+    // refetch landed, and if the server declined to re-price it never went away
+    // at all.
+    //
+    // Keyed on initKey rather than on bookingRate alone, so every input that
+    // changes the charged amount invalidates it. When extras were added, a
+    // rate-only key would have reintroduced exactly the bug above: tick a $240
+    // extra and the old total stays on screen until the server answers.
     const [serverQuote, setServerQuote] = useState<
-        { total: number; bookingRate: BookingRate } | null
+        { total: number; key: string } | null
     >(null)
 
-    // Only trusted while it still describes the selected rate; otherwise the
+    // Only trusted while it still describes the current selection; otherwise the
     // local quote stands in, which is computed from the same override rows the
     // server reads and lands on the same number.
     const displayTotal =
-        serverQuote && serverQuote.bookingRate === search.bookingRate
-            ? serverQuote.total
-            : quote.total
+        serverQuote && serverQuote.key === initKey ? serverQuote.total : quote.total
 
     // Prevents double-invocation from React Strict Mode. In development, React
     // deliberately calls effects twice to surface bugs; without a guard, two
@@ -243,15 +276,12 @@ function CheckoutFlow() {
     //
     // It stores what it ran for rather than a bare boolean, so changing any
     // input that changes the PaymentIntent refetches — the same protection, one
-    // notch less blunt.
+    // notch less blunt. That input list is initKey, declared above.
     //
-    // Both keys are load-bearing and for different reasons. paymentMode decides
-    // which payment methods the intent allows; bookingRate decides its *amount*.
-    // Leaving the rate out is the worst bug available here: the radio would
-    // move, the summary would update, and Stripe would quietly charge the
-    // previous rate's total.
+    // Leaving an amount input out of it is the worst bug available here: the
+    // control would move, the summary would update, and Stripe would quietly
+    // charge the previous total.
     const initializedFor = useRef<string | null>(null)
-    const initKey = `${paymentMode}:${search.bookingRate}`
 
     useEffect(() => {
         if (step !== 'payment' || initializedFor.current === initKey) return
@@ -286,11 +316,15 @@ function CheckoutFlow() {
                         bookingId: search.bookingId,
                         paymentMode,
                         bookingRate: search.bookingRate,
+                        // Ids only. The server re-prices them from its own
+                        // catalogue — an amount from here would be a price the
+                        // customer could edit in the address bar.
+                        extras: selectedExtras,
                     }
                 })
                 setClientSecret(result.clientSecret)
                 setBookingId(result.bookingId)
-                setServerQuote({ total: result.totalPrice, bookingRate: result.bookingRate })
+                setServerQuote({ total: result.totalPrice, key: initKey })
 
                 // The server has the last word on which rate this booking is
                 // actually on. It can decline to change one — a resumed booking
@@ -301,6 +335,20 @@ function CheckoutFlow() {
                     void navigate({
                         to: '.',
                         search: (prev) => ({ ...prev, bookingRate: result.bookingRate }),
+                        replace: true,
+                    })
+                }
+
+                // Same last-word rule for extras. A booking resumed by id can't
+                // be re-priced from this request, so the server may hand back the
+                // row's own extras instead of the ones just ticked — and the
+                // checkboxes have to follow, rather than advertising an extra
+                // this booking isn't paying for.
+                const returned = serializeExtraIds(result.extras)
+                if (returned !== (search.extras ?? undefined)) {
+                    void navigate({
+                        to: '.',
+                        search: (prev) => ({ ...prev, extras: returned }),
                         replace: true,
                     })
                 }
@@ -348,6 +396,17 @@ function CheckoutFlow() {
                                 setCurrentProfile(prev => ({ ...prev, identity_verified: true } as typeof prev))
                                 setStep('payment')
                             }}
+                        />
+                    )}
+
+                    {step === 'payment' && (
+                        <ExtrasSection
+                            value={selectedExtras}
+                            onChange={setExtras}
+                            billableDays={quote.billableDays}
+                            // Same reason as the rate below: switching mid-fetch
+                            // would race two createCheckoutSession calls.
+                            disabled={isLoading}
                         />
                     )}
 

@@ -19,6 +19,8 @@ import {
     REFUNDABLE_SURCHARGE,
     type BookingRate,
 } from './booking-rate.ts'
+import { roundMoney } from './money.ts'
+import { resolveExtras, type QuoteExtra } from './extras.ts'
 
 export const BUSINESS_TIMEZONE = 'America/Chicago'
 
@@ -202,12 +204,10 @@ export function wallClockToUtcIso(
 
 // ── Money ────────────────────────────────────────────────────────────────────
 
-// Every money value is rounded to cents as it's produced, and the total is
-// summed from the already-rounded lines. That guarantees the rows a customer
-// reads in the breakdown add up to the total they're charged.
-function roundMoney(amount: number): number {
-    return Math.round(amount * 100) / 100
-}
+// Moved to src/lib/money.ts (imported at the top of this file) so extras.ts can
+// round the same way without this file and that one importing each other.
+// Re-exported because callers already reach for it from here.
+export { roundMoney }
 
 // ── Quote ────────────────────────────────────────────────────────────────────
 
@@ -243,6 +243,15 @@ export type TripQuote = {
     // A flat amount for delivering the car, added last and never discounted.
     pickupFee: number
     pickupFeeLabel: string | null
+    // Optional add-ons, priced from src/lib/extras.ts. Added alongside the
+    // pickup fee — after the discounts, never discounted themselves, and not
+    // part of the base the refundable premium is a percentage of: that premium
+    // buys flexibility on the trip, not on a child seat.
+    //
+    // Each line is snapshotted (name and unit price included) so a receipt can
+    // be rendered years later from the stored quote alone.
+    extras: QuoteExtra[]
+    extrasTotal: number
     total: number
 }
 
@@ -264,6 +273,17 @@ export type TripQuoteInput = {
     // gets the anchor rate, which is what the site charged before the choice
     // existed. Never silently upgrades anyone to the pricier option.
     bookingRate?: BookingRate
+    // Extra ids, not priced amounts. Priced here rather than by the caller
+    // because a per-day extra needs billableDays, which is computed inside this
+    // function — pricing them outside would mean a second implementation of the
+    // ceil-of-duration rule, which is exactly the drift this module exists to
+    // prevent. (pickupFee can be passed in pre-priced because a flat location
+    // fee needs nothing from the quote.)
+    //
+    // Optional, and an unknown id is dropped rather than rejected, so the
+    // no-extras case is what a stale or mangled request falls back to. That
+    // case can never overcharge.
+    extraIds?: string[]
 }
 
 const EMPTY_QUOTE: TripQuote = {
@@ -288,6 +308,11 @@ const EMPTY_QUOTE: TripQuote = {
     // $120 delivery line under a $0 total would be a price for nothing.
     pickupFee: 0,
     pickupFeeLabel: null,
+    // Same reasoning as pickupFee above: no trip, so nothing to add on. An
+    // "Unlimited mileage × 0 days" line under a $0 total would be a price for
+    // nothing.
+    extras: [],
+    extrasTotal: 0,
     total: 0,
 }
 
@@ -322,6 +347,7 @@ export function calculateTripPrice(input: TripQuoteInput): TripQuote {
         pickupFee: rawPickupFee = 0,
         pickupFeeLabel = null,
         bookingRate = DEFAULT_BOOKING_RATE,
+        extraIds = [],
     } = input
 
     if (!startDate || !endDate) return EMPTY_QUOTE
@@ -385,11 +411,16 @@ export function calculateTripPrice(input: TripQuoteInput): TripQuote {
     // base the refundable premium is a percentage *of*.
     const tripPrice = subtotal - discountAmount - extraDiscountAmount + surchargeAmount
     
-    // Excluded from that base, deliberately: the pickup fee
+    // Excluded from that base, deliberately: the pickup fee and the extras
     const isRefundable = bookingRate === 'refundable'
     const refundableSurchargeAmount = isRefundable
         ? roundMoney(tripPrice * REFUNDABLE_SURCHARGE.percent)
         : 0
+
+    // Priced here because per-day extras need billableDays. Never discounted,
+    // for the same reason the pickup fee isn't: a duration discount is a
+    // concession on the daily rate, not on a flat service.
+    const { items: extras, total: extrasTotal } = resolveExtras(extraIds, billableDays)
 
     return {
         days,
@@ -415,7 +446,9 @@ export function calculateTripPrice(input: TripQuoteInput): TripQuote {
         // Only labelled when there's actually something to charge, so the
         // breakdown can gate its row on the amount and never render a $0 line.
         pickupFeeLabel: pickupFee > 0 ? pickupFeeLabel : null,
-        total: roundMoney(tripPrice + refundableSurchargeAmount + pickupFee),
+        extras,
+        extrasTotal,
+        total: roundMoney(tripPrice + refundableSurchargeAmount + pickupFee + extrasTotal),
     }
 }
 

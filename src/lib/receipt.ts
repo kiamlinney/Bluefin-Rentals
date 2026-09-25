@@ -72,7 +72,17 @@ function toMoney(value: number | string | null | undefined): number {
 export function storedQuote(booking: Pick<ReceiptBooking, 'price_quote'>): TripQuote | null {
     const quote = booking.price_quote as (TripQuote & { version?: number }) | null
     if (!quote || typeof quote !== 'object') return null
-    return typeof quote.billableDays === 'number' ? quote : null
+    if (typeof quote.billableDays !== 'number') return null
+
+    // Snapshots taken before extras existed have no `extras` key at all. This is
+    // the one place a stored quote is narrowed to TripQuote, so it's where the
+    // shape is made whole again — otherwise every consumer has to remember the
+    // `?? []`, and the one that forgets is a runtime error over a real booking.
+    return {
+        ...quote,
+        extras: Array.isArray(quote.extras) ? quote.extras : [],
+        extrasTotal: Number(quote.extrasTotal) || 0,
+    }
 }
 
 /**

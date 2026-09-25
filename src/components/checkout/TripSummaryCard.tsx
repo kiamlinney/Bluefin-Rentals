@@ -4,6 +4,7 @@ import { timeToMinutes } from '@/lib/pricing.ts'
 import { formatDateKey, formatMinutesOfDay } from '@/lib/dates.ts'
 import type { CheckoutSearch } from '@/lib/checkout-search.ts'
 import { distanceFeeForTrip, formatMiles, milesIncluded } from '@/lib/distance.ts'
+import { hasUnlimitedMileage } from '@/lib/extras.ts'
 import type { Car } from '@/types.ts'
 import { carMainImageUrl } from '@/lib/car-images.ts'
 
@@ -75,6 +76,10 @@ export function TripSummaryCard({
 }) {
     const savings = quote.discountAmount + quote.extraDiscountAmount
 
+    // Gates the distance rows below. Read off the quote rather than the URL so
+    // it can only be true once the extra is actually priced into the total.
+    const unlimitedMiles = hasUnlimitedMileage(quote)
+
     return (
         <div className="bg-surface border border-line rounded-2xl p-5 shadow-sm">
             {/* ── Car ─────────────────────────────────────────────────────── */}
@@ -89,7 +94,7 @@ export function TripSummaryCard({
                 </div>
                 <img
                     src={carMainImageUrl(carId)}
-                    alt={`${car.year} ${car.make} ${car.model}`}
+                    alt={`${car.make} ${car.model} ${car.year}`}
                     className="w-24 h-16 object-cover rounded-lg flex-shrink-0"
                     loading="lazy"
                     decoding="async"
@@ -155,6 +160,22 @@ export function TripSummaryCard({
                     <Row label={quote.pickupFeeLabel} value={`+${formatMoney(quote.pickupFee)}`} />
                 )}
 
+                {/* Alongside the pickup fee rather than up with the discounts,
+                    because that's where they sit in the arithmetic: added last,
+                    never discounted. Each carries its own snapshotted name, so
+                    an extra retired from the catalogue still renders. */}
+                {quote.extras.map((extra) => (
+                    <Row
+                        key={extra.id}
+                        label={
+                            extra.billing === 'per-day'
+                                ? `${extra.name} (${extra.quantity} ${extra.quantity === 1 ? 'day' : 'days'})`
+                                : extra.name
+                        }
+                        value={`+${formatMoney(extra.amount)}`}
+                    />
+                ))}
+
                 <Row label="Sales tax" value={formatMoney(PLACEHOLDER_SALES_TAX)} />
 
                 {/* Not a price line — it sits below Sales tax and above the
@@ -163,12 +184,22 @@ export function TripSummaryCard({
                 <div>
                     <Row
                         label="Distance included"
-                        value={`${formatMiles(milesIncluded(quote.billableDays))} miles`}
+                        value={
+                            unlimitedMiles
+                                ? 'Unlimited'
+                                : `${formatMiles(milesIncluded(quote.billableDays))} miles`
+                        }
                     />
-                    <p className="text-xs text-muted mt-1">
-                        ${distanceFeeForTrip(car, quote, Number(car.price_per_day)).toFixed(2)} /
-                        mile will be charged for miles driven over this allotment.
-                    </p>
+                    {/* Suppressed outright when the guest bought unlimited
+                        mileage. Quoting a per-mile charge under an allowance
+                        they paid to remove is the one thing this row must never
+                        do — it's the charge they were sold out of. */}
+                    {!unlimitedMiles && (
+                        <p className="text-xs text-muted mt-1">
+                            ${distanceFeeForTrip(car, quote, Number(car.price_per_day)).toFixed(2)} /
+                            mile will be charged for miles driven over this allotment.
+                        </p>
+                    )}
                 </div>
             </div>
 

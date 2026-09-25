@@ -14,6 +14,10 @@ import {
 import { runTuroSync, TURO_SYNC_MAX_LOOKBACK_DAYS } from './turo-sync.server'
 import { DEFAULT_BOOKING_RATE, type BookingRate } from './booking-rate.ts'
 import { refundForCancellation } from './cancellation-policy.ts'
+// Pure module — safe to import here without dragging anything into the browser
+// bundle. It owns the one narrowing of a stored price_quote.
+import { storedQuote } from './receipt'
+import { resolveExtras } from './extras'
 import {
     DELIVERY_RADIUS_MILES,
     findPickupLocation,
@@ -540,6 +544,9 @@ async function quoteTripOnServer(input: {
     // parallel Supabase reads, instead of being buried inside the pricing path.
     pickup: ResolvedPickup
     bookingRate: BookingRate
+    // Ids as requested. calculateTripPrice prices them from the catalogue and
+    // drops anything it doesn't recognise, so this needs no validation here.
+    extraIds: string[]
 }): Promise<TripQuote> {
     const isoDurationMs = new Date(input.endTimeIso).getTime() - new Date(input.startTimeIso).getTime()
 
@@ -579,6 +586,7 @@ async function quoteTripOnServer(input: {
         pickupFee: input.pickup.fee,
         pickupFeeLabel: input.pickup.feeLabel,
         bookingRate: input.bookingRate,
+        extraIds: input.extraIds,
     })
 
     if (quote.billableDays < 1) throw new Error('Minimum trip duration is 24 hours')
@@ -752,6 +760,12 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         // a deploy falls back to the anchor rate rather than failing, and the
         // anchor is the cheaper of the two, so the fallback can never overcharge.
         bookingRate?: BookingRate
+        // Extra ids only — never amounts. Re-priced here from the catalogue in
+        // src/lib/extras.ts, exactly as the pickup fee is re-resolved, so a
+        // hand-edited request can select a different extra but never invent a
+        // different price for one. Optional for the same back-compat reason as
+        // the two above; absent means no extras, which can't overcharge.
+        extras?: string[]
     }) => input)
     .handler(async ({ data }) => {
         // TEMPORARY pre-launch stop — see src/lib/bookings-paused.ts for how to
@@ -824,6 +838,10 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
                     bookingId: existing.id,
                     totalPrice: Number(existing.total_price),
                     bookingRate: existing.booking_rate as BookingRate,
+                    // The row's own extras, for the same reason as the rate: not
+                    // re-priced here, so what's returned is what this booking is
+                    // actually paying for, and the checkboxes follow it.
+                    extras: storedQuote(existing)?.extras.map(e => e.id) ?? [],
                 }
             }
         }
@@ -864,8 +882,21 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
             // which is why it doesn't do this.)
             const requestedRate = data.bookingRate ?? DEFAULT_BOOKING_RATE
 
+            // Extras are re-priced for exactly the same reason the rate is, and
+            // the failure is the same one: tick a $240 extra on a trip that
+            // already has a pending row, and without this the summary updates
+            // while the stored intent still charges the old total.
+            //
+            // Compared as canonical id lists — resolveExtras drops unknowns and
+            // fixes the order, so the comparison can't trip over ordering or a
+            // stray id. The day count is irrelevant to the comparison, hence 1.
+            const canonical = (ids: string[]) =>
+                resolveExtras(ids, 1).items.map(item => item.id).join(',')
+            const extrasChanged =
+                canonical(data.extras ?? []) !==
+                canonical(storedQuote(existingBooking)?.extras.map(e => e.id) ?? [])
             let bookingRow = existingBooking
-            if (existingBooking.booking_rate !== requestedRate) {
+            if (existingBooking.booking_rate !== requestedRate || extrasChanged) {
                 const pickup = await resolvePickupOnServer(data)
                 const requote = await quoteTripOnServer({
                     carId: carIdNum,
@@ -877,6 +908,7 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
                     endTimeIso: data.endTime,
                     pickup,
                     bookingRate: requestedRate,
+                    extraIds: data.extras ?? [],
                 })
 
                 // The row is updated before the intent is reconciled, because
@@ -902,6 +934,8 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
 
                 if (repriceErr) throw new Error(repriceErr.message)
                 bookingRow = repriced
+                // The quote just changed, so the mirror has to follow it — a
+                // pending booking can be re-quoted repeatedly before payment.
             }
 
             const intent = await intentForMode(
@@ -913,6 +947,8 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
                 bookingId: bookingRow.id,
                 totalPrice: Number(bookingRow.total_price),
                 bookingRate: bookingRow.booking_rate as BookingRate,
+                // Off the row, which is now re-priced if the selection changed.
+                extras: storedQuote(bookingRow)?.extras.map(e => e.id) ?? [],
             }
         }
 
@@ -953,6 +989,7 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
             endTimeIso: data.endTime,
             pickup,
             bookingRate: data.bookingRate ?? DEFAULT_BOOKING_RATE,
+            extraIds: data.extras ?? [],
         })
 
         // A mismatch is either tampering or genuine drift between the widget's
@@ -1033,6 +1070,9 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
             bookingId: booking!.id,
             totalPrice: quote.total,
             bookingRate: quote.bookingRate,
+            // The server's resolution, not the request's — unknown ids were
+            // dropped during pricing, so this is what the guest is paying for.
+            extras: quote.extras.map(e => e.id),
         }
     })
 
