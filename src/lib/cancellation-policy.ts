@@ -192,6 +192,12 @@ type FeeBasis = {
     days: number
     /** Refunded in full — the deliberate divergence from Turo's half. */
     pickupFee: number
+    /**
+     * Refunded in full, for the same reason the delivery fee is: a prepaid tank,
+     * a child seat and a cleaning are all services rendered *during* a trip, so
+     * a trip that never happens bought none of them.
+     */
+    extras: number
     /** Retained. */
     premium: number
     estimated: boolean
@@ -208,6 +214,11 @@ function feeBasis(input: RefundInput): FeeBasis {
                 quote.surchargeAmount,
             days: quote.billableDays,
             pickupFee: quote.pickupFee,
+            // `?? 0` because a quote snapshotted before extras existed has no
+            // such key. Belt and braces: storedQuote() normalises it too, but
+            // this is the function that decides how much money goes back, so it
+            // does not depend on a caller having narrowed correctly.
+            extras: quote.extrasTotal ?? 0,
             premium: quote.refundableSurchargeAmount,
             estimated: false,
         }
@@ -223,6 +234,7 @@ function feeBasis(input: RefundInput): FeeBasis {
         tripPrice: input.totalPaid,
         days: Math.max(1, spanDays),
         pickupFee: 0,
+        extras: 0,
         premium: 0,
         estimated: true,
     }
@@ -283,18 +295,18 @@ export function refundForCancellation(input: RefundInput): RefundOutcome {
     // grace period", and it's what BookingRateInfoModal promised at checkout.
     if (input.rate === 'non-refundable') return none('non-refundable')
 
-    const { tripPrice, days, pickupFee, premium, estimated } = feeBasis(input)
+    const { tripPrice, days, pickupFee, extras, premium, estimated } = feeBasis(input)
     const dayRate = tripPrice / days
     const rawFee = days > SHORT_TRIP_DAYS ? dayRate : dayRate / 2
 
     // Clamped against the trip price, not the total: the fee is a fraction of
-    // the trip, and letting it grow into the delivery fee would quietly undo the
-    // decision to refund that in full.
+    // the trip, and letting it grow into the delivery fee or the extras would
+    // quietly undo the decision to refund those in full.
     const cancellationFee = roundMoney(Math.min(Math.max(rawFee, 0), tripPrice))
 
     // The rule, stated directly: the trip price back minus the fee, plus the
-    // delivery fee that bought nothing, keeping the premium.
-    const rawRefund = tripPrice - cancellationFee + pickupFee
+    // delivery fee and the extras that bought nothing, keeping the premium.
+    const rawRefund = tripPrice - cancellationFee + pickupFee + extras
     const refundAmount = roundMoney(Math.min(Math.max(rawRefund, 0), ceiling))
     const retainedPremium = roundMoney(Math.min(premium, Math.max(ceiling - refundAmount, 0)))
 
@@ -323,7 +335,7 @@ export function refundExplanation(outcome: RefundOutcome): string {
         case 'non-refundable-grace':
             return 'This cancellation is within the free cancellation window, so the full amount is refunded.'
         case 'admin-initiated':
-            return 'BlueFin Rentals cancelled this trip, so the full amount is refunded.'
+            return 'Bluefin Rentals cancelled this trip, so the full amount is refunded.'
         case 'late-cancellation':
             return 'This cancellation is past the free cancellation window, so a cancellation fee is retained and the rest is refunded.'
         case 'non-refundable':

@@ -33,12 +33,19 @@ const pass = (ok: boolean, name: string, detail = '') => {
 function quote(o: {
     rate: BookingRate; days: number; subtotal: number
     discount?: number; surcharge?: number; premium?: number; pickup?: number
+    extras?: number
 }): TripQuote {
     const discount = o.discount ?? 0
     const surcharge = o.surcharge ?? 0
     const premium = o.premium ?? 0
     const pickup = o.pickup ?? 0
+    const extras = o.extras ?? 0
     return {
+        extras: extras
+            ? [{ id: 'prepaid-refuel', name: 'Prepaid refuel', billing: 'per-trip' as const,
+                 unitPrice: extras, quantity: 1, amount: extras }]
+            : [],
+        extrasTotal: extras,
         days: [], billableDays: o.days, subtotal: o.subtotal,
         discountPercent: 0, discountLabel: null, discountAmount: discount,
         extraDiscountPercent: 0, extraDiscountLabel: null, extraDiscountAmount: 0,
@@ -46,8 +53,18 @@ function quote(o: {
         bookingRate: o.rate,
         refundableSurchargeAmount: premium, refundableSurchargeLabel: premium ? 'Refundable rate' : null,
         pickupFee: pickup, pickupFeeLabel: pickup ? 'Delivery' : null,
-        total: o.subtotal - discount + surcharge + premium + pickup,
+        total: o.subtotal - discount + surcharge + premium + pickup + extras,
     } as TripQuote
+}
+
+/**
+ * A quote as stored before extras existed — no `extras` key at all. Typed
+ * through `any` deliberately: the point is to exercise the row shape that is
+ * actually in the database, which no longer satisfies TripQuote.
+ */
+function legacyQuote(o: Parameters<typeof quote>[0]): TripQuote {
+    const { extras, extrasTotal, ...rest } = quote(o) as any
+    return rest as TripQuote
 }
 
 // ── The reference trip ───────────────────────────────────────────────────────
@@ -104,6 +121,39 @@ console.log('\n=== DELIVERY FEE IS REFUNDED IN FULL (divergence from Turo) ===')
 run('delivery fee returns whole on a partial refund', { now: new Date(START.getTime() - 23 * H) },
     { refundAmount: 210 })
 pass(210 === 225 - 45 + 30, 'refund = tripPrice - fee + delivery', '225 - 45 + 30 = 210')
+
+console.log('\n=== EXTRAS ARE REFUNDED IN FULL ===')
+// Same reasoning as the delivery fee: a prepaid tank or a child seat is a
+// service rendered during a trip, so a trip that never runs bought none of it.
+// This section exists because the refund used to be computed from named quote
+// fields only, which silently omitted extras and short-changed the guest by
+// exactly the amount they spent on them.
+const Q5X = quote({ rate: 'refundable', days: 5, subtotal: 250, discount: 25, premium: 22.5, pickup: 30, extras: 45 })
+run('extras return whole on a partial refund', {
+    quote: Q5X, totalPaid: 322.5, now: new Date(START.getTime() - 23 * H),
+}, { kind: 'partial', refundAmount: 255, cancellationFee: 45, retainedPremium: 22.5 })
+pass(255 === 225 - 45 + 30 + 45, 'refund = tripPrice - fee + delivery + extras', '225 - 45 + 30 + 45 = 255')
+
+// The cancellation fee is a fraction of the trip, so buying extras must not
+// make it larger — otherwise the extras would partly pay for their own refund.
+run('extras do not inflate the cancellation fee', {
+    quote: Q5X, totalPaid: 322.5, now: new Date(START.getTime() - 23 * H),
+}, { cancellationFee: 45 })
+
+// Extras are excluded from the free-window path too — that refunds everything
+// regardless, and must not stop at the pre-extras total.
+run('free window refunds the extras as well', {
+    quote: Q5X, totalPaid: 322.5, now: new Date(START.getTime() - 25 * H),
+}, { kind: 'full', refundAmount: 322.5 })
+
+console.log('\n=== LEGACY QUOTES WITHOUT AN EXTRAS KEY ===')
+// Rows written before extras existed have no `extras` key. feeBasis must treat
+// that as zero rather than NaN — a NaN refund propagates to Math.round and then
+// to a Stripe amount, which is the worst possible place to find out.
+const QLegacy = legacyQuote({ rate: 'refundable', days: 5, subtotal: 250, discount: 25, premium: 22.5, pickup: 30 })
+run('missing extras key behaves as zero, not NaN', {
+    quote: QLegacy, totalPaid: 277.5, now: new Date(START.getTime() - 23 * H),
+}, { kind: 'partial', refundAmount: 210, cancellationFee: 45 })
 
 console.log('\n=== TRIP STARTED / ADMIN ===')
 run('at trip start -> none', { now: START }, { kind: 'none', reason: 'after-trip-start' })

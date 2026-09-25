@@ -1185,15 +1185,29 @@ export const cancelBooking = createServerFn({ method: 'POST' })
         if (readErr) throw new Error(readErr.message)
         if (!existing) throw new Error('Booking not found')
 
+        // A `pending` row is a soft hold that was never charged. Everything the
+        // confirmed path does — score the dates against the policy, quote a
+        // refund, tell both sides a trip was called off — is about money that
+        // changed hands, and none of it did here. Treating the two the same is
+        // what sent a host-and-guest cancellation email for a checkout somebody
+        // simply walked away from.
+        const isPending = existing.status === 'pending'
+
         // Decided before the claim so the refund is computed against the state
         // the caller actually saw, and so an un-cancellable status fails without
-        // having written anything.
-        const outcome = refundForCancellation({
+        // having written anything. Skipped entirely for a hold: there is no
+        // amount to refund, and refundForCancellation would still happily quote
+        // a figure off total_price.
+        const outcome = isPending ? null : refundForCancellation({
             rate: (existing.booking_rate ?? DEFAULT_BOOKING_RATE) as BookingRate,
             bookedAt: new Date(existing.created_at),
             tripStart: new Date(existing.start_time),
             tripEnd: new Date(existing.end_time),
-            quote: (existing.price_quote as TripQuote | null) ?? null,
+            // Through storedQuote rather than a bare cast: it rejects a
+            // malformed snapshot and fills in fields added after the row was
+            // written. A cast asserts a shape the database never promised, and
+            // this value decides how much money goes back.
+            quote: storedQuote(existing),
             totalPaid: Number(existing.total_price),
             byAdmin: isAdmin,
         })
@@ -1203,16 +1217,29 @@ export const cancelBooking = createServerFn({ method: 'POST' })
         // request — cannot both proceed to the refund: Postgres serializes them
         // and only the first gets a row back. Same trick as the email claim in
         // notifyAdminBookingConfirmed.
+        //
+        // `.eq(existing.status)` rather than `.in(['pending','confirmed'])`: just
+        // as strong a claim, but it also pins the branch below to the status
+        // actually read. With `.in`, a row that flipped pending → confirmed
+        // between the read and the claim would be cancelled down the pending
+        // path — no refund, no emails, money kept. Now that caller loses the
+        // claim and correctly reports the booking as already handled.
         const { data: claimed, error: claimErr } = await supabaseAdmin
             .from('bookings')
             .update({
-                status: 'canceled',
+                // An abandoned checkout the guest closed by hand is still an
+                // abandoned checkout, not a cancelled trip. `expired` is the
+                // status getUserBookings already filters out, so it leaves their
+                // trip list instead of sitting in it as a "canceled" trip that
+                // never happened. canceled_at/canceled_by still get written, so
+                // this stays distinguishable from a sweep expiry.
+                status: isPending ? 'expired' : 'canceled',
                 canceled_at: new Date().toISOString(),
                 canceled_by: isAdmin ? 'admin' : 'guest',
                 cancellation_reason: normalizeReason(data.reason),
             })
             .eq('id', data.bookingId)
-            .in('status', ['pending', 'confirmed'])
+            .eq('status', existing.status)
             .select('id, status')
             .maybeSingle()
 
@@ -1239,7 +1266,7 @@ export const cancelBooking = createServerFn({ method: 'POST' })
         // intent entirely: the webhook matches on payment intent id with no
         // status filter, so a surviving row is what lets a late payment heal
         // into a confirmed booking instead of vanishing. See CLAUDE.md.
-        if (existing.status === 'pending') {
+        if (isPending) {
             if (existing.stripe_payment_intent_id) {
                 try {
                     await stripe.paymentIntents.cancel(existing.stripe_payment_intent_id)
@@ -1250,9 +1277,20 @@ export const cancelBooking = createServerFn({ method: 'POST' })
                     console.warn('[cancel] could not cancel payment intent:', err?.message)
                 }
             }
-            await notifyBookingCanceled(supabaseAdmin, data.bookingId, outcome)
-            return { success: true, alreadyCanceled: false, outcome }
+
+            // Deliberately no notifyBookingCanceled. Nothing was charged, nothing
+            // was promised to anyone, and no refund was computed — a "your trip
+            // was cancelled" email here describes a trip that never existed. The
+            // host learns nothing from it either: the car was never really off
+            // the market beyond the hold.
+            return { success: true, alreadyCanceled: false, outcome: null }
         }
+
+        // Unreachable: `outcome` is only null when `isPending`, and that branch
+        // returned above. TypeScript can't tie the two together, and this is the
+        // function that issues refunds, so it gets an explicit check rather than
+        // a non-null assertion that would hide a real regression here later.
+        if (!outcome) throw new Error('No refund outcome for a charged booking')
 
         // Only refund against an intent that came from the row. A caller who
         // could name a payment intent could otherwise refund another booking's
@@ -1316,7 +1354,10 @@ export const previewCancellation = createServerFn({ method: 'GET' })
             bookedAt: new Date(booking.created_at),
             tripStart: new Date(booking.start_time),
             tripEnd: new Date(booking.end_time),
-            quote: (booking.price_quote as TripQuote | null) ?? null,
+            // Same narrowing as cancelBooking — the preview has to arrive at the
+            // figure cancelBooking will, or the dialog quotes one number and the
+            // card is refunded another.
+            quote: storedQuote(booking),
             totalPaid: Number(booking.total_price),
             byAdmin: isAdmin,
         })

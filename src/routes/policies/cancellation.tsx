@@ -7,6 +7,13 @@ import {
     LATE_BOOKING_WINDOW_HOURS,
     SHORT_TRIP_DAYS,
 } from '@/lib/cancellation-policy.ts'
+import { EXTRAS } from '@/lib/extras.ts'
+
+// Named from the catalogue rather than typed out, for the same reason every
+// number here is interpolated: an extra added or renamed in EXTRAS must not
+// leave this page describing a list that no longer exists.
+const extrasList = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' })
+    .format(EXTRAS.map(extra => extra.name.toLowerCase()))
 
 // The published version of the rules cancelBooking enforces.
 //
@@ -20,9 +27,9 @@ import {
 export const Route = createFileRoute('/policies/cancellation')({
     head: () => ({
         meta: seoMeta({
-            title: 'Cancellation policy | BlueFin Rentals',
+            title: 'Cancellation policy | Bluefin Rentals',
             description:
-                'When a BlueFin Rentals trip can be canceled, and what refund applies.',
+                'When a Bluefin Rentals trip can be canceled, and what refund applies.',
             path: '/policies/cancellation',
         }),
         links: [{ rel: 'canonical', href: absoluteUrl('/policies/cancellation') }],
@@ -90,7 +97,7 @@ function CancellationPolicy() {
                 <p>You receive a full refund if any of the following apply:</p>
                 <ul className="list-disc pl-5 space-y-1.5">
                     <li>You cancel inside your free cancellation window, as defined above.</li>
-                    <li>BlueFin Rentals cancels your trip, for any reason.</li>
+                    <li>Bluefin Rentals cancels your trip, for any reason.</li>
                 </ul>
             </Section>
 
@@ -112,8 +119,11 @@ function CancellationPolicy() {
                 </ul>
                 <p>
                     The average day is calculated from your trip price — what the days themselves
-                    cost after any discounts, not counting delivery. Any delivery fee is refunded
-                    in full, since the car was never delivered. The premium paid for the
+                    cost after any discounts, not counting delivery or extras. Any delivery fee is
+                    refunded in full, since the car was never delivered, and{' '}
+                    <span className="font-semibold">any extras you added are refunded in full</span>
+                    {' '}for the same reason: {extrasList} are provided during a trip, so a trip
+                    that doesn't happen was never provided them. The premium paid for the
                     refundable rate is not refunded.
                 </p>
             </Section>
