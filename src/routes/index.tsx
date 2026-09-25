@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 export const Route = createFileRoute('/')({
     head: () => ({
         meta: seoMeta({
-            title: 'BlueFin Rentals | Car Rental in Saint Paul & Minneapolis, MN',
+            title: 'Bluefin Rentals | Car Rental in Saint Paul & Minneapolis, MN',
             description:
                 'Rent a car in Saint Paul and Minneapolis without the middleman. Book online in minutes, pick up locally or get it delivered. No booking fees.',
             path: '/',
@@ -262,7 +262,7 @@ function LocalContent() {
             </h2>
             <div className="space-y-4 text-muted leading-relaxed max-w-3xl">
                 <p>
-                    BlueFin Rentals is a locally owned car rental company based in Saint Paul,
+                    Bluefin Rentals is a locally owned car rental company based in Saint Paul,
                     Minnesota. We rent a small, hand-picked fleet of sedans, hybrids, and SUVs to
                     drivers across the Twin Cities — no rental counter, no queue, and never any hidden fees.
                 </p>

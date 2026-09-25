@@ -22,9 +22,9 @@ export const Route = createFileRoute('/reviews')({
     },
     head: () => ({
         meta: seoMeta({
-            title: 'Ratings & Reviews | BlueFin Rentals',
+            title: 'Ratings & Reviews | Bluefin Rentals',
             description:
-                'Read reviews from guests who rented with BlueFin Rentals in Saint Paul and Minneapolis.',
+                'Read reviews from guests who rented with Bluefin Rentals in Saint Paul and Minneapolis.',
             path: '/reviews',
         }),
         links: [{ rel: 'canonical', href: absoluteUrl('/reviews') }],

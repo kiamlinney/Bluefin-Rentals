@@ -139,10 +139,10 @@ export function shell({ bodyRows, footerNote }: { bodyRows: string; footerNote: 
 <tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:${CARD_BG};border-radius:12px;overflow:hidden">
 
-    <tr><td align="center" style="background:${ACCENT};padding:16px 24px;font:700 16px/1.4 Helvetica,Arial,sans-serif;color:#ffffff;text-align:center">BlueFin Rentals</td></tr>
+    <tr><td align="center" style="background:${ACCENT};padding:16px 24px;font:700 16px/1.4 Helvetica,Arial,sans-serif;color:#ffffff;text-align:center">Bluefin Rentals</td></tr>
 ${bodyRows}
     <tr><td align="center" style="padding:0 24px 24px;font:400 12px/1.6 Helvetica,Arial,sans-serif;color:${MUTED};border-top:1px solid ${LINE};padding-top:16px;text-align:center">
-        BlueFin Rentals LLC &middot; Saint Paul, MN<br>
+        Bluefin Rentals LLC &middot; Saint Paul, MN<br>
         ${escapeHtml(footerNote)}
     </td></tr>
 

@@ -6,9 +6,9 @@ import { seoMeta } from '@/lib/business'
 export const Route = createFileRoute('/about')({
     head: () => ({
         meta: seoMeta({
-            title: 'About BlueFin Rentals | Locally Owned Car Rental in Saint Paul',
+            title: 'About Bluefin Rentals | Locally Owned Car Rental in Saint Paul',
             description:
-                'BlueFin Rentals is a locally owned car rental company serving Saint Paul and Minneapolis with a hand-picked fleet and no booking fees.',
+                'Bluefin Rentals is a locally owned car rental company serving Saint Paul and Minneapolis with a hand-picked fleet and no booking fees.',
             path: '/about',
         }),
         links: [{ rel: 'canonical', href: absoluteUrl('/about') }],

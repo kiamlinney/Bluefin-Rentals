@@ -5,8 +5,8 @@ import { seoMeta } from '@/lib/business'
 export const Route = createFileRoute('/policies/terms')({
     head: () => ({
         meta: seoMeta({
-            title: 'Terms of service | BlueFin Rentals',
-            description: 'The terms governing your use of BlueFin Rentals.',
+            title: 'Terms of service | Bluefin Rentals',
+            description: 'The terms governing your use of Bluefin Rentals.',
             path: '/policies/terms',
         }),
         links: [{ rel: 'canonical', href: absoluteUrl('/policies/terms') }],

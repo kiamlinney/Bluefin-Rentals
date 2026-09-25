@@ -120,7 +120,7 @@ export function buildHostHtml(booking: CancellationEmailRow, outcome: RefundOutc
             ? `<a href="mailto:${escapeHtml(guest.email)}" style="color:${ACCENT}">${escapeHtml(guest.email)}</a>`
             : null,
         guest?.phone ? escapeHtml(guest.phone) : null,
-        `${guest?.num_trips ?? 0} ${guest?.num_trips === 1 ? 'trip' : 'trips'} with BlueFin`,
+        `${guest?.num_trips ?? 0} ${guest?.num_trips === 1 ? 'trip' : 'trips'} with Bluefin`,
     ].filter(Boolean).join('<br>')
 
     const headline = booking.canceled_by === 'admin'
@@ -301,7 +301,7 @@ export async function notifyBookingCanceled(
 
         await sendEmail({
             to: ADMIN_RECIPIENT,
-            subject: `BlueFin - ${who} has cancelled their trip with your ${carName(row.cars)}`,
+            subject: `Bluefin - ${who} has cancelled their trip with your ${carName(row.cars)}`,
             html: buildHostHtml(row, outcome),
             text: buildHostText(row, outcome),
         })
@@ -312,7 +312,7 @@ export async function notifyBookingCanceled(
         if (guestEmail) {
             await sendEmail({
                 to: guestEmail,
-                subject: `Your BlueFin trip with the ${carName(row.cars)} has been cancelled`,
+                subject: `Your Bluefin trip with the ${carName(row.cars)} has been cancelled`,
                 html: buildGuestHtml(row, outcome),
                 text: buildGuestText(row, outcome),
             })
@@ -340,7 +340,7 @@ export async function sendTestCancellationEmail(
     const who = firstName(booking.profiles?.full_name ?? null)
     await sendEmail({
         to: ADMIN_RECIPIENT,
-        subject: `TEST: BlueFin - ${who} has cancelled their trip with your ${carName(booking.cars)}`,
+        subject: `TEST: Bluefin - ${who} has cancelled their trip with your ${carName(booking.cars)}`,
         html: buildHostHtml(booking, outcome),
         text: buildHostText(booking, outcome),
     })

@@ -19,19 +19,19 @@ export const POLICY_PAGES: PolicyPage[] = [
         path: '/policies/terms',
         label: 'Terms of service',
         title: 'Terms of service',
-        description: 'The terms governing your use of BlueFin Rentals.',
+        description: 'The terms governing your use of Bluefin Rentals.',
     },
     {
         path: '/policies/cancellation',
         label: 'Cancellation policy',
         title: 'Cancellation policy',
         description:
-            'When a BlueFin Rentals trip can be canceled, and what refund applies.',
+            'When a Bluefin Rentals trip can be canceled, and what refund applies.',
     },
     {
         path: '/policies/privacy',
         label: 'Privacy policy',
         title: 'Privacy policy',
-        description: 'What data BlueFin Rentals collects and how it is used.',
+        description: 'What data Bluefin Rentals collects and how it is used.',
     },
 ]

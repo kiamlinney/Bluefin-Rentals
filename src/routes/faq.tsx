@@ -6,9 +6,9 @@ import { FAQS, faqJsonLd } from '@/lib/faq'
 export const Route = createFileRoute('/faq')({
     head: () => ({
         meta: seoMeta({
-            title: 'Rental FAQ | BlueFin Rentals, Saint Paul MN',
+            title: 'Rental FAQ | Bluefin Rentals, Saint Paul MN',
             description:
-                'Answers on booking, pickup and delivery, hours, discounts, and what you need to rent a car from BlueFin Rentals in the Twin Cities.',
+                'Answers on booking, pickup and delivery, hours, discounts, and what you need to rent a car from Bluefin Rentals in the Twin Cities.',
             path: '/faq',
         }),
         links: [{ rel: 'canonical', href: absoluteUrl('/faq') }],

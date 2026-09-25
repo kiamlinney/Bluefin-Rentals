@@ -26,7 +26,7 @@ export const Route = createFileRoute('/fleet/')({
         meta: seoMeta({
             title: 'Our Fleet | Cars for Rent in Saint Paul & Minneapolis',
             description:
-                'Browse every car available from BlueFin Rentals in the Twin Cities — sedans, hybrids, and SUVs with daily pricing and instant online booking.',
+                'Browse every car available from Bluefin Rentals in the Twin Cities — sedans, hybrids, and SUVs with daily pricing and instant online booking.',
             path: '/fleet',
         }),
         links: [{ rel: 'canonical', href: absoluteUrl('/fleet') }],

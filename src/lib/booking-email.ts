@@ -53,7 +53,7 @@ function buildHtml(booking: BookingEmailRow): string {
             ? `<a href="mailto:${escapeHtml(guest.email)}" style="color:${ACCENT}">${escapeHtml(guest.email)}</a>`
             : null,
         guest?.phone ? escapeHtml(guest.phone) : null,
-        `${guest?.num_trips ?? 0} ${guest?.num_trips === 1 ? 'trip' : 'trips'} with BlueFin`,
+        `${guest?.num_trips ?? 0} ${guest?.num_trips === 1 ? 'trip' : 'trips'} with Bluefin`,
     ].filter(Boolean).join('<br>')
 
     const bodyRows = `
@@ -103,7 +103,7 @@ function buildText(booking: BookingEmailRow): string {
         `  ${guest?.full_name || who}`,
         `  ${guest?.email || 'no email on file'}`,
         `  ${guest?.phone || 'no phone on file'}`,
-        `  ${guest?.num_trips ?? 0} trips with BlueFin`,
+        `  ${guest?.num_trips ?? 0} trips with Bluefin`,
         '',
         `Reservation #${booking.id}`,
         `${SITE_URL}/admin/reservation/${booking.id}`,
@@ -122,7 +122,7 @@ export async function sendBookingConfirmedEmail(
     const who = firstName(booking.profiles?.full_name ?? null)
     await sendEmail({
         to: ADMIN_RECIPIENT,
-        subject: `${isTest ? 'TEST: ' : ''}BlueFin - ${who}'s trip with your ${carName(booking.cars)} is booked!`,
+        subject: `${isTest ? 'TEST: ' : ''}Bluefin - ${who}'s trip with your ${carName(booking.cars)} is booked!`,
         html: buildHtml(booking),
         text: buildText(booking),
     })

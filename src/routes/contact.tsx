@@ -8,9 +8,9 @@ import { submitContactMessage, CONTACT_LIMITS } from '@/lib/contact'
 export const Route = createFileRoute('/contact')({
     head: () => ({
         meta: seoMeta({
-            title: 'Contact BlueFin Rentals | Saint Paul, MN',
+            title: 'Contact Bluefin Rentals | Saint Paul, MN',
             description:
-                'Questions about a rental, pickup, or delivery in the Twin Cities? Get in touch with BlueFin Rentals.',
+                'Questions about a rental, pickup, or delivery in the Twin Cities? Get in touch with Bluefin Rentals.',
             path: '/contact',
         }),
         links: [{ rel: 'canonical', href: absoluteUrl('/contact') }],
@@ -48,7 +48,7 @@ function Contact() {
                                 href={INSTAGRAM_URL}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                aria-label="BlueFin Rentals on Instagram"
+                                aria-label="Bluefin Rentals on Instagram"
                                 className="mt-6 inline-block text-muted hover:text-ink"
                             >
                                 <InstagramIcon />

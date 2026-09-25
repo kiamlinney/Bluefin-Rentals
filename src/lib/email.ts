@@ -30,7 +30,7 @@ function assertSingleLine(value: string, field: string): string {
 // The display name on the From header. The address itself is whatever account
 // the refresh token belongs to — Gmail rejects a From it doesn't own, so it is
 // read from the API rather than configured.
-const SENDER_NAME = 'BlueFin Rentals'
+const SENDER_NAME = 'Bluefin Rentals'
 
 function gmailClient() {
     const { GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN } = process.env

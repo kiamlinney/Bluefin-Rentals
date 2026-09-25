@@ -22,7 +22,7 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
             { charSet: 'utf-8' },
             { name: 'viewport', content: 'width=device-width, initial-scale=1' },
             { title: 'Bluefin Rentals | Local Car Renting Saint Paul' },
-            { name: 'description', content: 'Rent premium vehicles in Minneapolis-Saint Paul with BlueFin Rentals. Avoid unnecessary fees.'},
+            { name: 'description', content: 'Rent premium vehicles in Minneapolis-Saint Paul with Bluefin Rentals. Avoid unnecessary fees.'},
             // Sitewide until Stripe is live — see ALLOW_INDEXING in lib/site.ts for
             // why this, and not a robots.txt Disallow, is what keeps the site out
             // of search results. Spread so that nothing is emitted once indexing is

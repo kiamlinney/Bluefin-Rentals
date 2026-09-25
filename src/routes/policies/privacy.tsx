@@ -5,8 +5,8 @@ import { seoMeta } from '@/lib/business'
 export const Route = createFileRoute('/policies/privacy')({
     head: () => ({
         meta: seoMeta({
-            title: 'Privacy policy | BlueFin Rentals',
-            description: 'What data BlueFin Rentals collects and how it is used.',
+            title: 'Privacy policy | Bluefin Rentals',
+            description: 'What data Bluefin Rentals collects and how it is used.',
             path: '/policies/privacy',
         }),
         links: [{ rel: 'canonical', href: absoluteUrl('/policies/privacy') }],
