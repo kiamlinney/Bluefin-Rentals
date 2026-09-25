@@ -22,8 +22,8 @@ export function to12Hour(hhmm: string): string {
 }
 
 export const BUSINESS = {
-    name: 'BlueFin Rentals',
-    legalName: 'BlueFin Rentals LLC',
+    name: 'Bluefin Rentals',
+    legalName: 'Bluefin Rentals LLC',
     city: 'Saint Paul',
     region: 'MN',
     postalCode: '55105',
@@ -32,8 +32,15 @@ export const BUSINESS = {
     priceRange: '$$',
 } as const
 
-// Shown on /contact. Kept here with the other business facts 
+// Shown on /contact. Kept here with the other business facts
 export const CONTACT_EMAIL = 'bluefinbiz@gmail.com'
+
+// The number customers are told to call. Here rather than typed into each page
+// that offers it: it had been copied into two files, and a business phone number
+// that only *mostly* gets updated is worse than one that isn't shown at all.
+export const CONTACT_PHONE = '(612) 718-5602'
+// tel: wants digits, not the display formatting.
+export const CONTACT_PHONE_HREF = `tel:+1${CONTACT_PHONE.replace(/\D/g, '')}`
 
 // null until the account exists
 export const INSTAGRAM_URL: string | null = null

@@ -43,6 +43,7 @@ import { Route as AuthedProfileEditRouteImport } from './routes/_authed.profile_
 import { Route as AuthedCheckoutCarIdRouteImport } from './routes/_authed.checkout.$carId'
 import { Route as AuthedTripsBookingIdReceiptRouteImport } from './routes/_authed.trips.$bookingId_.receipt'
 import { Route as AuthedTripsBookingIdPhotosRouteImport } from './routes/_authed.trips.$bookingId_.photos'
+import { Route as AuthedTripsBookingIdExtrasRouteImport } from './routes/_authed.trips.$bookingId_.extras'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -217,6 +218,12 @@ const AuthedTripsBookingIdPhotosRoute =
     path: '/trips/$bookingId/photos',
     getParentRoute: () => AuthedRoute,
   } as any)
+const AuthedTripsBookingIdExtrasRoute =
+  AuthedTripsBookingIdExtrasRouteImport.update({
+    id: '/trips/$bookingId_/extras',
+    path: '/trips/$bookingId/extras',
+    getParentRoute: () => AuthedRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -250,6 +257,7 @@ export interface FileRoutesByFullPath {
   '/admin/trips/history': typeof AdminTripsHistoryRoute
   '/admin/user/$userId': typeof AdminUserUserIdRoute
   '/api/cron/sync-turo': typeof ApiCronSyncTuroRoute
+  '/trips/$bookingId/extras': typeof AuthedTripsBookingIdExtrasRoute
   '/trips/$bookingId/photos': typeof AuthedTripsBookingIdPhotosRoute
   '/trips/$bookingId/receipt': typeof AuthedTripsBookingIdReceiptRoute
 }
@@ -284,6 +292,7 @@ export interface FileRoutesByTo {
   '/admin/trips/history': typeof AdminTripsHistoryRoute
   '/admin/user/$userId': typeof AdminUserUserIdRoute
   '/api/cron/sync-turo': typeof ApiCronSyncTuroRoute
+  '/trips/$bookingId/extras': typeof AuthedTripsBookingIdExtrasRoute
   '/trips/$bookingId/photos': typeof AuthedTripsBookingIdPhotosRoute
   '/trips/$bookingId/receipt': typeof AuthedTripsBookingIdReceiptRoute
 }
@@ -321,6 +330,7 @@ export interface FileRoutesById {
   '/admin/trips/history': typeof AdminTripsHistoryRoute
   '/admin/user/$userId': typeof AdminUserUserIdRoute
   '/api/cron/sync-turo': typeof ApiCronSyncTuroRoute
+  '/_authed/trips/$bookingId_/extras': typeof AuthedTripsBookingIdExtrasRoute
   '/_authed/trips/$bookingId_/photos': typeof AuthedTripsBookingIdPhotosRoute
   '/_authed/trips/$bookingId_/receipt': typeof AuthedTripsBookingIdReceiptRoute
 }
@@ -358,6 +368,7 @@ export interface FileRouteTypes {
     | '/admin/trips/history'
     | '/admin/user/$userId'
     | '/api/cron/sync-turo'
+    | '/trips/$bookingId/extras'
     | '/trips/$bookingId/photos'
     | '/trips/$bookingId/receipt'
   fileRoutesByTo: FileRoutesByTo
@@ -392,6 +403,7 @@ export interface FileRouteTypes {
     | '/admin/trips/history'
     | '/admin/user/$userId'
     | '/api/cron/sync-turo'
+    | '/trips/$bookingId/extras'
     | '/trips/$bookingId/photos'
     | '/trips/$bookingId/receipt'
   id:
@@ -428,6 +440,7 @@ export interface FileRouteTypes {
     | '/admin/trips/history'
     | '/admin/user/$userId'
     | '/api/cron/sync-turo'
+    | '/_authed/trips/$bookingId_/extras'
     | '/_authed/trips/$bookingId_/photos'
     | '/_authed/trips/$bookingId_/receipt'
   fileRoutesById: FileRoutesById
@@ -691,6 +704,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedTripsBookingIdPhotosRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/trips/$bookingId_/extras': {
+      id: '/_authed/trips/$bookingId_/extras'
+      path: '/trips/$bookingId/extras'
+      fullPath: '/trips/$bookingId/extras'
+      preLoaderRoute: typeof AuthedTripsBookingIdExtrasRouteImport
+      parentRoute: typeof AuthedRoute
+    }
   }
 }
 
@@ -700,6 +720,7 @@ interface AuthedRouteChildren {
   AuthedCheckoutCarIdRoute: typeof AuthedCheckoutCarIdRoute
   AuthedProfileEditRoute: typeof AuthedProfileEditRoute
   AuthedTripsBookingIdRoute: typeof AuthedTripsBookingIdRoute
+  AuthedTripsBookingIdExtrasRoute: typeof AuthedTripsBookingIdExtrasRoute
   AuthedTripsBookingIdPhotosRoute: typeof AuthedTripsBookingIdPhotosRoute
   AuthedTripsBookingIdReceiptRoute: typeof AuthedTripsBookingIdReceiptRoute
 }
@@ -710,6 +731,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedCheckoutCarIdRoute: AuthedCheckoutCarIdRoute,
   AuthedProfileEditRoute: AuthedProfileEditRoute,
   AuthedTripsBookingIdRoute: AuthedTripsBookingIdRoute,
+  AuthedTripsBookingIdExtrasRoute: AuthedTripsBookingIdExtrasRoute,
   AuthedTripsBookingIdPhotosRoute: AuthedTripsBookingIdPhotosRoute,
   AuthedTripsBookingIdReceiptRoute: AuthedTripsBookingIdReceiptRoute,
 }

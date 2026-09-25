@@ -15,6 +15,20 @@ export function displayName(
     return profile?.full_name ?? profile?.email?.split('@')[0] ?? 'Guest'
 }
 
+// Just the first name, for greeting someone directly. Falls back through the
+// same chain as displayName, so a renter who hasn't finished the driver-info
+// step is still addressed as something rather than as an empty string.
+//
+// Lives here rather than only in email-template.ts because the trip page greets
+// the guest with the same word the welcome email does, and this module is pure
+// display logic the browser can import — email-template.ts is not.
+export function firstName(
+    profile: { full_name?: string | null; email?: string | null } | string | null | undefined,
+): string {
+    const name = typeof profile === 'string' ? profile : displayName(profile)
+    return name.trim().split(/\s+/)[0] || 'there'
+}
+
 // Renders a stored phone number as +1 (XXX) XXX-XXXX when it really is a 10-digit
 // US number, and otherwise hands back whatever was stored, untouched. Returns
 // null when there's no number at all, so the caller shows "Not provided".

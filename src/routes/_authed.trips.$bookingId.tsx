@@ -1,19 +1,35 @@
-import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router'
+import { useState } from 'react'
 import { z } from 'zod'
-import { CarFront, Check, Plane } from 'lucide-react'
-import { getBookingReview, getTripForGuest, type TripPaymentState } from '@/lib/db'
+import {
+    getAdditionalDrivers,
+    getBookingReview,
+    getTripExtras,
+    getTripForGuest,
+} from '@/lib/db'
 import { ReviewItem } from '@/components/reviews/ReviewList'
 import { ReviewDialog } from '@/components/reviews/ReviewDialog'
-import { buildCheckoutSearch } from '@/lib/checkout-search'
-import type { BookingRate } from '@/lib/booking-rate'
+import { CancelTripDialog } from '@/components/CancelTripDialog'
+import { buildReceipt } from '@/lib/receipt'
+import { bookingRateLabel } from '@/lib/booking-rate'
+import { effectiveFreeCancellationDeadline } from '@/lib/cancellation-policy'
+import { hasUnlimitedMileage } from '@/lib/extras'
+import { formatMiles } from '@/lib/distance'
 import { carSlug } from '@/lib/slug'
 import { carMainImageUrl } from '@/lib/car-images'
+import { firstName } from '@/lib/profile'
 import {
-    formatBusinessDate,
-    formatBusinessTime,
+    formatBusinessDateTime,
     getRelativeTimeString,
 } from '@/lib/dates'
+import { TripSection } from '@/components/trip/TripSection'
+import { TripDatesBlock } from '@/components/trip/TripDatesBlock'
+import { GetDirectionsLink, TripLocation } from '@/components/trip/TripLocation'
+import { TripPaymentSection } from '@/components/trip/TripPaymentSection'
+import { AdditionalDriversSection } from '@/components/trip/AdditionalDriversSection'
+import { TripExtrasSection } from '@/components/trip/TripExtrasSection'
+import { BookedTripModal } from '@/components/trip/BookedTripModal'
+import { TripMessages } from '@/components/trip/TripMessages'
 
 // The guest's permanent page for one trip. This replaced /booking-confirmed,
 // which was a one-shot receipt with no authorization of its own and no idea
@@ -23,27 +39,25 @@ import {
 // URL serves the moment after checkout, the week before pickup, and the year
 // after the trip ended. `?booked=1` is what distinguishes "just arrived from
 // checkout" from "opened this from My Bookings", and nothing else depends on it.
+//
+// Laid out as the host's reservation page is, because a guest asking "what did
+// I actually book?" wants the same facts the host has. The two share their
+// section components; what differs is voice and what each side may do.
 export const Route = createFileRoute('/_authed/trips/$bookingId')({
     validateSearch: z.object({
         booked: z.literal('1').optional(),
     }),
     loader: async ({ params }) => {
-        const [trip, review] = await Promise.all([
+        const [trip, review, drivers, extras] = await Promise.all([
             getTripForGuest({ data: params.bookingId }),
             getBookingReview({ data: params.bookingId }),
+            getAdditionalDrivers({ data: params.bookingId }),
+            getTripExtras({ data: params.bookingId }),
         ])
-        return { ...trip, review }
+        return { ...trip, review, drivers, extras }
     },
     component: TripPage,
 })
-
-const DATE_FORMAT = { weekday: 'long', month: 'long', day: 'numeric' } as const
-
-// How long to keep re-checking a payment Stripe says is still in flight. Six
-// tries at five seconds covers the usual webhook delay; past that, telling the
-// guest to check back is more honest than a spinner that never resolves.
-const PROCESSING_POLL_MS = 5000
-const PROCESSING_POLL_LIMIT = 6
 
 const STATUS_BADGE: Record<string, string> = {
     confirmed: 'bg-pine-500/80 text-pine-950',
@@ -55,9 +69,11 @@ const STATUS_BADGE: Record<string, string> = {
 }
 
 function TripPage() {
-    const { booking, paymentState, card, review, isAdmin } = Route.useLoaderData()
+    const { booking, paymentState, card, review, isAdmin, drivers, extras, lockboxCode } =
+        Route.useLoaderData()
     const { booked } = Route.useSearch()
     const router = useRouter()
+    const navigate = useNavigate()
 
     const car = booking.cars
 
@@ -73,53 +89,54 @@ function TripPage() {
     const mediaCount = booking.trip_media?.[0]?.count ?? 0
 
     const isPaid = paymentState === 'confirmed' || paymentState === 'completed'
-    const showBanner = booked === '1' && paymentState === 'confirmed'
+    const isCanceled = booking.status === 'canceled'
+
+    const receipt = buildReceipt(booking, car)
+    const unlimitedMiles = hasUnlimitedMileage(receipt.quote)
+
+    // Kept on live state rather than stripped on mount, so a guest who arrives
+    // while the payment is still `processing` still gets the modal once the
+    // poll in TripPaymentSection flips it to confirmed.
+    const [modalDismissed, setModalDismissed] = useState(false)
+    const showBookedModal = booked === '1' && paymentState === 'confirmed' && !modalDismissed
+
+    const [cancelling, setCancelling] = useState(false)
+
+    const canCancel = booking.status === 'confirmed' && !hasEnded
+    const canManageDrivers = booking.status === 'confirmed' && !hasStarted
+
+    const cancelDeadline = effectiveFreeCancellationDeadline(booking.booking_rate, {
+        bookedAt: new Date(booking.created_at),
+        tripStart: startDate,
+    })
+
+    const title = isCanceled ? 'Cancelled trip' : hasEnded ? 'Past trip' : 'Booked trip'
 
     return (
-        <div className="min-h-screen py-24 px-4 md:px-8">
-            <div className="max-w-3xl mx-auto space-y-6">
+        // py-24 is navbar clearance on desktop; a phone doesn't need 6rem of it
+        // above the fold, so the top padding is halved there.
+        <div className="min-h-screen pt-20 pb-16 md:py-24 px-4 md:px-8">
+            <div className="max-w-5xl mx-auto">
 
-                {showBanner && (
-                    <div className="text-center mb-2">
-                        <div className="w-16 h-16 bg-pine-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <Check className="w-8 h-8 text-pine-700" strokeWidth={3} />
-                        </div>
-                        <h1 className="text-3xl font-bold text-ink">You're all set!</h1>
-                        <p className="text-muted mt-2">
-                            Confirmation details have been sent to your email.
-                        </p>
-                    </div>
-                )}
+                {/* ── Header ──────────────────────────────────────────────── */}
+                {/* Stacked on a phone: the title and the car name side by side
+                    squeezed both into two or three words per line. The thumbnail
+                    leads on mobile because it identifies the trip faster than
+                    the words do. */}
+                <div className="flex flex-col-reverse gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6 pb-5 sm:pb-6 border-b border-line">
+                    <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-ink">{title}</h1>
 
-                {/* Car + status */}
-                <div className="bg-surface border border-line rounded-2xl p-6">
-                    <div className="flex flex-col sm:flex-row gap-5">
+                    <div className="flex items-center gap-3 sm:gap-4 shrink-0">
                         <img
                             src={carMainImageUrl(car.id)}
-                            alt={`${car.year} ${car.make} ${car.model}`}
-                            className="w-full sm:w-48 h-32 object-cover rounded-xl border border-line flex-shrink-0"
+                            alt={`${car.make} ${car.model} ${car.year}`}
+                            className="w-20 h-14 sm:w-28 sm:h-20 object-cover rounded-xl border border-line sm:order-2"
                             decoding="async"
                         />
-                        <div className="flex-1 min-w-0">
-                            <div className="flex justify-between items-start gap-3">
-                                {!showBanner ? (
-                                    <h1 className="text-2xl font-bold text-ink">
-                                        {car.year} {car.make} {car.model}
-                                    </h1>
-                                ) : (
-                                    <h2 className="text-2xl font-bold text-ink">
-                                        {car.year} {car.make} {car.model}
-                                    </h2>
-                                )}
-                                <span
-                                    className={`text-xs font-bold px-3 py-1 rounded-full shrink-0 ${
-
-                                        STATUS_BADGE[booking.status] ?? 'bg-subtle text-muted'
-                                    }`}
-                                >
-                                    {booking.status.toUpperCase()}
-                                </span>
-                            </div>
+                        <div className="min-w-0 sm:text-right sm:order-1">
+                            <p className="font-semibold text-ink truncate">
+                                {car.make} {car.model} {car.year}
+                            </p>
                             <Link
                                 to="/fleet/$carSlug"
                                 params={{ carSlug: carSlug(car) }}
@@ -131,280 +148,271 @@ function TripPage() {
                     </div>
                 </div>
 
-                {/* Dates and pickup */}
-                <div className="bg-surface border border-line rounded-2xl p-6 space-y-5">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                        <div>
-                            <h3 className="text-xs font-bold uppercase tracking-wider text-ink">Pickup</h3>
-                            <p className="text-lg font-bold text-ink mt-1">
-                                {formatBusinessDate(booking.start_time, DATE_FORMAT)}
+                {/* The action card comes first on a phone — cancelling, adding
+                    extras and the countdown are what someone opens this page
+                    for, and burying them under ten reference sections means
+                    scrolling past all of it every time. */}
+                <div className="grid gap-8 lg:gap-10 lg:grid-cols-[1fr_320px] lg:items-start pt-6 sm:pt-8">
+
+                    {/* ── Left: the trip itself ───────────────────────────── */}
+                    <div className="space-y-7 sm:space-y-8 min-w-0 order-2 lg:order-1">
+
+                        <TripSection title="Your trip">
+                            <TripDatesBlock
+                                start={booking.start_time}
+                                end={booking.end_time}
+                                struck={isCanceled}
+                            />
+                        </TripSection>
+
+                        <TripSection
+                            title="Location"
+                            action={!isCanceled && <GetDirectionsLink pickupLocation={booking.pickup_location} />}
+                        >
+                            <TripLocation pickupLocation={booking.pickup_location} struck={isCanceled} />
+                        </TripSection>
+
+                        <TripSection title="Total miles included">
+                            <p className="text-lg text-ink">
+                                {unlimitedMiles ? 'Unlimited' : `${formatMiles(receipt.milesIncluded)} miles`}
                             </p>
+                            <p className="text-sm text-muted max-w-md">
+                                {unlimitedMiles
+                                    ? 'You added unlimited mileage to this trip, so there is no per-mile charge however far you drive.'
+                                    : `If you exceed ${formatMiles(receipt.milesIncluded)} miles total, you'll be charged $${receipt.perMileFee.toFixed(2)} for each additional mile.`}
+                            </p>
+                        </TripSection>
+
+                        <TripSection
+                            title="Invoices"
+                            action={
+                                <Link
+                                    to="/trips/$bookingId/receipt"
+                                    params={{ bookingId: booking.id }}
+                                    className="text-sm font-semibold text-pine-500 hover:underline"
+                                >
+                                    View
+                                </Link>
+                            }
+                        >
                             <p className="text-sm text-muted">
-                                {formatBusinessTime(booking.start_time)} CST
+                                A full itemised breakdown of what this trip cost.
                             </p>
-                        </div>
-                        <div>
-                            <h3 className="text-xs font-bold uppercase tracking-wider text-ink">Return</h3>
-                            <p className="text-lg font-bold text-ink mt-1">
-                                {formatBusinessDate(booking.end_time, DATE_FORMAT)}
+                        </TripSection>
+
+                        <TripSection title="Total cost">
+                            <p className="text-lg text-ink">${booking.total_price}</p>
+                            <Link
+                                to="/trips/$bookingId/receipt"
+                                params={{ bookingId: booking.id }}
+                                className="inline-block text-sm font-semibold text-pine-500 hover:underline"
+                            >
+                                View detailed receipt
+                            </Link>
+                        </TripSection>
+
+                        <TripSection
+                            title="Cancellation policy"
+                            action={
+                                <Link
+                                    to="/policies/cancellation"
+                                    className="text-sm font-semibold text-pine-500 hover:underline"
+                                >
+                                    Learn more
+                                </Link>
+                            }
+                        >
+                            <p className="text-lg text-ink">{bookingRateLabel(booking.booking_rate)}</p>
+                            {/* Interpolated from the same helper the checkout
+                                page and the policy page use, so the date shown
+                                here is the date actually enforced. */}
+                            <p className="text-sm text-muted max-w-md">
+                                Free cancellation until {formatBusinessDateTime(cancelDeadline)}.
                             </p>
-                            <p className="text-sm text-muted">
-                                {formatBusinessTime(booking.end_time)} CST
+                        </TripSection>
+
+                        {/* Present and deliberately empty: BlueFin has no
+                            protection product yet. Worded as a plain statement
+                            rather than "coming soon", because a heading with
+                            nothing under it on a rental reservation reads as
+                            though coverage is included and merely unlisted. */}
+                        <TripSection title="Protection options">
+                            <p className="text-sm text-muted max-w-md">
+                                No protection plan is included with this trip. Your own auto
+                                insurance applies as it normally would.
                             </p>
-                        </div>
+                        </TripSection>
+
+                        <TripSection title="License plate">
+                            <p className="text-lg text-ink">{car.license_plate ?? '- -'}</p>
+                        </TripSection>
+
+                        <TripSection
+                            title={`Trip photos${mediaCount > 0 ? ` (${mediaCount})` : ''}`}
+                            action={
+                                <Link
+                                    to="/trips/$bookingId/photos"
+                                    params={{ bookingId: booking.id }}
+                                    className="text-sm font-semibold text-pine-500 hover:underline"
+                                >
+                                    {mediaCount > 0 ? 'View and add more' : 'Add photos'}
+                                </Link>
+                            }
+                        >
+                            <p className="text-sm text-muted max-w-md">
+                                Photos and videos of the car, shared with Bluefin. Taking a few at
+                                pickup and drop-off is your record of its condition.
+                            </p>
+                        </TripSection>
+
+                        <TripExtrasSection
+                            bookingId={booking.id}
+                            extras={extras}
+                            voice="guest"
+                            canRequestMore={isPaid && !hasStarted}
+                        />
+
+                        <AdditionalDriversSection
+                            bookingId={booking.id}
+                            drivers={drivers}
+                            voice="guest"
+                            canManage={canManageDrivers}
+                        />
+
+                        {/* Only once the trip is paid for — the message carries
+                            arrival instructions for a car that isn't reserved
+                            until then. */}
+                        {isPaid && (
+                            <TripMessages
+                                guestFirstName={firstName(booking.profiles?.full_name ?? null)}
+                                lockboxCode={lockboxCode}
+                                sentAt={booking.created_at}
+                            />
+                        )}
+
+                        {booking.status === 'completed' && (
+                            <TripReview booking={booking} review={review} isAdmin={isAdmin} />
+                        )}
                     </div>
 
-                    <hr className="border-line" />
+                    {/* ── Right: state and what you can do about it ───────── */}
+                    <div className="space-y-5 sm:space-y-6 order-1 lg:order-2 lg:sticky lg:top-6">
 
-                    <div>
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-ink mb-2">
-                            Where to pick it up
-                        </h3>
-                        <PickupLine pickupLocation={booking.pickup_location} />
-                    </div>
-                </div>
+                        <div className="bg-surface border border-line rounded-2xl p-5 sm:p-6 space-y-4">
+                            <span
+                                className={`inline-block text-xs font-bold px-3 py-1 rounded-full ${
+                                    STATUS_BADGE[booking.status] ?? 'bg-subtle text-muted'
+                                }`}
+                            >
+                                {booking.status.toUpperCase()}
+                            </span>
 
-                {/* Countdown. Only meaningful while the trip is actually going to
-                    happen — a canceled booking counting down to its pickup would
-                    be nonsense. */}
-                {isPaid && !hasEnded && (
-                    <div className="bg-surface border border-line rounded-2xl p-6">
-                        <p className="text-ink">
-                            {hasStarted ? (
-                                <>Your trip ends in{' '}
-                                    <span className="font-bold">{getRelativeTimeString(endDate, now)}</span>.
+                            {isCanceled ? (
+                                <p className="text-ink">This trip was canceled.</p>
+                            ) : isPaid && !hasEnded ? (
+                                <>
+                                    <p className="text-ink">
+                                        {hasStarted ? (
+                                            <>Your trip ends in{' '}
+                                                <span className="font-bold">{getRelativeTimeString(endDate, now)}</span>.
+                                            </>
+                                        ) : (
+                                            <>Your trip starts in{' '}
+                                                <span className="font-bold">{getRelativeTimeString(startDate, now)}</span>.
+                                            </>
+                                        )}
+                                    </p>
+                                    <p className="text-sm text-muted">
+                                        {hasStarted
+                                            ? 'Take photos of the car before you hand it back — they’re your record of how you returned it.'
+                                            : 'Bring your driver’s license. Take a few photos of the car when you pick it up, so its condition at handover is on record.'}
+                                    </p>
                                 </>
-                            ) : (
-                                <>Your trip starts in{' '}
-                                    <span className="font-bold">{getRelativeTimeString(startDate, now)}</span>.
-                                </>
+                            ) : null}
+
+                            {isPaid && !hasStarted && (
+                                <Link
+                                    to="/trips/$bookingId/extras"
+                                    params={{ bookingId: booking.id }}
+                                    className="block w-full text-center px-4 py-2.5 rounded-xl border border-line text-ink text-sm font-bold hover:bg-subtle transition-colors"
+                                >
+                                    Request extras
+                                </Link>
                             )}
-                        </p>
-                        <p className="text-sm text-muted mt-2">
-                            {hasStarted
-                                ? 'Take photos of the car before you hand it back — they’re your record of how you returned it.'
-                                : 'Bring your driver’s license. Take a few photos of the car when you pick it up, so its condition at handover is on record.'}
-                        </p>
-                    </div>
-                )}
 
-                {booking.status === 'completed' && (
-                    <TripReview booking={booking} review={review} isAdmin={isAdmin} />
-                )}
+                            {/* Cancelling lives here now rather than on the
+                                my-bookings card: it belongs with the trip it
+                                cancels, next to the policy that governs it. */}
+                            {canCancel && (
+                                <button
+                                    type="button"
+                                    onClick={() => setCancelling(true)}
+                                    className="w-full px-4 py-2.5 rounded-xl border border-line text-red-700 text-sm font-bold hover:bg-red-50 hover:border-red-700 transition-colors cursor-pointer"
+                                >
+                                    Cancel trip
+                                </button>
+                            )}
+                        </div>
 
-                {/* Photos. Available regardless of payment state — a guest sorting
-                    out a disputed charge still needs to show what the car looked
-                    like. */}
-                <div className="bg-surface border border-line rounded-2xl p-6 flex items-center justify-between gap-4">
-                    <div>
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-ink">
-                            Trip photos{mediaCount > 0 && ` (${mediaCount})`}
-                        </h3>
-                        <p className="text-sm text-muted mt-1">
-                            Photos and videos of the car, shared with BlueFin.
+                        <TripPaymentSection
+                            paymentState={paymentState}
+                            booking={booking}
+                            card={card}
+                            onRecheck={() => router.invalidate()}
+                        />
+
+                        <p className="text-xs font-bold uppercase tracking-wider text-muted">
+                            Reservation #{booking.id.slice(0, 8).toUpperCase()}
                         </p>
+
+                        <Link
+                            to="/my-bookings"
+                            className="block text-muted hover:text-ink text-sm transition-colors"
+                        >
+                            All my trips →
+                        </Link>
                     </div>
-                    <Link
-                        to="/trips/$bookingId/photos"
-                        params={{ bookingId: booking.id }}
-                        className="shrink-0 text-sm font-semibold text-pine-500 hover:underline"
-                    >
-                        {mediaCount > 0 ? 'View and add more' : 'Add photos'}
-                    </Link>
                 </div>
+            </div>
 
-                <PaymentSection
-                    paymentState={paymentState}
-                    booking={booking}
-                    card={card}
-                    onRecheck={() => router.invalidate()}
+            {showBookedModal && (
+                <BookedTripModal
+                    car={car}
+                    startTime={booking.start_time}
+                    endTime={booking.end_time}
+                    pickupLocation={booking.pickup_location}
+                    onClose={() => {
+                        setModalDismissed(true)
+                        // Drop the param so a refresh doesn't re-open it. The
+                        // local flag above still does the work — this only keeps
+                        // the URL honest about what it's showing.
+                        void navigate({
+                            to: '.',
+                            search: ({ booked: _booked, ...rest }) => rest,
+                            replace: true,
+                        })
+                    }}
                 />
-
-                {/* Cancelling lives on the my-bookings card now — one place, one
-                    dialog that can explain the refund. This page carried a second
-                    copy of the flow whose copy ("refund the full amount") stopped
-                    being true once the rate was enforced. */}
-
-                <Link
-                    to="/my-bookings"
-                    className="block text-center text-muted hover:text-ink text-sm transition-colors pt-2"
-                >
-                    All my trips →
-                </Link>
-            </div>
-        </div>
-    )
-}
-
-// Same MSP-vs-everything-else split the admin reservation page uses, so a trip
-// reads the same way to both sides.
-function PickupLine({ pickupLocation }: { pickupLocation: string }) {
-    const isAirport = pickupLocation === 'MSP - Minneapolis, MN'
-
-    return (
-        <div className="flex items-center gap-3">
-            <div className="p-2 border border-line rounded-full bg-subtle text-muted shrink-0">
-                {isAirport ? <Plane size={20} /> : <CarFront size={20} />}
-            </div>
-            <p className="text-ink">
-                {isAirport ? 'Minneapolis−Saint Paul International Airport' : pickupLocation}
-            </p>
-        </div>
-    )
-}
-
-// Everything the page is allowed to say about money lives here, keyed off the
-// state getTripForGuest verified against Stripe rather than off booking.status.
-// The page this replaced showed "Total paid" for any row it could load, which
-// meant an unpaid pending booking rendered as a completed purchase.
-function PaymentSection({
-    paymentState,
-    booking,
-    card,
-    onRecheck,
-}: {
-    paymentState: TripPaymentState
-    // booking_rate is here for buildCheckoutSearch below: resuming an unpaid
-    // booking has to put the guest back on the rate it was priced at.
-    booking: { id: string; total_price: number; start_time: string; end_time: string; pickup_location: string; car_id: number; booking_rate: BookingRate }
-    card: { brand: string | null; last4: string | null; receiptUrl: string | null } | null
-    onRecheck: () => void
-}) {
-    if (paymentState === 'processing') {
-        return <ProcessingPayment onRecheck={onRecheck} />
-    }
-
-    if (paymentState === 'unpaid') {
-        return (
-            <div className="bg-amber-100 border border-amber-700 rounded-2xl p-6">
-                <h3 className="font-bold text-ink">You haven't finished checking out</h3>
-                <p className="text-sm text-ink mt-1">
-                    This car isn't reserved yet — the dates are still open to other renters until
-                    the payment goes through.
-                </p>
-                <Link
-                    to="/checkout/$carId"
-                    params={{ carId: booking.car_id.toString() }}
-                    search={buildCheckoutSearch(booking)}
-                    className="inline-block mt-4 px-5 py-2.5 bg-brand hover:bg-pine-800 text-on-brand font-bold rounded-xl text-sm transition-colors"
-                >
-                    Finish checkout →
-                </Link>
-            </div>
-        )
-    }
-
-    if (paymentState === 'failed') {
-        return (
-            <div className="bg-red-50 border border-red-700 rounded-2xl p-6">
-                <h3 className="font-bold text-red-900">Payment didn't go through</h3>
-                <p className="text-sm text-red-800 mt-1">
-                    Nothing was charged and this trip isn't booked. You can start again from the
-                    car's page, or get in touch if you think this is wrong.
-                </p>
-                <Link
-                    to="/fleet/$carSlug"
-                    // Only the id is on hand here; the route redirects to the slug.
-                    params={{ carSlug: booking.car_id.toString() }}
-                    className="inline-block mt-4 text-sm font-semibold text-red-900 hover:underline"
-                >
-                    Back to the car →
-                </Link>
-            </div>
-        )
-    }
-
-    if (paymentState === 'canceled') {
-        return (
-            <div className="bg-surface border border-line rounded-2xl p-6">
-                <h3 className="font-bold text-ink">This trip was canceled</h3>
-                {/* Deliberately says nothing about the amount. A cancellation
-                    refunds in full, in part, or not at all depending on the rate
-                    and the timing — this used to promise a full refund, which is
-                    now false more often than not. The cancellation email carries
-                    the actual figure. */}
-                <p className="text-sm text-muted mt-1">
-                    Any refund due has been sent to your original payment method, and usually
-                    lands within 5–10 business days. Check your email for the details.
-                </p>
-            </div>
-        )
-    }
-
-    // confirmed / completed — the only two states allowed to say "paid".
-    return (
-        <div className="bg-surface border border-line rounded-2xl p-6 space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-ink">Receipt</h3>
-
-            <div className="flex justify-between text-sm">
-                <span className="text-muted">Booking reference</span>
-                <span className="text-ink font-mono">{booking.id.slice(0, 8).toUpperCase()}</span>
-            </div>
-
-            {card?.last4 && (
-                <div className="flex justify-between text-sm">
-                    <span className="text-muted">Paid with</span>
-                    <span className="text-ink capitalize">
-                        {card.brand ?? 'Card'} ···· {card.last4}
-                    </span>
-                </div>
             )}
 
-            <hr className="border-line" />
-
-            <div className="flex justify-between text-base">
-                <span className="font-bold text-ink">Total paid</span>
-                <span className="font-bold text-ink">${booking.total_price}</span>
-            </div>
-            
-            <Link
-                to="/trips/$bookingId/receipt"
-                params={{ bookingId: booking.id }}
-                className="inline-block text-sm font-semibold text-pine-500 hover:underline"
-            >
-                View full receipt →
-            </Link>
-        </div>
-    )
-}
-
-// Stripe says the payment is still in flight. Re-run the loader on a timer:
-// getTripForGuest re-checks the PaymentIntent and flips the row itself, so this
-// resolves without waiting on the webhook.
-function ProcessingPayment({ onRecheck }: { onRecheck: () => void }) {
-    const [attempts, setAttempts] = useState(0)
-    const gaveUp = attempts >= PROCESSING_POLL_LIMIT
-
-    useEffect(() => {
-        if (gaveUp) return
-        const timer = setTimeout(() => {
-            setAttempts(current => current + 1)
-            onRecheck()
-        }, PROCESSING_POLL_MS)
-        return () => clearTimeout(timer)
-        // onRecheck is router.invalidate, stable for the life of the router.
-    }, [attempts, gaveUp, onRecheck])
-
-    return (
-        <div className="bg-amber-100 border border-amber-700 rounded-2xl p-6">
-            <h3 className="font-bold text-ink">
-                {gaveUp ? 'This is taking longer than usual' : 'Confirming your payment…'}
-            </h3>
-            <p className="text-sm text-ink mt-1">
-                {gaveUp
-                    ? 'Your booking is safe and nothing is lost — it just hasn’t been confirmed yet. Check My Bookings again shortly, or get in touch and we’ll sort it out.'
-                    : 'Your bank is still processing this. This page updates on its own — no need to refresh.'}
-            </p>
-            {gaveUp && (
-                <Link to="/contact" className="inline-block mt-4 text-sm font-semibold text-pine-700 hover:underline">
-                    Contact us →
-                </Link>
+            {cancelling && (
+                <CancelTripDialog
+                    bookingId={booking.id}
+                    totalPaid={Number(booking.total_price)}
+                    onClose={() => setCancelling(false)}
+                    onCanceled={() => {
+                        setCancelling(false)
+                        router.invalidate()
+                    }}
+                />
             )}
         </div>
     )
 }
 
-// Completed trips only 
+type TripData = ReturnType<typeof Route.useLoaderData>
+
+// Completed trips only
 function TripReview({
     booking,
     review,
@@ -419,40 +427,35 @@ function TripReview({
 
     if (review?.removed) {
         return (
-            <div className="bg-surface border border-line rounded-2xl p-6">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-ink">Your review</h3>
-                <p className="text-sm text-muted mt-2">This review was removed by BlueFin.</p>
-            </div>
+            <TripSection title="Your review">
+                <p className="text-sm text-muted">This review was removed by Bluefin.</p>
+            </TripSection>
         )
     }
 
     if (review) {
         return (
-            <div className="bg-surface border border-line rounded-2xl p-6">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-ink mb-3">
-                    {review.is_mine ? 'Your review' : 'Guest review'}
-                </h3>
+            <TripSection title={review.is_mine ? 'Your review' : 'Guest review'}>
                 <ReviewItem review={review} />
-            </div>
+            </TripSection>
         )
     }
 
     if (isAdmin) return null
 
     return (
-        <div className="bg-surface border border-line rounded-2xl p-6 flex items-center justify-between gap-4">
-            <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-ink">How was your trip?</h3>
-                <p className="text-sm text-muted mt-1">
+        <TripSection title="How was your trip?">
+            <div className="flex items-center justify-between gap-4">
+                <p className="text-sm text-muted">
                     Your review is shown on this car’s page and helps other guests choose.
                 </p>
+                <button
+                    onClick={() => setWriting(true)}
+                    className="shrink-0 px-4 py-2 rounded-lg bg-brand text-on-brand text-sm font-semibold hover:opacity-90 transition-opacity cursor-pointer"
+                >
+                    Write a review
+                </button>
             </div>
-            <button
-                onClick={() => setWriting(true)}
-                className="shrink-0 px-4 py-2 rounded-lg bg-brand text-on-brand text-sm font-semibold hover:opacity-90 transition-opacity cursor-pointer"
-            >
-                Write a review
-            </button>
 
             {writing && (
                 <ReviewDialog
@@ -470,13 +473,6 @@ function TripReview({
                     }}
                 />
             )}
-        </div>
+        </TripSection>
     )
 }
-
-type TripData = ReturnType<typeof Route.useLoaderData>
-
-// CancelTrip used to live here. It moved to
-// src/components/CancelTripDialog.tsx and is rendered only from the
-// my-bookings card, so there is one cancel flow rather than three copies that
-// have to be kept saying the same thing about refunds.
