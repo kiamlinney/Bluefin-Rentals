@@ -50,7 +50,7 @@ function CancellationPolicy() {
     return (
         <article className="max-w-2xl">
             <h2 className="text-2xl font-bold mb-2">Cancellation policy</h2>
-            <p className="text-sm text-muted mb-8">Last revised: August 28, 2026</p>
+            <p className="text-sm text-muted mb-8">Last revised: September 27, 2026</p>
 
             <Section title="Canceling a trip">
                 <p>
@@ -142,10 +142,42 @@ function CancellationPolicy() {
                 </p>
             </Section>
 
+            {/* The later-charges rules — laterChargeRefund in
+                src/lib/cancellation-policy.ts, written up in
+                ImportantFiles/cancellation-and-refunds.md. */}
+            <Section title="Charges made after booking">
+                <p>
+                    If your trip is cancelled, anything charged to your card after you booked follows
+                    the same outcome as the trip itself:
+                </p>
+                <ul className="list-disc pl-5 space-y-1.5">
+                    <li>
+                        <span className="font-semibold">Trip extensions</span> are refunded in full when
+                        the trip is refunded in full, and not at all when the trip isn't refunded. On a
+                        partial refund, the extension is refunded except for its share of the
+                        refundable-rate premium. The cancellation fee is only ever charged once, on the
+                        trip.
+                    </li>
+                    <li>
+                        <span className="font-semibold">Extras added after booking</span> are refunded in
+                        full, like extras added at checkout, unless the trip itself receives no refund.
+                    </li>
+                    <li>
+                        <span className="font-semibold">Any security deposit hold</span>, and any hold for
+                        an extension or extra that hadn't been approved yet, is released. Nothing is
+                        charged from a released hold.
+                    </li>
+                    <li>
+                        Charges for damage, mileage, fuel, tolls or other costs from a trip that already
+                        took place aren't affected by cancelling.
+                    </li>
+                </ul>
+            </Section>
+
             <Section title="Refunds">
                 <p>
-                    Refunds are returned to the card used to book and usually appear within 5–10
-                    business days, depending on your bank. You'll receive an email confirming the
+                    Refunds are returned to the card they were charged to and usually appear within
+                    5–10 business days, depending on your bank. You'll receive an email confirming the
                     cancellation and the exact amount refunded.
                 </p>
             </Section>

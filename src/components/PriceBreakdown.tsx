@@ -181,12 +181,14 @@ export function PriceBreakdown({
                     <div className="mt-4 pt-4 border-t border-line flex justify-between items-baseline">
                         <span className="font-bold">Total</span>
                         <span className="text-xl font-bold tabular-nums">
-                            {formatMoney(quote.total)}
+                            {formatMoney(quote.preTaxTotal)}
                         </span>
                     </div>
 
+                    {/* preTaxTotal, not total: tax depends on the extras chosen at
+                        checkout, so it's itemised there (src/lib/tax.ts). */}
                     <p className="text-xs text-muted mt-3">
-                        Not including tax.
+                        Not including tax, which is shown at checkout.
                     </p>
                 </div>
             </div>

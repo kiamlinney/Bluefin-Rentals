@@ -19,8 +19,8 @@ Disallow: /admin
 Disallow: /api/
 Disallow: /checkout/
 Disallow: /profile
+Disallow: /trips
 Disallow: /my-bookings
-Disallow: /trips/
 Disallow: /login
 Disallow: /403
 ${ALLOW_INDEXING ? `

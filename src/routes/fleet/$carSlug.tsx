@@ -526,10 +526,13 @@ function CarDetails() {
         // `quote`, and none of them needed changing.
         pickupFee: resolvedPickup.fee,
         pickupFeeLabel: resolvedPickup.feeLabel,
+        taxJurisdiction: resolvedPickup.taxJurisdiction,
     }), [tripComplete, startDate, endDate, startTime, endTime, car.price_per_day, priceOverrides, resolvedPickup]);
 
     const totalDays = quote.billableDays;
-    const subtotal = quote.total;
+    // Before tax: the car page quotes the trip, and tax — which depends on the
+    // extras chosen at checkout — is itemised at checkout. The widget says so.
+    const subtotal = quote.preTaxTotal;
 
     // Falls as the trip lengthens, because it's derived from the trip's average
     // daily price — see src/lib/distance.ts. With no dates picked this is the
@@ -911,7 +914,7 @@ function CarDetails() {
                                                         ${quote.subtotal.toFixed(2)}
                                                     </span>
                                                 )}
-                                                ${subtotal.toFixed(2)} total
+                                                ${subtotal.toFixed(2)} before tax
                                             </span>
                                         </button>
                                     )}
@@ -1106,7 +1109,7 @@ function CarDetails() {
                                 </span>
                             )}
                             <span className="text-lg font-bold underline underline-offset-2">
-                                ${subtotal.toFixed(2)} total
+                                ${subtotal.toFixed(2)} before tax
                             </span>
                         </span>
                         <span className="block text-xs text-muted">

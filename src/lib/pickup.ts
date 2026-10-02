@@ -17,6 +17,8 @@
 // keyed by an id that the server re-resolves against the tables below, and the
 // display string is *derived* from the id rather than trusted as input.
 
+import { taxJurisdictionForPickup, type TaxJurisdictionId } from './tax.ts'
+
 // ── Home base ────────────────────────────────────────────────────────────────
 
 // Where the fleet actually lives, and the origin every delivery distance is
@@ -183,6 +185,8 @@ export type ResolvedPickup = {
     /** Non-null when the selection cannot be booked as-is. The car page surfaces
      *  this as its validation message and keeps Continue disabled. */
     error: string | null
+    /** Whose local sales tax applies — where the car is picked up (tax.ts). */
+    taxJurisdiction: TaxJurisdictionId
 }
 
 // Turns a selection into the three things every caller needs: what to show, what
@@ -192,7 +196,14 @@ export type ResolvedPickup = {
 // going when a selection is bad: the widget needs to render the message next to
 // a disabled button, and the server wants to log the attempt before rejecting
 // it. A thrown error at the widget would take out the whole car page.
+//
+// Also says whose local sales tax applies, so every quote — widget, checkout,
+// server — taxes the pickup the same way.
 export function resolvePickup(selection: PickupSelection): ResolvedPickup {
+    return { ...resolvePickupParts(selection), taxJurisdiction: taxJurisdictionForPickup(selection) }
+}
+
+function resolvePickupParts(selection: PickupSelection): Omit<ResolvedPickup, 'taxJurisdiction'> {
     if (selection.kind === 'home') {
         return {
             label: HOME_BASE.label,

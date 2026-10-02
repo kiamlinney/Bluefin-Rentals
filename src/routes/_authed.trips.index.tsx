@@ -15,15 +15,24 @@ import { NoTripsIllustration } from '@/components/trips/NoTripsIllustration'
 // `expired` never appears — getUserBookings filters it out, which is what makes
 // a discarded checkout disappear from here rather than sitting in History as a
 // trip that never was. See cancelBooking.
-export const Route = createFileRoute('/_authed/my-bookings')({
-    loader: async () => {
-        const bookings = await getUserBookings()
+//
+// Lives at /trips (it was /my-bookings until 2026-09-29; that address now
+// redirects here). An index route rather than `_authed.trips.tsx`, because a
+// plain `trips.tsx` would become the parent layout of every /trips/$bookingId
+// page.
+export const Route = createFileRoute('/_authed/trips/')({
+    // Child loaders still run for signed-out visitors (_authed shows its sign-in
+    // form instead of this page), and getUserBookings throws without a session.
+    // Unguarded, a signed-out visit was a 500 instead of the sign-in form. Same
+    // guard as the checkout loader.
+    loader: async ({ context }) => {
+        const bookings = context.isLoggedIn ? await getUserBookings() : []
         return { bookings }
     },
-    component: MyBookingsPage,
+    component: TripsPage,
 })
 
-function MyBookingsPage() {
+function TripsPage() {
     const { bookings } = Route.useLoaderData()
 
     const now = new Date()

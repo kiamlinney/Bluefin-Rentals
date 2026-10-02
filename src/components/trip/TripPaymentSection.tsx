@@ -36,11 +36,14 @@ export function TripPaymentSection({
     booking,
     card,
     onRecheck,
+    paidAfterBooking = 0,
 }: {
     paymentState: TripPaymentState
     booking: PaymentBooking
     card: { brand: string | null; last4: string | null; receiptUrl: string | null } | null
     onRecheck: () => void
+    /** Net paid since checkout (paidAfterCheckout in charges.ts). */
+    paidAfterBooking?: number
 }) {
     if (paymentState === 'processing') {
         return <ProcessingPayment onRecheck={onRecheck} />
@@ -126,9 +129,27 @@ export function TripPaymentSection({
 
             <hr className="border-line" />
 
+            {/* The true total: the checkout plus everything settled since, net
+                of refunds. The checkout figure alone understated what a guest who
+                extended or added extras had paid. The split is shown when there
+                is one, matching the receipt page's sections. */}
+            {paidAfterBooking > 0 && (
+                <>
+                    <div className="flex justify-between text-sm">
+                        <span className="text-muted">At booking</span>
+                        <span className="text-ink tabular-nums">${Number(booking.total_price).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                        <span className="text-muted">Added since</span>
+                        <span className="text-ink tabular-nums">${paidAfterBooking.toFixed(2)}</span>
+                    </div>
+                </>
+            )}
             <div className="flex justify-between text-base">
                 <span className="font-bold text-ink">Total paid</span>
-                <span className="font-bold text-ink">${booking.total_price}</span>
+                <span className="font-bold text-ink tabular-nums">
+                    ${(Number(booking.total_price) + paidAfterBooking).toFixed(2)}
+                </span>
             </div>
         </div>
     )
@@ -158,7 +179,7 @@ function ProcessingPayment({ onRecheck }: { onRecheck: () => void }) {
             </h3>
             <p className="text-sm text-ink mt-1">
                 {gaveUp
-                    ? 'Your booking is safe and nothing is lost — it just hasn’t been confirmed yet. Check My Bookings again shortly, or get in touch and we’ll sort it out.'
+                    ? 'Your booking is safe and nothing is lost — it just hasn’t been confirmed yet. Check your Trips page again shortly, or get in touch and we’ll sort it out.'
                     : 'Your bank is still processing this. This page updates on its own — no need to refresh.'}
             </p>
             {gaveUp && (

@@ -24,17 +24,40 @@ const inputClass =
     'w-full bg-surface border border-line rounded-lg px-3 py-2.5 text-ink text-sm ' +
     'placeholder:text-ink-400 focus:outline-none focus:border-brand hover:border-ink-400 transition-colors resize-none'
 
-/** The money sentence. Deliberately blunt when the answer is "nothing". */
-function RefundSummary({ outcome, totalPaid }: { outcome: RefundOutcome; totalPaid: number }) {
+/**
+ * The money sentence. Deliberately blunt when the answer is "nothing".
+ *
+ * The headline is everything coming back — the trip's refund plus what's
+ * refunded for extensions and extras charged after booking (laterRefund, from
+ * the same rule cancelBooking pays) — so a guest who bought more later can see
+ * at a glance they get all of it back. The split follows underneath, because it
+ * arrives on their statement as separate refunds.
+ */
+function RefundSummary({
+    outcome,
+    totalPaid,
+    laterRefund,
+}: {
+    outcome: RefundOutcome
+    totalPaid: number
+    laterRefund: number
+}) {
     const fmt = (n: number) => `$${n.toFixed(2)}`
+    const total = Math.round((outcome.refundAmount + laterRefund) * 100) / 100
+    const includesLater = laterRefund > 0 && (
+        <p className="text-xs text-muted mt-1">
+            This includes {fmt(laterRefund)} back for extensions and extras you added after booking.
+        </p>
+    )
 
     if (outcome.kind === 'full') {
         return (
             <div className="rounded-lg border border-pine-500 bg-pine-500/10 px-4 py-3">
-                <p className="text-sm font-bold text-pine-700">You'll be refunded {fmt(outcome.refundAmount)}</p>
+                <p className="text-sm font-bold text-pine-700">You'll be refunded {fmt(total)}</p>
                 <p className="text-xs text-muted mt-1">
-                    This trip is within its free cancellation window, so you get the full amount back.
+                    This trip is within its free cancellation window, so you get everything back.
                 </p>
+                {includesLater}
             </div>
         )
     }
@@ -42,10 +65,11 @@ function RefundSummary({ outcome, totalPaid }: { outcome: RefundOutcome; totalPa
     if (outcome.kind === 'partial') {
         return (
             <div className="rounded-lg border border-amber-600 bg-amber-50 px-4 py-3">
-                <p className="text-sm font-bold text-ink">You'll be refunded {fmt(outcome.refundAmount)}</p>
+                <p className="text-sm font-bold text-ink">You'll be refunded {fmt(total)}</p>
                 <p className="text-xs text-muted mt-1">
                     This trip is past its free cancellation window, so a cancellation fee is kept.
                 </p>
+                {includesLater}
                 <dl className="mt-3 space-y-1 border-t border-amber-600/40 pt-2 text-xs text-ink">
                     <div className="flex justify-between">
                         <dt>Trip total</dt>
@@ -61,9 +85,21 @@ function RefundSummary({ outcome, totalPaid }: { outcome: RefundOutcome; totalPa
                             <dd className="tabular-nums">−{fmt(outcome.retainedPremium)}</dd>
                         </div>
                     )}
+                    {laterRefund > 0 && (
+                        <>
+                            <div className="flex justify-between border-t border-amber-600/40 pt-1">
+                                <dt>Trip refund</dt>
+                                <dd className="tabular-nums">{fmt(outcome.refundAmount)}</dd>
+                            </div>
+                            <div className="flex justify-between">
+                                <dt>Extensions and extras</dt>
+                                <dd className="tabular-nums">+{fmt(laterRefund)}</dd>
+                            </div>
+                        </>
+                    )}
                     <div className="flex justify-between font-bold text-ink border-t border-amber-600/40 pt-1">
                         <dt>Refunded</dt>
-                        <dd className="tabular-nums">{fmt(outcome.refundAmount)}</dd>
+                        <dd className="tabular-nums">{fmt(total)}</dd>
                     </div>
                 </dl>
             </div>
@@ -96,7 +132,7 @@ export function CancelTripDialog({
     onClose: () => void
     onCanceled: () => void
 }) {
-    const [preview, setPreview] = useState<{ outcome: RefundOutcome; wasCharged: boolean } | null>(null)
+    const [preview, setPreview] = useState<{ outcome: RefundOutcome; wasCharged: boolean; laterRefund: number } | null>(null)
     const [loadError, setLoadError] = useState<string | null>(null)
     const [reason, setReason] = useState('')
     const [working, setWorking] = useState(false)
@@ -134,7 +170,11 @@ export function CancelTripDialog({
         let live = true
         previewCancellation({ data: { bookingId } })
             .then(result => {
-                if (live) setPreview({ outcome: result.outcome as RefundOutcome, wasCharged: result.wasCharged })
+                if (live) setPreview({
+                    outcome: result.outcome as RefundOutcome,
+                    wasCharged: result.wasCharged,
+                    laterRefund: result.laterRefund,
+                })
             })
             .catch(() => {
                 if (live) setLoadError("We couldn't work out the refund for this trip. Please contact us.")
@@ -187,7 +227,11 @@ export function CancelTripDialog({
                     ) : (
                         <>
                             {preview.wasCharged ? (
-                                <RefundSummary outcome={preview.outcome} totalPaid={totalPaid} />
+                                <RefundSummary
+                                    outcome={preview.outcome}
+                                    totalPaid={totalPaid}
+                                    laterRefund={preview.laterRefund}
+                                />
                             ) : (
                                 <div className="rounded-lg border border-line bg-subtle px-4 py-3">
                                     <p className="text-sm font-bold text-ink">Nothing has been charged</p>
@@ -195,6 +239,13 @@ export function CancelTripDialog({
                                         This booking was never paid for, so there's nothing to refund.
                                     </p>
                                 </div>
+                            )}
+
+                            {preview.wasCharged && (
+                                <p className="text-xs text-muted">
+                                    Any security deposit hold on your card is released. Charges Bluefin made for
+                                    damage, tolls or similar aren't affected by cancelling.
+                                </p>
                             )}
 
                             {preview.outcome.estimated && preview.wasCharged && (

@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**Keep this file current.** When a change teaches something a future session would need — a
+rule, a trap, a decision and its reason, a bug's real cause, where something lives — write it
+here (and in memory, and in `ImportantFiles/` if it touches money) in the same piece of work,
+before calling it done. Liam clears chats often; anything left only in a conversation is lost.
+
 ## Project
 
 Bluefin Rentals — a self-hosted car rental platform migrating BlueFin Rentals LLC off Turo to cut commission fees. React 19 + TypeScript + TanStack Start (full-stack, SSR) + Tailwind CSS v4, with Supabase (Postgres + Auth) and Stripe (payments + identity verification).
@@ -49,7 +54,11 @@ All Supabase access is centralized as TanStack `createServerFn` server functions
 
 Two different Supabase clients are used, and picking the right one matters:
 - `getSupabaseServerClient()` (`src/lib/supabase.server.ts`) — cookie-based, respects RLS as the calling user. Used for normal reads/writes and for `auth.getUser()` checks.
-- `createClient(url, SUPABASE_SERVICE_ROLE_KEY)` — bypasses RLS. Used only for privileged server-to-server operations: the Stripe webhook, `confirmBooking`/`cancelBooking`, and cleanup of stale pending bookings in `getUserBookings`. Never expose the service role key to the client.
+- `createClient(url, SUPABASE_SERVICE_ROLE_KEY)` (`getServiceRoleClient` in `src/lib/access.server.ts`) — bypasses RLS. Used for privileged writes after the server function's own checks: the Stripe webhook, `confirmBooking`/`cancelBooking`, the payment functions, and **every booking insert and update** (below). Never expose the service role key to the client.
+
+**Guests cannot write `bookings` through their own client at all.** The "Users can insert/update their own bookings" policies were dropped on 2026-09-27 (`20260927120000_payments_ledger.sql`): the status trigger only guarded `status`, so a guest could PATCH their own row with the anon key — flip `booking_rate` to refundable and cancel for money they never paid, move `end_time`, or insert a pending hold with any `created_at`. `createCheckoutSession`'s insert and re-price now use the service role. Likewise a trigger (`profiles_guard_server_columns`) stops a guest setting their own `identity_verified`, identity session or `stripe_customer_id`. **Don't add a guest write policy to either table**; write through a server function.
+
+**Don't give `bookings` a second foreign key to `profiles`.** It makes every `profiles(...)` embed from `bookings` ambiguous (PostgREST `PGRST201`) — that took down the trip, reservation and trip-list pages in production on 2026-09-27 until the `deposit_waived_by` FK was dropped. Store another profile id as a plain `uuid`.
 
 ### Booking / payment flow
 
@@ -59,15 +68,19 @@ Two different Supabase clients are used, and picking the right one matters:
 - **Trip times start empty.** `startTime`/`endTime` are `""` ("Select Time") until the customer picks one, and everything that prices or validates the trip waits on `tripComplete` (both dates and both times set). `timeToMinutes("")` returns 0 (midnight) rather than failing, so an unguarded empty time silently disables slots or skews pricing. If a date change makes a chosen time unavailable, the time is cleared, never snapped to another slot: every time must be one the customer chose.
 - **Choosing a start time opens the end-time dropdown**, the same hand-off as the date calendars. `TimeDropdown` is controlled for this (`isOpen`/`onOpenChange`, with one `openTime` state in the page). It centres the selected option by setting `scrollTop` on its own list. Don't use `scrollIntoView` there: it also scrolls the window and made the page jump.
 - `createCheckoutSession` creates a Stripe `PaymentIntent` and a `bookings` row with `status: 'pending'`, reusing an existing pending booking/intent if one already matches (car, user, time range) to avoid duplicates on retry.
-- **Every payment method must settle inside `PENDING_HOLD_MS`.** `PAYMENT_METHOD_TYPES` in `db.ts` names them explicitly (`card`, or "other" = Cash App / Affirm / Klarna / Amazon Pay) rather than letting Stripe's automatic payment methods decide. `us_bank_account` (ACH) was removed and must not come back without first changing how a booking holds a car: ACH sits in `processing` for ~4 business days, so the 1-hour hold lapses, the sweep marks the row `expired`, someone else books those dates, and when the debit finally clears the webhook's `payment_intent.succeeded` — which matches on `stripe_payment_intent_id` with no status filter — revives the expired row to `confirmed`. Two paid bookings, one car. (Reviving `expired` rows is correct for a late *card* payment; see below.) ACH can also bounce after the guest has driven off. Anything enabled in the Stripe dashboard is irrelevant unless it is also in that list — but an unenabled or ineligible type there makes the whole PaymentIntent fail to create.
+- **Cards only, and every card is saved.** `PAYMENT_METHOD_TYPES` in `db.ts` is `['card']` (Apple Pay / Google Pay are cards; Stripe adds `link` itself). The "Other payment options" (Cash App / Affirm / Klarna / Amazon Pay) were removed on 2026-09-25 because the deposit hold and every later charge need a saved card, and Affirm can't be saved at all. Every checkout intent is created with the guest's Stripe Customer and `setup_future_usage: 'off_session'` (`checkoutIntentParams`); `intentForBooking` rebuilds any older intent that lacks either, so no booking can be paid without its card being kept. The checkout consent line in `PaymentStep.tsx` is the guest's authorization for that — change it only together with `/policies/terms`.
+- **Every payment method must settle inside `PENDING_HOLD_MS`.** `us_bank_account` (ACH) was removed and must not come back without first changing how a booking holds a car: ACH sits in `processing` for ~4 business days, so the 1-hour hold lapses, the sweep marks the row `expired`, someone else books those dates, and when the debit finally clears the webhook's `payment_intent.succeeded` — which matches on `stripe_payment_intent_id` with no status filter — revives the expired row to `confirmed`. Two paid bookings, one car. (Reviving `expired` rows is correct for a late *card* payment; see below.) ACH can also bounce after the guest has driven off. Anything enabled in the Stripe dashboard is irrelevant unless it is also in that list.
 - `src/routes/api/stripe-webhook.ts` is the source of truth for confirming payment: it verifies the Stripe signature against the **raw request body** (must call `request.text()` before any JSON parsing) and flips bookings to `confirmed` on `payment_intent.succeeded` / `charge.succeeded` (handled as a backup path since event ordering isn't guaranteed). `confirmBooking` in `db.ts` is a client-driven fallback that checks the PaymentIntent status directly.
+  - **Every event is routed first**: a PaymentIntent with `metadata.chargeId` (or a `kind` other than `'trip'`) is a ledger charge and goes to `syncChargeFromIntent`; anything else is a checkout. Before the ledger, a second PaymentIntent on a booking matched no row, returned 500, and would have been retried for three days.
+  - `confirmCheckout` **reads the row before updating**: no row → 500 (the insert may not have committed; retry); `canceled`/`completed` → left alone (a refunded trip is never revived); `pending`/`expired`/`failed` → confirmed.
+  - **`payment_intent.payment_failed` no longer marks a checkout `failed`.** Stripe fires it for every declined attempt and the guest can retry on the same intent; marking the row failed made the successful retry unconfirmable.
 - Stripe Identity (`createIdentitySession` / `finalizeIdentitySession`) handles driver's license verification separately from payment, storing `stripe_identity_session_id` on `profiles` and flipping `identity_verified` via webhook or finalize call.
 
 ### Pending holds — the rule three places have to agree on
 
-A `pending` booking is a **soft hold** on the car, lasting `PENDING_HOLD_MS` (1 hour, `src/lib/db.ts`). Three places encode that rule and they must not drift, which is exactly the bug they were introduced to fix — the calendar showed a date as open and checkout then refused it, self-healing an hour later so it looked random:
+A `pending` booking is a **soft hold** on the car, lasting `PENDING_HOLD_MS` (1 hour, `src/lib/availability.server.ts`). A trip **extension** that is being paid for (`pending`, inside the same hour) or waiting on an owner (`requested`) holds its added time the same way — `extensionHoldRows`, read by both of the first two places below. Three places encode that rule and they must not drift, which is exactly the bug they were introduced to fix — the calendar showed a date as open and checkout then refused it, self-healing an hour later so it looked random:
 
-- `assertCarIsAvailable` — the enforcement point. `confirmed` always blocks; `pending` blocks only while live.
+- `assertCarIsAvailable` (`src/lib/availability.server.ts`, shared by checkout and extensions) — the enforcement point. `confirmed` always blocks; `pending` blocks only while live.
 - `getBookedDates` — what the calendar greys out. The `get_car_unavailability` RPC returns `confirmed` **only**, so live holds are read separately with the service-role client and tagged `kind: 'booking'`. They're deliberately *not* added to the RPC: it's `SECURITY DEFINER` and public, so it has no viewer to scope against and would leak in-progress checkouts to anonymous callers. The gathering itself lives in `loadUnavailabilityRows`, which `getFeaturedCars` (the homepage's "Available this week" cars) also calls — so a new source of unavailability added there reaches the calendar and the homepage together. Don't give the homepage its own availability query.
 - `expire_stale_pending_bookings()` — housekeeping only (see below).
 
@@ -79,13 +92,13 @@ A customer's own live hold is invisible and non-blocking **to them** (`viewerId`
 
 `expire_stale_pending_bookings()` (pg_cron, hourly) marks stale `pending` rows `expired`. **Do not change this to a delete**, and don't add new code that deletes a `pending` row.
 
-The webhook confirms payment by matching `stripe_payment_intent_id` alone, with **no status filter**. Deleting a row leaves its PaymentIntent live and payable, so a customer who leaves the checkout tab open past the hour and then pays is charged against a booking that no longer exists: the webhook matches nothing, returns 500, Stripe retries ~3 days and gives up. Money captured, no booking, no admin email. Keeping the row means that same late payment flips it to `confirmed` and notifies the admin instead.
+The webhook confirms payment by matching `stripe_payment_intent_id`, and revives `expired` (and `failed`) rows — only `canceled` and `completed` are left alone. Deleting a row leaves its PaymentIntent live and payable, so a customer who leaves the checkout tab open past the hour and then pays is charged against a booking that no longer exists: the webhook matches nothing, returns 500, Stripe retries ~3 days and gives up. Money captured, no booking, no admin email. Keeping the row means that same late payment flips it to `confirmed` and notifies the admin instead.
 
 For the same reason `getBookingById`'s fallback treats `expired` as revivable alongside `pending`. `canceled`, `failed` and `completed` are not.
 
 `expired` is distinct from `canceled` on purpose — a trip the customer called off and a tab they wandered away from are different events. `getUserBookings` filters `expired` out of the customer's trip list.
 
-`getUserBookings` filters on the stored status only, so it is the one surface that *doesn't* apply the read-time cutoff: between a hold lapsing and the hourly sweep running, My Bookings still lists an abandoned checkout under "Pending Checkouts". Harmless — the car isn't held — but it looks like a bug when you hit the window. Filtering `pending` rows older than `PENDING_HOLD_MS` there would make the page independent of the cron schedule, like everything else.
+`getUserBookings` filters on the stored status only, so it is the one surface that *doesn't* apply the read-time cutoff: between a hold lapsing and the hourly sweep running, the Trips page still lists an abandoned checkout under "Pending Checkouts". Harmless — the car isn't held — but it looks like a bug when you hit the window. Filtering `pending` rows older than `PENDING_HOLD_MS` there would make the page independent of the cron schedule, like everything else.
 
 ### Extras (`src/lib/extras.ts`)
 
@@ -139,19 +152,22 @@ re-quote — a pending booking can be re-quoted repeatedly before payment, so th
 follow the quote. It's best-effort: `price_quote` remains the authority on what was charged, so
 failing a checkout over a mirror table would be the tail wagging the dog.
 
-**Post-booking extras are a request the owners answer.** `/trips/$bookingId/extras` →
-`requestTripExtras` inserts `source: 'post-booking'`, `status: 'requested'`, `charged: false`
-and emails the owners. `decideTripExtra` (admin-only) flips it to `approved` or `declined` from
-the Approve / Decline buttons on the admin reservation page. Only an *approved* row is on the
-trip.
+**Post-booking extras are a request the owners answer — with a hold behind it.**
+`/trips/$bookingId/extras` → `requestTripExtras` puts **one card hold per extra** on the saved
+card (`holdExtraRequest`: each is answered on its own, and a hold captures only once), then
+inserts `source: 'post-booking'`, `status: 'requested'`, `charged: false`, `charge_id` and emails
+the owners. A declined hold refuses that extra instead of recording it; a hold the bank wants
+the guest to confirm comes back as an `action` the page runs. `decideTripExtra` (admin-only)
+flips it to `approved` (hold captured → `charged: true` via the charge's effects) or `declined`
+(hold released), and releases its claim if Stripe fails. Only an *approved* row is on the trip.
+Rows from before holds existed have no `charge_id` and are still "collect at pickup".
 
-Nothing is charged at any point, because **there is no saved payment method after checkout** —
-an approved extra is settled in person at pickup. It deliberately does not touch the card,
-`total_price`, or `price_quote`. Writing them into `price_quote` is the obvious-looking shortcut
-and would make a later cancellation refund money that was never taken.
+The charge is its own ledger row (below, "Charges after checkout"). It deliberately does not
+touch `total_price` or `price_quote` — writing them into `price_quote` is the obvious-looking
+shortcut and would make the checkout receipt describe money the checkout never took.
 
-**Requesting is gated on `start_time`, not `end_time`.** Extras are handed over at pickup and
-settled there, so a request made mid-trip has no moment to be fulfilled in.
+**Requesting is gated on `start_time`, not `end_time`.** Extras are handed over at pickup, so a
+request made mid-trip has no moment to be fulfilled in.
 
 **`checkoutOnly: true` on an `ExtraDefinition` keeps it out of post-booking requests entirely.**
 Unlimited mileage carries it: that extra is a *billing term*, not an item handed over at pickup,
@@ -205,9 +221,18 @@ the text**: the email builds from it and the trip page's Messages section render
 output, so the two cannot drift.
 
 `notifyGuestBookingConfirmed` mirrors `notifyAdminBookingConfirmed` exactly, claiming on
-`bookings.guest_notified_at`. **There are now four confirmation paths, not three** — both
-webhook events, `confirmBooking`, and the revival branch in `getTripForGuest` that confirms a
-booking whose webhook never arrived. All four call **both** notify functions; a fifth must too.
+`bookings.guest_notified_at`. **There are four confirmation paths** — both webhook events,
+`confirmBooking`, and the revival branch in `getTripForGuest` that confirms a booking whose
+webhook never arrived. **All four call `onBookingConfirmed`** (`src/lib/payments.server.ts`),
+which records the saved card, places the deposit hold if the trip starts within a day, then
+sends both emails — in that order, so a same-day trip's welcome email can carry the lockbox
+code. A fifth path must call it too; never call the notify functions directly.
+
+**The lockbox code is withheld from a guest until the trip's deposit hold is in place** (or an
+owner waived it) — `guestLockboxCode` in `src/lib/lockbox.server.ts` is the only way a guest
+gets it: the trip page, `getTripLockboxCode` (callable directly, so it gates non-admins too)
+and the welcome email all go through it. Owners always see the code. A trip booked more than
+a day out gets a welcome email *without* the code; the "hold placed" email carries it.
 
 The **lockbox code lives in `car_secrets`, not on `cars`** — `cars` is readable by `anon` with
 `GRANT ALL`, so a column there would publish every car's door code with the anon key. A
@@ -228,8 +253,8 @@ on conflict (car_id) do update
 ```
 
 Rotating a code is a one-row `update`; the trip page is correct immediately. **The emailed copy
-goes stale**, which is the tradeoff of putting the code in the booking email — when codes start
-rotating per trip, that is the signal to drop it from that email in favour of a day-before send.
+goes stale** — the "hold placed" email goes out about a day before pickup, which narrows that
+window but doesn't close it.
 
 ### Money is a legal record, not just an implementation detail
 
@@ -247,24 +272,101 @@ rule below.
 owners, it doesn't go in the product — ask, or leave an obvious placeholder. A
 plausible invented detail is worse than a visible gap because nobody questions it.
 
-**What exists today, precisely:**
+**The written record is `ImportantFiles/*.md`** (README, payments-overview, deposit,
+extensions, charges-and-invoicing, cancellation-and-refunds, tax, tax-todo, decisions-log,
+go-live-checklist). Any money change updates the matching document and adds a dated row to
+`decisions-log.md` (Decided vs **Proposed**, i.e. filled in to cover a gap). Documents refer to
+code as `` `path#Symbol` `` (never line numbers) and tag numbers as
+`<!-- const:NAME -->…<!-- /const -->`; `scripts/verify-policy-docs.ts` fails if either drifts
+from the code. Run it after touching any payment constant. `ImportantFiles/` is committed
+(unlike the git-ignored `ClaudeFiles/`), so these documents are versioned with the code.
 
-- The **only** charge is the one at checkout, for `quote.total`, as a one-off
-  PaymentIntent.
-- **Cards are not saved.** No Stripe Customer, no `setup_future_usage` anywhere. Once a
-  booking's payment succeeds there is no stored payment method, so **the business cannot
-  charge that guest again** — not for extras, extensions, damages or fees.
-- `setup_future_usage` can only be set on the *original* checkout payment, since that is
-  when the guest consents. It cannot be added retroactively, so **every booking taken
-  before card-saving is added is permanently un-chargeable.**
-- Anything owed beyond the checkout total is therefore collected out of band, in person
-  or by a manually sent payment link.
+**What exists today, precisely** (since 2026-09-27; full detail in those documents):
 
-**If post-checkout charging is ever built**, the model is *one booking, many charges* —
-an append-only ledger of PaymentIntents, each with its own amount, reason and refund
-state. **Do not make `price_quote` or the receipt mutable.** A receipt records a
-transaction; rewriting it destroys the ability to answer "what did we charge, and when?",
-which is exactly what a disputed charge turns on.
+- The checkout charge, for `quote.total` (tax included), saves the card to the guest's Stripe
+  Customer. The guest's consent is the checkout agreement line.
+- **Bookings made before card saving have no card on file and can never be charged again** —
+  `setup_future_usage` can only be set on the original payment. (Only sandbox bookings.)
+- Every charge after checkout is **one row in `booking_charges`** with its own PaymentIntent —
+  *one booking, many charges*. **`price_quote` and the checkout receipt are never rewritten**;
+  later charges are listed below it (`AdditionalReceipts`). A receipt records a transaction,
+  and a disputed charge turns on being able to say what was charged when.
+
+### Charges after checkout (`src/lib/payments.server.ts`, `src/lib/payments.ts`)
+
+`payments.server.ts` holds the rules (plain server-only exports); `payments.ts` holds thin
+`createServerFn` wrappers that each authorize first. Shared helpers moved out of `db.ts` for the
+same bundling reason as `turo-sync.server.ts`: `access.server.ts` (`getServiceRoleClient`,
+`assertBookingAccess`, `requireAdmin`), `availability.server.ts` (`assertCarIsAvailable`,
+`PENDING_HOLD_MS`), `lockbox.server.ts`. **Never re-export a `.server.ts` function from a file
+browser pages import** — type-only imports are fine.
+
+- **The ledger row is inserted before its PaymentIntent**, which carries
+  `metadata.{kind, bookingId, chargeId}`, so the webhook always finds its row.
+  `syncChargeFromIntent` is the only place a row's status moves (forward only; settled rows
+  never change) and `applyChargeEffects` the only place a change has consequences — the webhook,
+  the sweep and the page all behave identically. Every Stripe call carries a per-row
+  idempotency key (`charge_<id>`, `capture_<id>`, `refund_<id>_<refundedCents>_<cents>`).
+- **Deposit** (`ensureDepositHold`): `DEPOSIT_AMOUNT` in `src/lib/deposit.ts` (the one place the
+  figure lives), off-session manual-capture PI, placed `DEPOSIT_PLACE_BEFORE_HOURS` before
+  pickup — never earlier, because a
+  hold lasts ~7 days. At most one attempt in flight per booking
+  (`booking_charges_one_deposit_in_flight`). Renewed new-hold-first before `capture_before`,
+  released `DEPOSIT_RELEASE_AFTER_HOURS` after the trip unless `keep_holding`. Capture is
+  partial-allowed, once only.
+- **Extensions** (`startExtension`, pricing in `src/lib/extension.ts`): automatic if free,
+  a held request inside `EXTENSION_REQUEST_CUTOFF_MINUTES` of the end, refused if any added
+  time is taken. The `booking_extensions` row is inserted before charging so the time is held;
+  `bookings.end_time` only moves in `confirmExtension`, conditional on the end not having moved.
+- **Extended authorization is behind `EXTENDED_AUTHORIZATION_ENABLED` (off).**
+  `request_extended_authorization: 'if_available'` does *not* fall back when the account isn't
+  eligible: Stripe rejects the whole request ("This account is not eligible for the requested
+  card features"), which failed every hold in the 2026-09-29 rehearsal. Turn it on only after
+  Stripe enables the feature (IC+ pricing or a support request).
+- **Only a `StripeCardError` is the guest's problem.** `chargeSavedCard` treats any other Stripe
+  error as ours: it cancels the intent, closes the row as `failed` with "Stripe refused the
+  request", alerts the owners and gives the guest a neutral message. It never runs the
+  guest-facing decline emails for it.
+- **Owner charges** (`createAdjustmentCharge`): off-session; a decline or 3DS leaves the row
+  `requires_payment` and emails the guest `/trips/$bookingId/pay/$chargeId`.
+- **The payments sweep** (`runPaymentsSweep`, `/api/cron/payments`, every 15 min via pg_cron):
+  places, retries, renews and releases holds, and expires abandoned extension payments.
+- An extended trip's mileage allowance and receipt billable days come from its *current* times
+  (`billableDaysFor` in `receipt.ts` takes the larger), so overage isn't billed on paid-for days.
+- **`syncChargeFromIntent` treats a row's first sync as a change** even when the status didn't
+  move (`requires_payment` → `requires_payment`). Without that, a declined owner charge never
+  sent the guest its pay link.
+- **On-session vs off-session is decided by who is present, not who is an admin.**
+  `startExtension` takes `callerIsAdmin` and treats the guest as present unless an admin is
+  extending *someone else's* trip. An admin extending their own booking was charged
+  off-session, so 3D Secure failed instead of prompting.
+- **Totals include later charges.** The guest's "Total paid" / "Total cost" and the admin's
+  "Total Earnings" are the checkout plus `paidAfterCheckout(charges + deposit history)` (net of
+  refunds, a kept deposit included); earnings also subtract the checkout's own refund. The
+  receipt itself is unchanged — later charges stay below it.
+- **Refunds are announced.** An owner refund (`refundCharge` with `notify`) emails the guest
+  (without the owner's note) and the owners, and shows a Refunded badge. Cancellation refunds
+  are covered by the cancellation email instead, which — like the cancel dialog — leads with the
+  combined total (trip + later charges) and then splits it, since the statement shows separate
+  refunds. Owners' copy states the trip outcome first.
+- **A cancelled or completed trip isn't owed a deposit hold.** `depositStateFor` returns `done`
+  for any status other than confirmed/pending — checked *after* the held check, so a completed
+  trip whose hold is still on for the inspection window still reads `held`. Before this, a
+  trip cancelled inside the hold window told the guest "we couldn't place your hold".
+
+### Testing payments locally (`ImportantFiles/go-live-checklist.md`, step 1)
+
+**Untested payment code is never deployed** — Liam's rule. Test against the sandbox on his dev
+server (`:5173`) with `stripe listen --forward-to localhost:5173/api/stripe-webhook`, which
+prints the same `whsec_…` already in local `.env` (Railway's differs; that's correct).
+**Disable the sandbox's rentbluefin.com event destination while testing**: laptop and Railway
+share one database, so the deployed old code would act on test bookings too. Re-enable it
+afterwards. Real emails go out during tests. Timestamps in Supabase display in UTC (5 hours
+ahead of Central). Test cards: `4242…` normal; `4000 0027 6000 3184` always asks for 3D
+Secure; `4000 0000 0000 0341` attaches but declines later, so it **can't complete a checkout**
+— book with 4242, then switch the trip's card to 0341 to test declines. Sweep:
+`curl -X POST -H "Authorization: Bearer YOUR_CRON_SECRET" localhost:5173/api/cron/payments`.
+In instructions for Liam, write placeholders as `YOUR_CRON_SECRET`, not `<CRON_SECRET>`.
 
 ### Cancellation & refunds — the policy page is part of the code
 
@@ -277,7 +379,16 @@ Two rules that are easy to get wrong and have both already caused bugs:
 - **The two rates measure their free window from opposite ends** — non-refundable runs 24h from *booking*, refundable runs 24h before *trip start*. They cross on any booking made under ~48h ahead, which let a non-refundable guest out-refund the one who paid `REFUNDABLE_SURCHARGE` for flexibility. `effectiveFreeCancellationDeadline` caps non-refundable by the refundable deadline to prevent it. Don't "simplify" that cap away.
 - **A rule stated without a rate qualifier is probably wrong.** The policy page once claimed "cancel at least 24 hours before trip start" as a general full-refund rule; that's the refundable rule only, and a non-refundable guest reading it would expect money they don't get.
 
-`scripts/verify-cancellation-policy.ts` (`node --experimental-strip-types scripts/verify-cancellation-policy.ts`) is the standing suite — 19 checks including an invariant sweep over 290 lead-time × cancel-time combinations asserting refundable is never worse than non-refundable. Run it after touching the deadline logic. There's no test framework in the repo; it's a plain script that exits non-zero.
+`scripts/verify-cancellation-policy.ts` (`node --experimental-strip-types scripts/verify-cancellation-policy.ts`) is the standing suite — 32 checks including an invariant sweep over 290 lead-time × cancel-time combinations asserting refundable is never worse than non-refundable, and the later-charges rules. Run it after touching the deadline logic. There's no test framework in the repo; it's a plain script that exits non-zero. Its siblings: `verify-extension-pricing.ts`, `verify-tax.ts`, `verify-policy-docs.ts`. Modules they reach must import with explicit `.ts` extensions (`node --experimental-strip-types` resolves specifiers literally).
+
+**Charges made after booking follow the trip's outcome** (`laterChargeRefund`): an extension is
+refunded in full on `full`, not at all on `none`, and on `partial` minus its own refundable
+premium (the one-day fee is taken once, on the trip); a later extra follows the checkout-extras
+rule. `cancelBooking` computes the checkout refund against the **originally booked** end
+(`originalEndTime`), then `settleLedgerOnCancellation` refunds later charges, releases deposit
+and request holds, and leaves owner charges alone; it never throws and emails the owners about
+anything it couldn't settle. `previewCancellation` returns `laterRefund` from the same function.
+A partial refund also returns tax in proportion to the pre-tax amount refunded.
 
 `cancelBooking` claims the status transition *before* refunding and releases the claim if Stripe fails, so a refund can never succeed against a row that stayed `confirmed`. The refund carries `idempotencyKey: refund_<bookingId>`, so a retry returns the same refund rather than making a second one.
 
@@ -299,9 +410,9 @@ branch to the status actually read — with `.in`, a row flipping `pending → c
 the read and the claim got cancelled down the *pending* path: no refund, no emails, money kept.
 
 `CancelTripDialog` only ever sees confirmed trips now. It exists to quote a refund, and a hold
-has none — discarding a pending checkout gets a plain inline confirm on the my-bookings card
-instead. **Cancelling a confirmed trip lives on the guest trip page**, not on the my-bookings
-card, which is what let that card become a plain `<Link>` instead of an overlay-anchor wrapper.
+has none — discarding a pending checkout gets a plain inline confirm on its card on the Trips
+page instead. **Cancelling a confirmed trip lives on the guest trip page**, not on the Trips
+list card, which is what let that card become a plain `<Link>` instead of an overlay-anchor wrapper.
 
 ### Ratings & reviews (`src/lib/reviews.ts`, review functions at the end of `db.ts`)
 
@@ -317,11 +428,55 @@ Recurring work runs as **pg_cron jobs inside the linked Supabase project**, call
 
 The exception is work that needs app code, like reaching Gmail. `sync-turo-bookings` runs every 15 minutes and uses `pg_net` to `POST` to `/api/cron/sync-turo` (`src/routes/api/cron/sync-turo.ts`), authenticated by `CRON_SECRET`. The URL and secret live in Supabase Vault, not in the job's command, because `cron.job` stores commands as plain text. See `supabase/migrations/20260915130000_schedule_turo_sync.sql`, which only works once the site is deployed at a public URL.
 
+`payments-sweep` is the same shape: every 15 minutes to `/api/cron/payments`
+(`runPaymentsSweep`), same `CRON_SECRET` (it reuses the `turo_sync_cron_secret` Vault entry)
+plus a `payments_sweep_url` Vault entry. It needs the Stripe API, hence an app route.
+`supabase/migrations/20260927130000_schedule_payments_sweep.sql` — **not yet run**; it needs the
+route deployed first. Until it runs, deposit holds are only placed when a booking confirms within
+a day of pickup, and nothing is released automatically.
+
 ### Outbound email (`src/lib/email.ts`, `src/lib/booking-email.ts`)
 
 `sendEmail()` sends through the Gmail API using the same OAuth client `syncTuroBookings` reads with — it knows about messages, not bookings. `booking-email.ts` holds the admin "trip is booked" template (modelled on the Turo host email it replaces) and `notifyAdminBookingConfirmed()`.
 
-Three paths independently flip a booking to `confirmed` — `payment_intent.succeeded` and `charge.succeeded` in the webhook, plus the `confirmBooking` fallback — and Stripe retries webhooks, so **all three call `notifyAdminBookingConfirmed` and the database decides who actually sends**. It claims the send with a conditional update on `bookings.admin_notified_at` (`.is('admin_notified_at', null)`), so exactly one caller gets a row back; the rest no-op. It never throws, and releases the claim if the send fails. When adding a fourth confirmation path, call it there too rather than reasoning about which path "really" confirms.
+Four paths independently flip a booking to `confirmed` — `payment_intent.succeeded` and `charge.succeeded` in the webhook, the `confirmBooking` fallback, and `getTripForGuest`'s revival — and Stripe retries webhooks, so **all four call `onBookingConfirmed`, which calls `notifyAdminBookingConfirmed`, and the database decides who actually sends**. It claims the send with a conditional update on `bookings.admin_notified_at` (`.is('admin_notified_at', null)`), so exactly one caller gets a row back; the rest no-op. It never throws, and releases the claim if the send fails. When adding a fifth confirmation path, call `onBookingConfirmed` there too rather than reasoning about which path "really" confirms.
+
+Emails about money after checkout (receipts, pay links, deposit held/declined/captured/released,
+extensions, owner alerts for refund failures and chargebacks) are in `src/lib/charge-email.ts`.
+Each claims its send on a `booking_charges` column (`receipt_sent_at`, `action_email_sent_at`)
+or is only called by whoever won a conditional update, so none can send twice.
+
+### Tax (`src/lib/tax.ts`)
+
+Bluefin's own, **not Stripe Tax** (no vehicle-rental tax code, no MN 9.2% rental tax, and it
+sources by customer address while rental tax follows the pickup). `calculateTax` is the one
+function every quote and charge goes through: state 6.875% + local rates by pickup
+(`TAX_JURISDICTIONS`, via `taxJurisdictionForPickup` on `ResolvedPickup.taxJurisdiction`) + the
+9.2% rental tax for bookings of `SHORT_TERM_MAX_DAYS` or less; the 5% rental fee is off
+(`RENTAL_FEE_APPLIES`). What's taxable is `TAXABILITY`. **Many values are placeholders
+(`confirmed: false`) and `TAX_CONFIG_REVIEWED` is false** — there's no accountant yet; never
+present one as settled. The open questions, with instructions, are
+`ImportantFiles/tax-todo.md`; update it, `tax.md` and the constant together.
+
+**Re-checked 2026-09-29 against Revenue Notice #06-08 (Sept 2025) and the Q4 2026 rate guide —
+the amounts are right; don't "fix" them down.** A home-base trip is taxed **19.075%**: 9.875%
+Saint Paul sales tax (state 6.875 + Metro Area 1 + city 1.5 + Ramsey transit 0.5 — slices of one
+rate, not compounding) plus the 9.2% rental tax. The renter pays the rental tax; the business
+collects and files it like sales tax. Turo's checkout shows only ~9.875% because Turo is
+peer-to-peer car sharing and has lobbied to exempt that (SF 1516 died; SF 2650 introduced 2025;
+no exemption in the statute as of 2026-09-29) — irrelevant to Bluefin renting its own fleet.
+Fuel taxability is the likeliest placeholder to be wrong (fuel is generally sales-tax exempt).
+
+- `TripQuote` carries `preTaxTotal`, `taxJurisdiction`, `taxLines`, `taxTotal`, and `total`
+  includes tax. `price_quote` is now `version: 2`; `storedQuote` reads a version 1 as untaxed.
+- The car page shows `preTaxTotal` ("before tax"); checkout itemises tax above the total; the
+  receipt prints the lines. `createCheckoutSession` compares the client's figure pre-tax.
+- Later charges are taxed with the trip's own context (`taxContextFromQuote`).
+- **Stored per rate, shown grouped.** `taxLines` keep one line per rate (the return and the
+  tax report need each local tax), but every display goes through `displayTaxLines`: one
+  "Sales tax (9.875%)" line plus the rental tax. Five lines read to guests as five taxes
+  stacked on each other. Render any new tax display through it too.
+- `/admin/business/tax-information` reports collected/refunded/net by month (`tax-report.ts`).
 
 `sendTestBookingEmail` (admin-only, in `db.ts`) re-sends the email for any existing booking ignoring the claim, so the template can be checked without paying for a trip.
 
@@ -384,7 +539,13 @@ It reads Gmail via the `googleapis` OAuth2 client (refresh token in env) to find
 - `isAirportPickup()` in `src/components/trip/TripLocation.tsx` replaced three hard-coded
   comparisons against the frozen `'MSP - Minneapolis, MN'` literal. It's a lookup in
   `PICKUP_LOCATIONS`, so that constant is now free to change.
-- `src/components/trips/*` (plural) is the my-bookings list: `UpcomingTripCard`,
+- **The guest's trip list lives at `/trips`** (`src/routes/_authed.trips.index.tsx`, an index
+  route so it isn't the parent layout of `/trips/$bookingId`). It was `/my-bookings` until
+  2026-09-29; `src/routes/my-bookings.tsx` redirects the old address. The profile menu shows
+  **Trips** for everyone and **Admin Page** as well for admins. Its loader returns nothing
+  for a signed-out visitor, like checkout's — an unguarded `getUserBookings` made a
+  signed-out visit a 500 instead of the sign-in form.
+- `src/components/trips/*` (plural) is that trip list: `UpcomingTripCard`,
   `PendingCheckoutCard`, `TripHistoryRow`, `NoTripsIllustration`. These replaced a single
   `BookingCard` that tried to be all three.
 
@@ -448,23 +609,24 @@ STRIPE_SECRET_KEY  ·  VITE_STRIPE_PUBLISHABLE_KEY  ·  STRIPE_WEBHOOK_SECRET
 
 The webhook is configured in Stripe under **Event destinations** (the old "Add endpoint"),
 scope **Your account**, type **Webhook endpoint**, URL `https://rentbluefin.com/api/stripe-webhook`
-(apex, no `www`). **Subscribe to all ten events the handler implements** — subscribing to
+(apex, no `www`). **Subscribe to all fourteen events the handler implements** — subscribing to
 fewer doesn't error, it silently disables that code path (miss `charge.refunded` and
-cancellations never record a refund):
+cancellations never record a refund; miss `payment_intent.amount_capturable_updated` and
+deposit holds only register when the page or sweep re-reads them). The four added on
+2026-09-27 must be added to the **sandbox** destination too:
 
 ```
 payment_intent.succeeded   payment_intent.payment_failed   payment_intent.canceled
+payment_intent.amount_capturable_updated                   payment_intent.requires_action
 charge.succeeded           charge.refunded                 charge.refund.updated
-refund.failed
+refund.failed              charge.dispute.created          setup_intent.succeeded
 identity.verification_session.{verified,requires_input,canceled}
 ```
 
 New destinations can't choose an API version in the UI; they use the account's current one
-(`2026-03-25.dahlia`). That is fine — the handler only reads ids, statuses, amounts and
-metadata, all stable since 2023-10-16, and the installed Stripe SDK (v21) is *built* for
-dahlia, so the payloads match the types `tsc` checks against. Note `db.ts` and
-`stripe-webhook.ts` both still pin `apiVersion: '2023-10-16'` with a comment claiming it
-matches the account; it doesn't, and removing both pins is a wanted cleanup.
+(`2026-03-25.dahlia`). That is fine — the installed Stripe SDK (v21) is *built* for dahlia, and
+**no code pins an `apiVersion` any more** (the old `'2023-10-16'` pins were removed on
+2026-09-27), so requests and webhook payloads are on the same version the types describe.
 
 **Verifying a booking end-to-end without the dashboard:** `GET /v1/events` returns
 `pending_webhooks` per event — `0` means the endpoint answered 2xx, which proves signature
@@ -517,7 +679,7 @@ renders during SSR and again at hydration, and a server-only value would be invi
 the browser. Setting only `SITE_URL` in production ships a site whose every page tells
 Google its official home is `http://localhost:5173`.
 
-`CRON_SECRET` authenticates the scheduled Turo sync endpoint, and must match the `turo_sync_cron_secret` Vault secret. If it's unset the endpoint refuses every request with a 500 rather than running unauthenticated.
+`CRON_SECRET` authenticates both scheduled endpoints (`/api/cron/sync-turo` and `/api/cron/payments`), and must match the `turo_sync_cron_secret` Vault secret. If it's unset the endpoint refuses every request with a 500 rather than running unauthenticated.
 
 `GMAIL_REFRESH_TOKEN` must carry **both** `gmail.readonly` (for `syncTuroBookings`) and `gmail.send` (for the admin booking email in `src/lib/email.ts`). `scripts/gmail-refresh-token.mjs` requests both; a token minted before that script gained the `send` scope fails with "insufficient authentication scopes" and has to be re-minted.
 

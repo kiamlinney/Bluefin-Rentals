@@ -9,6 +9,7 @@ import { bookingRateLabel } from '@/lib/booking-rate.ts'
 import { MILES_INCLUDED_PER_DAY, formatMiles } from '@/lib/distance.ts'
 import { hasUnlimitedMileage } from '@/lib/extras.ts'
 import { displayName } from '@/lib/profile.ts'
+import { displayTaxLines } from '@/lib/tax.ts'
 import {
     formatBusinessDate,
     formatBusinessDateTime,
@@ -392,6 +393,20 @@ export function TripReceipt({
                                         : extra.name
                                 }
                                 value={`+${formatMoney(extra.amount)}`}
+                            />
+                        ))}
+
+                        {/* Tax, last, exactly as charged — read off the snapshot
+                            like every line above, so a rate change later never
+                            rewrites this receipt. The stored per-rate lines are
+                            grouped into sales tax and the rental tax
+                            (displayTaxLines). Absent on bookings from before tax
+                            existed (storedQuote). */}
+                        {displayTaxLines(quote.taxLines).map((tax) => (
+                            <Line
+                                key={tax.id}
+                                label={tax.label}
+                                value={`+${formatMoney(tax.amount)}`}
                             />
                         ))}
                     </>

@@ -9,6 +9,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { sendEmail } from './email'
 import { buildWelcomeMessage, welcomeMessageText } from './welcome-message'
+import { guestLockboxCode } from './lockbox.server'
 import {
     INK,
     MUTED,
@@ -38,12 +39,13 @@ type WelcomeEmailRow = {
     end_time: string
     total_price: number | string
     pickup_location: string | null
+    deposit_waived_at?: string | null
     cars: { year: number; make: string; model: string; trim: string | null; image_url: string | null } | null
     profiles: { full_name: string | null; email: string | null } | null
 }
 
 export const WELCOME_EMAIL_SELECT =
-    'id, car_id, start_time, end_time, total_price, pickup_location, ' +
+    'id, car_id, start_time, end_time, total_price, pickup_location, deposit_waived_at, ' +
     'cars(year, make, model, trim, image_url), ' +
     'profiles(full_name, email)'
 
@@ -123,25 +125,6 @@ function buildText(booking: WelcomeEmailRow, lockboxCode: string | null): string
     ].join('\n')
 }
 
-/** Reads the car's current lockbox code. Never throws — a missing code sends a
- *  message without one, which is better than sending nothing. */
-export async function lockboxCodeForCar(
-    supabaseAdmin: SupabaseClient<any, any, any>,
-    carId: number,
-): Promise<string | null> {
-    try {
-        const { data } = await supabaseAdmin
-            .from('car_secrets')
-            .select('lockbox_code')
-            .eq('car_id', carId)
-            .maybeSingle()
-        return (data?.lockbox_code as string | null) ?? null
-    } catch (err: any) {
-        console.error('[email] could not read lockbox code:', err?.message || err)
-        return null
-    }
-}
-
 /**
  * Exported for the admin test trigger, which re-sends an already-sent email.
  *
@@ -200,7 +183,15 @@ export async function notifyGuestBookingConfirmed(
 
         claimed = true
         const row = booking as unknown as WelcomeEmailRow
-        const lockboxCode = await lockboxCodeForCar(supabaseAdmin, row.car_id)
+        // Through the deposit gate, not straight from car_secrets: the code is
+        // only given out once the trip's security hold is on the card. A trip
+        // booked more than a day out gets this email without it, and the code
+        // arrives with the "hold placed" email the day before pickup.
+        const lockboxCode = await guestLockboxCode(supabaseAdmin, {
+            ...row,
+            status: 'confirmed',
+            deposit_waived_at: row.deposit_waived_at ?? null,
+        })
         await sendWelcomeEmail(row, lockboxCode, { isTest: false })
         console.log(`[email] guest welcome email sent for ${bookingId}`)
     } catch (err: any) {

@@ -2,6 +2,8 @@ import { useState } from 'react'
 import {Link, useNavigate} from '@tanstack/react-router'
 import { PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 import { confirmBooking } from '@/lib/db'
+import { BUSINESS } from '@/lib/business'
+import { DEPOSIT_PLACE_BEFORE_HOURS, formatDepositAmount } from '@/lib/deposit'
 // TEMPORARY pre-launch stop — delete with src/lib/bookings-paused.ts.
 import { BOOKINGS_PAUSED, BOOKINGS_PAUSED_MESSAGE } from '@/lib/bookings-paused'
 
@@ -162,8 +164,20 @@ export function PaymentStep({
                     onChange={(e) => setAgreedToTerms(e.target.checked)}
                     className="mt-0.5 w-4 h-4 rounded border-line accent-brand cursor-pointer flex-shrink-0"
                 />
+                {/* This sentence is the guest's consent to their card being saved
+                    and charged after checkout — the only moment that consent can
+                    be given (setup_future_usage is set on this payment, in
+                    createCheckoutSession). Every number is interpolated, never
+                    typed. What it covers is set out in full on /policies/terms
+                    and in ImportantFiles/payments-overview.md; change them
+                    together. */}
                 <span className="text-sm text-muted">
-                    I agree to pay the total shown and to the Bluefin Rentals {' '}
+                    I agree to pay the total shown, and I authorize {BUSINESS.name} to save
+                    this card and use it for this trip as the terms describe: a{' '}
+                    {formatDepositAmount()} refundable security hold placed about{' '}
+                    {DEPOSIT_PLACE_BEFORE_HOURS} hours before pickup, extensions and extras I
+                    ask for, and charges for damage, mileage, fuel, tolls or other costs from
+                    the trip. I agree to the{' '}
                     <Link
                         to="/policies/terms"
                         target="_blank"
@@ -182,7 +196,7 @@ export function PaymentStep({
                         className="underline cursor-pointer text-pine-500"
                     >
                      cancellation policy
-                    </Link>
+                    </Link>.
                 </span>
             </label>
 

@@ -21,6 +21,13 @@ import {
 } from './booking-rate.ts'
 import { roundMoney } from './money.ts'
 import { resolveExtras, type QuoteExtra } from './extras.ts'
+import {
+    DEFAULT_TAX_JURISDICTION,
+    calculateTax,
+    isShortTermRental,
+    type TaxJurisdictionId,
+    type TaxLine,
+} from './tax.ts'
 
 export const BUSINESS_TIMEZONE = 'America/Chicago'
 
@@ -252,6 +259,18 @@ export type TripQuote = {
     // be rendered years later from the stored quote alone.
     extras: QuoteExtra[]
     extrasTotal: number
+    // Everything above, before tax. What the car page shows ("taxes calculated
+    // at checkout") and what the cancellation fee arithmetic is built from.
+    preTaxTotal: number
+    // Tax, from src/lib/tax.ts, applied last to the lines above by where the
+    // car is picked up. Snapshotted with the quote like every other line, so a
+    // receipt reprinted after a rate change shows what was actually charged.
+    // Quotes stored before tax existed have neither field; storedQuote in
+    // receipt.ts fills them in as none.
+    taxJurisdiction: TaxJurisdictionId
+    taxLines: TaxLine[]
+    taxTotal: number
+    // What's charged: preTaxTotal + taxTotal.
     total: number
 }
 
@@ -284,6 +303,9 @@ export type TripQuoteInput = {
     // no-extras case is what a stale or mangled request falls back to. That
     // case can never overcharge.
     extraIds?: string[]
+    // Where the car is picked up, for local sales tax — taxJurisdictionForPickup
+    // in tax.ts. Optional: the home base's jurisdiction is the default.
+    taxJurisdiction?: TaxJurisdictionId
 }
 
 const EMPTY_QUOTE: TripQuote = {
@@ -313,6 +335,10 @@ const EMPTY_QUOTE: TripQuote = {
     // nothing.
     extras: [],
     extrasTotal: 0,
+    preTaxTotal: 0,
+    taxJurisdiction: DEFAULT_TAX_JURISDICTION,
+    taxLines: [],
+    taxTotal: 0,
     total: 0,
 }
 
@@ -348,6 +374,7 @@ export function calculateTripPrice(input: TripQuoteInput): TripQuote {
         pickupFeeLabel = null,
         bookingRate = DEFAULT_BOOKING_RATE,
         extraIds = [],
+        taxJurisdiction = DEFAULT_TAX_JURISDICTION,
     } = input
 
     if (!startDate || !endDate) return EMPTY_QUOTE
@@ -422,6 +449,20 @@ export function calculateTripPrice(input: TripQuoteInput): TripQuote {
     // concession on the daily rate, not on a flat service.
     const { items: extras, total: extrasTotal } = resolveExtras(extraIds, billableDays)
 
+    const preTaxTotal = roundMoney(tripPrice + refundableSurchargeAmount + pickupFee + extrasTotal)
+
+    // Tax last, on every line, each by what it is — the rental, the delivery,
+    // each extra — because Minnesota may not tax them all alike (TAXABILITY).
+    // Whether it's a short-term rental is decided by the length booked.
+    const tax = calculateTax(
+        [
+            { taxKey: 'trip', amount: roundMoney(tripPrice + refundableSurchargeAmount) },
+            { taxKey: 'delivery', amount: pickupFee },
+            ...extras.map(extra => ({ taxKey: `extra:${extra.id}`, amount: extra.amount })),
+        ],
+        { jurisdiction: taxJurisdiction, shortTermRental: isShortTermRental(billableDays) },
+    )
+
     return {
         days,
         billableDays,
@@ -448,7 +489,11 @@ export function calculateTripPrice(input: TripQuoteInput): TripQuote {
         pickupFeeLabel: pickupFee > 0 ? pickupFeeLabel : null,
         extras,
         extrasTotal,
-        total: roundMoney(tripPrice + refundableSurchargeAmount + pickupFee + extrasTotal),
+        preTaxTotal,
+        taxJurisdiction,
+        taxLines: tax.lines,
+        taxTotal: tax.total,
+        total: roundMoney(preTaxTotal + tax.total),
     }
 }
 

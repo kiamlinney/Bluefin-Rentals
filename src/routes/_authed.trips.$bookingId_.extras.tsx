@@ -8,6 +8,8 @@ import { checkoutOnlyExtraIds, resolveExtras } from '@/lib/extras'
 import { carMainImageUrl } from '@/lib/car-images'
 import { formatBusinessDate, formatBusinessTime } from '@/lib/dates'
 import { ExtrasSection } from '@/components/checkout/ExtrasSection'
+import { finishChargePayment } from '@/lib/payments'
+import { stripePromise } from '@/lib/stripe-client'
 import { TripLocation } from '@/components/trip/TripLocation'
 
 // Adding extras to a trip that has already been paid for.
@@ -17,8 +19,10 @@ import { TripLocation } from '@/components/trip/TripLocation'
 //
 // Extras chosen here are a REQUEST. They're recorded as 'requested' rows the
 // owners approve or decline on the reservation page, and only then are they on
-// the trip. Nothing is charged either way: there is no saved payment method
-// after checkout (see CLAUDE.md), so an approved extra is settled in person.
+// the trip. The card saved at checkout is HELD for each one now, charged if it's
+// approved and released if it's declined (decided 2026-09-25;
+// ImportantFiles/charges-and-invoicing.md). If the bank wants the guest to
+// confirm a hold, that happens on this page before it says "sent".
 //
 // price_quote is never touched by any of this, which is what keeps the refund
 // math describing exactly what Stripe took. Writing these into price_quote is
@@ -77,13 +81,25 @@ function TripExtrasPage() {
     // estimate because the owners confirm availability before anything is owed.
     const { total: estimated } = resolveExtras(selected, billableDays)
 
+    const [partialErrors, setPartialErrors] = useState<string[]>([])
+
     const submit = async () => {
         setWorking(true)
         setError(null)
         try {
-            await requestTripExtras({
+            const result = await requestTripExtras({
                 data: { bookingId: booking.id, extraIds: selected, message },
             })
+            // Holds the bank wants the guest to confirm (3D Secure). Run each one
+            // here, then bring the ledger up to date.
+            if (result.actions.length > 0) {
+                const stripe = await stripePromise
+                for (const action of result.actions) {
+                    if (stripe) await stripe.handleNextAction({ clientSecret: action.clientSecret })
+                    await finishChargePayment({ data: { bookingId: booking.id, chargeId: action.chargeId } })
+                }
+            }
+            setPartialErrors(result.errors)
             setSent(true)
         } catch (e: unknown) {
             setError(e instanceof Error ? e.message : 'Could not send that request.')
@@ -101,9 +117,17 @@ function TripExtrasPage() {
                     </div>
                     <h1 className="text-2xl font-bold text-ink">Request sent</h1>
                     <p className="text-muted mt-2">
-                        We'll confirm these shortly. Nothing has been charged — anything we
-                        approve is settled when you pick the car up.
+                        We'll confirm these shortly. Your card is held for the amount now and
+                        only charged for what we approve; anything we decline is released.
                     </p>
+                    {partialErrors.length > 0 && (
+                        <div className="mt-4 text-left bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-800">
+                            Not requested:
+                            <ul className="list-disc pl-5 mt-1">
+                                {partialErrors.map((e) => <li key={e}>{e}</li>)}
+                            </ul>
+                        </div>
+                    )}
                     <Link
                         to="/trips/$bookingId"
                         params={{ bookingId: booking.id }}
@@ -152,7 +176,7 @@ function TripExtrasPage() {
                                             <span className="text-sm text-muted shrink-0">
                                                 {extra.status === 'requested'
                                                     ? 'awaiting confirmation'
-                                                    : extra.charged ? 'paid' : 'pay at pickup'}
+                                                    : extra.charged ? 'paid' : extra.charge_id ? 'charging' : 'pay at pickup'}
                                             </span>
                                         </li>
                                     ))}
@@ -241,18 +265,18 @@ function TripExtrasPage() {
                             <span className="text-ink tabular-nums">−${booking.total_price}</span>
                         </div>
                         <div className="flex justify-between text-sm">
-                            <span className="text-muted">If approved</span>
+                            <span className="text-muted">Charged if approved</span>
                             <span className="text-ink tabular-nums">${estimated.toFixed(2)}</span>
                         </div>
                         <div className="flex justify-between text-base font-bold">
-                            <span className="text-ink">Charged to your card</span>
-                            <span className="text-ink tabular-nums">$0.00</span>
+                            <span className="text-ink">Held on your card now</span>
+                            <span className="text-ink tabular-nums">${estimated.toFixed(2)}</span>
                         </div>
 
                         <p className="text-xs text-muted">
-                            This is a request — we'll confirm what's available. Nothing is
-                            charged to your card here; anything approved is settled when you
-                            pick the car up.
+                            This is a request — we'll confirm what's available. Your card on file is
+                            held for the amount now, charged only for what we approve, and released
+                            for anything we decline.
                         </p>
                     </div>
                 </div>

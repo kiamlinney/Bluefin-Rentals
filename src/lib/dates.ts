@@ -22,7 +22,9 @@
 // the zone to BUSINESS_TIMEZONE rather than defaulting to the host's, and the
 // output is identical in the browser, in SSR, and on a server running in UTC.
 
-import { BUSINESS_TIMEZONE, dateKeyToLocalDate } from './pricing'
+// Extension-ful so scripts/verify-*.ts can reach it under
+// `node --experimental-strip-types`, which resolves specifiers literally.
+import { BUSINESS_TIMEZONE, dateKeyToLocalDate } from './pricing.ts'
 
 // Accepts either the ISO string Supabase hands back or an already-parsed Date,
 // since callers have one or the other depending on whether they also needed to

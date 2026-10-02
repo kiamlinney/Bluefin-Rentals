@@ -14,6 +14,9 @@
 import {
     refundForCancellation,
     effectiveFreeCancellationDeadline,
+    laterChargeRefund,
+    laterChargesRefundTotal,
+    type LaterCharge,
     type RefundInput,
 } from '../src/lib/cancellation-policy.ts'
 import type { TripQuote } from '../src/lib/pricing.ts'
@@ -219,6 +222,30 @@ for (const leadH of [3, 4, 6, 8, 12, 16, 20, 23, 24, 25, 26, 30, 36, 42, 47, 48,
 }
 pass(inversions === 0, `no inversion across ${checked} lead-time x cancel-time combinations`,
     inversions ? worst.join('\n        ') : `${checked} combinations checked`)
+
+// ── Charges made after booking (laterChargeRefund) ──────────────────────────
+// Extensions follow the trip's outcome; later extras follow the checkout-extras
+// rule. ImportantFiles/cancellation-and-refunds.md.
+console.log('\nLater charges')
+{
+    const extension: LaterCharge = {
+        id: 'e', kind: 'extension', amount: 110, tax: 0, captured: 110, refunded: 0, refundablePremium: 10,
+    }
+    const extra: LaterCharge = {
+        id: 'x', kind: 'extra', amount: 25, tax: 0, captured: 25, refunded: 0, refundablePremium: 0,
+    }
+    pass(laterChargeRefund({ kind: 'full' }, extension) === 110, 'extension, trip refunded in full -> all back')
+    pass(laterChargeRefund({ kind: 'none' }, extension) === 0, 'extension, trip refunded nothing -> nothing back')
+    pass(laterChargeRefund({ kind: 'partial' }, extension) === 100,
+        'extension, late refundable cancellation -> all but its refundable premium')
+    pass(laterChargeRefund({ kind: 'partial' }, extra) === 25, 'later extra, partial -> in full (as checkout extras)')
+    pass(laterChargeRefund({ kind: 'none' }, extra) === 0, 'later extra, none -> nothing (as checkout extras)')
+    pass(laterChargeRefund({ kind: 'full' }, { ...extension, refunded: 40 }) === 70,
+        'never refunds more than is left on the charge')
+    pass(laterChargeRefund({ kind: 'partial' }, { ...extension, tax: 11, captured: 121 }) === 110,
+        'partial keeps the premium and the tax on it: 121 - (10 x 1.1) = 110')
+    pass(laterChargesRefundTotal({ kind: 'full' }, [extension, extra]) === 135, 'totals add up')
+}
 
 const failed = results.filter(r => !r).length
 console.log(`\n${results.length - failed}/${results.length} passed\n`)

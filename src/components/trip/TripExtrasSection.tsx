@@ -20,12 +20,20 @@ const formatMoney = (amount: number): string => `$${amount.toFixed(2)}`
 /** What the row means, in the reader's own terms. */
 function statusNote(extra: TripExtraRow, voice: 'guest' | 'host'): string | null {
     if (extra.status === 'requested') {
+        // A request since holds existed has the guest's card held behind it;
+        // approving charges it (ImportantFiles/charges-and-invoicing.md).
+        if (extra.charge_id) {
+            return voice === 'host'
+                ? 'Requested · card held · approve to charge, decline to release'
+                : 'Requested · card held, charged only if approved'
+        }
         return voice === 'host' ? 'Requested · needs your answer' : 'Requested · awaiting confirmation'
     }
-    // Approved but unpaid is the normal state for anything added after booking:
-    // there is no saved card, so it is settled in person. Said on both sides so
-    // the host remembers to collect and the guest expects to pay.
+    // Approved but not charged: either the capture is still landing, or it's a
+    // request from before cards were saved, which is settled in person. Said on
+    // both sides so the host remembers to collect and the guest expects to pay.
     if (!extra.charged) {
+        if (extra.charge_id) return 'Approved · charging your card'
         return voice === 'host' ? 'Approved · collect at pickup' : 'Approved · pay at pickup'
     }
     return null

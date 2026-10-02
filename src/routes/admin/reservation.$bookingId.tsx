@@ -23,6 +23,13 @@ import {calculateOverage, distanceFeeForTrip, formatMiles, milesIncluded} from "
 import {hasUnlimitedMileage} from "@/lib/extras.ts";
 import {buildReceipt} from "@/lib/receipt.ts";
 import {money} from "@/lib/email-template.ts";
+import {getTripPayments} from "@/lib/payments";
+import {paidAfterCheckout} from "@/lib/charges";
+import {taxContextFromQuote} from "@/lib/tax";
+import {TripChargesSection} from "@/components/trip/TripChargesSection";
+import {TripDepositSection} from "@/components/trip/TripDepositSection";
+import {TripExtensionsSection} from "@/components/trip/TripExtensionsSection";
+import {ExtensionRequestModal} from "@/components/admin/ExtensionRequestModal";
 
 export const Route = createFileRoute('/admin/reservation/$bookingId')({
     loader: async ({ params }) => {
@@ -34,13 +41,14 @@ export const Route = createFileRoute('/admin/reservation/$bookingId')({
         const drivers = await getAdditionalDrivers({ data: params.bookingId })
         const lockboxCode = await getTripLockboxCode({ data: params.bookingId })
         const extras = await getTripExtras({ data: params.bookingId })
-        return { booking, priceOverrides, drivers, lockboxCode, extras }
+        const payments = await getTripPayments({ data: params.bookingId })
+        return { booking, priceOverrides, drivers, lockboxCode, extras, payments }
     },
     component: ReservationDetailsPage,
 })
 
 function ReservationDetailsPage() {
-    const { booking, priceOverrides, drivers, lockboxCode, extras } = Route.useLoaderData()
+    const { booking, priceOverrides, drivers, lockboxCode, extras, payments } = Route.useLoaderData()
     const car = booking.cars
     const profile = booking.profiles
     // Shared with the trip list and the profile pages, so the same renter reads
@@ -103,6 +111,18 @@ function ReservationDetailsPage() {
     // know about the late-booking grace or the cap that keeps non-refundable
     // from outlasting refundable, so on a short-lead booking it would show a
     // later deadline than the one actually enforced.
+    // What this trip has actually brought in: the checkout less its refund, plus
+    // every charge since net of its refunds (a kept deposit included). The
+    // checkout total alone overstated a cancelled trip and understated an
+    // extended one.
+    const checkoutRefunded = Number(booking.refunded_amount) || 0
+    const later = paidAfterCheckout([...payments.charges, ...payments.deposit.history])
+    const earnings = {
+        checkoutRefunded,
+        later,
+        total: Math.round((Number(booking.total_price) - checkoutRefunded + later) * 100) / 100,
+    }
+
     const cancelDeadline = effectiveFreeCancellationDeadline(booking.booking_rate, {
         bookedAt: new Date(booking.created_at),
         tripStart: startDate,
@@ -252,7 +272,14 @@ function ReservationDetailsPage() {
 
                         <section className="space-y-1">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-black">Total Earnings</h3>
-                            <p className="text-lg text-gray-700">{money(booking.total_price)}</p>
+                            <p className="text-lg text-gray-700">{money(earnings.total)}</p>
+                            {(earnings.checkoutRefunded > 0 || earnings.later > 0) && (
+                                <p className="text-sm text-gray-500">
+                                    {money(booking.total_price)} at booking
+                                    {earnings.checkoutRefunded > 0 && <>, less {money(earnings.checkoutRefunded)} refunded</>}
+                                    {earnings.later > 0 && <>, plus {money(earnings.later)} in charges since</>}
+                                </p>
+                            )}
                             <Link
                                 to="/trips/$bookingId/receipt"
                                 params={{ bookingId: booking.id }}
@@ -298,6 +325,53 @@ function ReservationDetailsPage() {
                                 </p>
                             )}
                         </section>
+
+                        {/* Money after checkout: the same components the guest
+                            sees, with the owner's controls. */}
+                        <TripDepositSection
+                            bookingId={booking.id}
+                            deposit={payments.deposit}
+                            card={payments.card}
+                            voice="host"
+                            tripStart={booking.start_time}
+                            tripEnd={booking.end_time}
+                            active={booking.status === 'confirmed'}
+                            onChanged={() => router.invalidate()}
+                        />
+
+                        {/* A last-hour request is time-sensitive, so it's put in
+                            front of the owner the first time they open this
+                            page after it arrives (once per request, per browser). */}
+                        <ExtensionRequestModal
+                            extension={payments.extensions.find(e => e.status === 'requested') ?? null}
+                            guestName={renterName}
+                            onDecided={() => router.invalidate()}
+                        />
+
+                        <TripExtensionsSection
+                            extensions={payments.extensions}
+                            voice="host"
+                            onChanged={() => router.invalidate()}
+                        />
+
+                        <div id="additional-charges">
+                            <TripChargesSection
+                                bookingId={booking.id}
+                                charges={payments.charges}
+                                voice="host"
+                                canCharge={booking.status === 'confirmed' || booking.status === 'completed'}
+                                hasCard={payments.hasCard}
+                                // The one pre-filled amount: the overage at the per-mile
+                                // rate the guest was shown when booking. The owner still
+                                // confirms it.
+                                suggestedMileage={overage.amount > 0 ? {
+                                    amount: overage.amount,
+                                    description: `${formatMiles(overage.milesOver)} miles over the ${formatMiles(totalMilesIncluded)}-mile allowance, at $${perMileFee.toFixed(2)} per mile`,
+                                } : null}
+                                taxContext={taxContextFromQuote(receipt.quote)}
+                                onChanged={() => router.invalidate()}
+                            />
+                        </div>
 
                         <section className="space-y-1">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-black">Cancellation Policy</h3>
@@ -376,9 +450,12 @@ function ReservationDetailsPage() {
                         {/* Countdown Banner */}
                         <div className="border border-gray-200 rounded-xl p-5 bg-white shadow-sm space-y-4">
                             {hasEnded ? (
-                                <button className="w-full py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer">
+                                <a
+                                    href="#additional-charges"
+                                    className="block text-center w-full py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
+                                >
                                     Charge for incidentals
-                                </button>
+                                </a>
                             ) : hasStarted ? (
                                 <p className="text-sm text-gray-700 leading-relaxed">
                                     This trip ends in <span className="font-semibold">{endsIn}.</span>
@@ -430,7 +507,9 @@ function ReservationDetailsPage() {
                                                             Cancel and refund the guest{' '}
                                                             <strong>{money(booking.total_price)}</strong> in full?
                                                             This ignores the {bookingRateLabel(booking.booking_rate).toLowerCase()} policy,
-                                                            and emails both of you.
+                                                            and emails both of you. Paid extensions and extras are
+                                                            refunded in full too and any deposit hold is released;
+                                                            your own charges (damage, tolls…) are not refunded.
                                                         </>
                                                     )}
                                                 </span>

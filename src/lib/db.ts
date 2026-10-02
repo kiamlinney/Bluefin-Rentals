@@ -12,8 +12,10 @@ import {
     type TripQuote,
 } from './pricing'
 import { runTuroSync, TURO_SYNC_MAX_LOOKBACK_DAYS } from './turo-sync.server'
+import { assertBookingAccess, getServiceRoleClient, requireAdmin, requireUser } from './access.server'
+import { assertCarIsAvailable, extensionHoldRows, PENDING_HOLD_MS } from './availability.server'
 import { DEFAULT_BOOKING_RATE, type BookingRate } from './booking-rate.ts'
-import { refundForCancellation } from './cancellation-policy.ts'
+import { laterChargesRefundTotal, refundForCancellation } from './cancellation-policy.ts'
 // Pure module — safe to import here without dragging anything into the browser
 // bundle. It owns the one narrowing of a stored price_quote.
 import { storedQuote } from './receipt'
@@ -35,25 +37,24 @@ import {
 import { geocodeAddresses } from './geocode'
 import {
     MIN_LEAD_TIME_HOURS,
-    TURNAROUND_HOURS,
     buildAvailabilityMap,
     startableDayCount,
     toOccupiedSpans,
     type UnavailabilityRow,
 } from './availability'
-import { businessDateKey, formatBusinessDateTime } from './dates'
-import {
-    BOOKING_EMAIL_SELECT,
-    notifyAdminBookingConfirmed,
-    sendBookingConfirmedEmail,
-} from './booking-email'
+import { BOOKING_EMAIL_SELECT, sendBookingConfirmedEmail } from './booking-email'
 import { notifyBookingCanceled } from './cancellation-email'
+import { WELCOME_EMAIL_SELECT, sendWelcomeEmail } from './welcome-email'
+import { guestLockboxCode, lockboxCodeForCar } from './lockbox.server'
 import {
-    WELCOME_EMAIL_SELECT,
-    lockboxCodeForCar,
-    notifyGuestBookingConfirmed,
-    sendWelcomeEmail,
-} from './welcome-email'
+    getOrCreateCustomer,
+    holdExtraRequest,
+    laterChargesFor,
+    onBookingConfirmed,
+    originalEndTime,
+    settleExtraDecision,
+    settleLedgerOnCancellation,
+} from './payments.server'
 // TEMPORARY pre-launch stop — delete with src/lib/bookings-paused.ts.
 import { BOOKINGS_PAUSED, BOOKINGS_PAUSED_MESSAGE } from './bookings-paused'
 import {
@@ -100,19 +101,11 @@ export const getBookedDates = createServerFn({ method: 'GET' })
     .handler(async ({ data: carId }) => {
         const supabase = getSupabaseServerClient();
         const viewerId = (await supabase.auth.getUser()).data.user?.id
-        return loadUnavailabilityRows(supabase, createServiceRoleClient(), parseInt(carId, 10), viewerId)
+        // This endpoint is public (no auth check), so car_blocked_dates and
+        // turo_bookings — both admin-only tables under RLS — are read with the
+        // service-role client. Only start/end are selected, never renter_name.
+        return loadUnavailabilityRows(supabase, getServiceRoleClient(), parseInt(carId, 10), viewerId)
     });
-
-// This endpoint is public (no auth check), so car_blocked_dates and
-// turo_bookings — both admin-only tables under RLS — are read with the
-// service-role client. Only start/end are selected, never renter_name.
-function createServiceRoleClient() {
-    return createClient(
-        process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        { auth: { persistSession: false, autoRefreshToken: false } }
-    )
-}
 
 // Everything that makes one car unavailable, tagged by source. It's the question
 // both the booking calendar (getBookedDates) and the homepage's featured cars
@@ -121,7 +114,7 @@ function createServiceRoleClient() {
 // reuse one pair across every car rather than opening a pair per car.
 async function loadUnavailabilityRows(
     supabase: ReturnType<typeof getSupabaseServerClient>,
-    supabaseAdmin: ReturnType<typeof createServiceRoleClient>,
+    supabaseAdmin: ReturnType<typeof getServiceRoleClient>,
     carIdNum: number,
     viewerId: string | undefined,
 ): Promise<UnavailabilityRow[]> {
@@ -159,7 +152,7 @@ async function loadUnavailabilityRows(
             .gte('created_at', holdCutoff)
         if (viewerId) heldQuery = heldQuery.neq('user_id', viewerId)
 
-        const [{ data: blocked }, { data: turo }, { data: held }] = await Promise.all([
+        const [{ data: blocked }, { data: turo }, { data: held }, extensionHolds] = await Promise.all([
             supabaseAdmin
                 .from('car_blocked_dates')
                 .select('start_date, end_date')
@@ -169,6 +162,15 @@ async function loadUnavailabilityRows(
                 .select('start_time, end_time')
                 .eq('car_id', carIdNum),
             heldQuery,
+            // An extension being paid for or awaiting an owner holds its added
+            // time, and assertCarIsAvailable refuses it. The calendar has to say
+            // so too, or it offers dates checkout then turns down. Swallowed on
+            // failure like the queries above: a calendar that's slightly too
+            // open is recoverable at checkout, one that won't load isn't.
+            extensionHoldRows(supabaseAdmin, carIdNum).catch(err => {
+                console.error('Error fetching extension holds:', err?.message || err)
+                return []
+            }),
         ])
 
         // Tagged by source rather than flattened into one shape. The booking
@@ -190,6 +192,13 @@ async function loadUnavailabilityRows(
             // Tagged 'booking' like a confirmed trip: a hold occupies the car
             // the same way, turnaround buffer included, for as long as it lasts.
             ...(held ?? []).map(b => ({
+                kind: 'booking' as const,
+                start_time: b.start_time,
+                end_time: b.end_time,
+            })),
+            // The added time of another trip's in-progress extension. Tagged
+            // 'booking' for the same reason: it's a trip, buffer and all.
+            ...extensionHolds.map(b => ({
                 kind: 'booking' as const,
                 start_time: b.start_time,
                 end_time: b.end_time,
@@ -226,7 +235,7 @@ export const getFeaturedCars = createServerFn({ method: 'GET' })
         if (error) throw new Error(error.message)
         if (!cars || cars.length === 0) return []
 
-        const supabaseAdmin = createServiceRoleClient()
+        const supabaseAdmin = getServiceRoleClient()
         const viewerId = (await supabase.auth.getUser()).data.user?.id
         const now = new Date()
         const todayKey = todayInBusinessTz(now)
@@ -282,22 +291,15 @@ export const getCarPriceOverrides = createServerFn({ method: 'GET' })
         return (data ?? []) as { date: string; price: number }[]
     });
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2023-10-16' as Stripe.StripeConfig['apiVersion'],
-})
+// No apiVersion: the SDK sends the version it was built for (2026-03-25.dahlia
+// for stripe v21), which is also the version the webhook destination delivers.
+// The old '2023-10-16' pin claimed to match the account and didn't.
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
 
 const MS_PER_HOUR = 60 * 60 * 1000
 
-// How long a `pending` booking holds the car while its owner is at the payment
-// step. After this the row is abandoned: it stops blocking, and getUserBookings
-// deletes it on that user's next visit.
-//
-// Read by all three places that have to agree on what "held" means —
-// assertCarIsAvailable (the enforcement point), getBookedDates (what the
-// calendar greys out) and the cleanup in getUserBookings. It lives here as one
-// constant because it drifting apart is precisely how a customer ends up
-// picking a date the calendar showed as open and being refused at checkout.
-const PENDING_HOLD_MS = 60 * 60 * 1000
+// PENDING_HOLD_MS lives in src/lib/availability.server.ts with
+// assertCarIsAvailable, the enforcement point that reads it.
 
 // A trip may not start sooner than MIN_LEAD_TIME_HOURS from now.
 //
@@ -316,122 +318,8 @@ function assertStartIsBookable(startTimeIso: string) {
     }
 }
 
-// Authoritative server-side conflict check for a car/date-range, checked before
-// a new booking is created. Uses the service-role client because a regular
-// customer's RLS-scoped client can't see other users' bookings, or
-// car_blocked_dates/turo_bookings at all (those are admin-only tables).
-//
-// Trips need TURNAROUND_HOURS of clearance on both sides for cleaning and
-// inspection, so the overlap windows are widened by that buffer rather than
-// being a bare intersection test. Widening the *query* rather than filtering
-// afterwards keeps the work in Postgres and keeps this a single round trip.
-//
-// `excludeBookingId` is for the resume-payment paths in createCheckoutSession:
-// re-validating an existing pending booking would otherwise find that booking
-// itself and refuse to let the customer pay for it.
-//
-// `viewerId` widens that same idea from one row to one customer. A pending row
-// is a soft hold on an unfinished checkout, and holding a car against the very
-// person trying to book it is never useful: change the dates by an hour and the
-// abandoned row refuses the new range, with the turnaround buffer making it
-// refuse three hours either side too. The dedup query below only rescues the
-// case where the range matches exactly. Other customers' holds still block, and
-// `confirmed` still blocks unconditionally — including the viewer's own, since
-// a paid trip is a real trip no matter who booked it.
-async function assertCarIsAvailable(
-    carId: number,
-    startTime: string,
-    endTime: string,
-    options: { excludeBookingId?: string; viewerId?: string } = {},
-) {
-    const supabaseAdmin = createClient(
-        process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        { auth: { persistSession: false, autoRefreshToken: false } }
-    )
-
-    const bufferMs = TURNAROUND_HOURS * MS_PER_HOUR
-    const windowStart = new Date(new Date(startTime).getTime() - bufferMs).toISOString()
-    const windowEnd = new Date(new Date(endTime).getTime() + bufferMs).toISOString()
-
-    // Other site bookings: confirmed always blocks; pending only blocks while
-    // still "live", and never against the customer who owns it (see viewerId).
-    const holdCutoff = new Date(Date.now() - PENDING_HOLD_MS).toISOString()
-    const liveHold = options.viewerId
-        ? `and(created_at.gte.${holdCutoff},user_id.neq.${options.viewerId})`
-        : `created_at.gte.${holdCutoff}`
-    let bookingQuery = supabaseAdmin
-        .from('bookings')
-        .select('start_time, end_time')
-        .eq('car_id', carId)
-        .in('status', ['pending', 'confirmed'])
-        .lt('start_time', windowEnd)
-        .gt('end_time', windowStart)
-        .or(`status.eq.confirmed,${liveHold}`)
-    if (options.excludeBookingId) bookingQuery = bookingQuery.neq('id', options.excludeBookingId)
-
-    const { data: conflictingBookings, error: bErr } = await bookingQuery
-    if (bErr) throw new Error(bErr.message)
-    if (conflictingBookings?.length) {
-        throw new Error(conflictMessage(conflictingBookings, startTime, endTime))
-    }
-
-    // Blocked dates are date-only and unbuffered: a block means the car is
-    // spoken for those whole days, and the day after it ends is bookable from
-    // opening. businessDateKey rather than startTime.slice(0, 10) — the slice
-    // takes the UTC day, and a 10pm Central start is already the next day there,
-    // which pushed this comparison a day off.
-    const startDate = businessDateKey(startTime)
-    const endDate = businessDateKey(endTime)
-    const { data: conflictingBlocks, error: blErr } = await supabaseAdmin
-        .from('car_blocked_dates')
-        .select('id')
-        .eq('car_id', carId)
-        .lte('start_date', endDate)
-        .gte('end_date', startDate)
-    if (blErr) throw new Error(blErr.message)
-    if (conflictingBlocks?.length) throw new Error('This car is not available for the selected dates')
-
-    // Turo trips are real trips, so they get the same buffer as site bookings.
-    const { data: conflictingTuro, error: tErr } = await supabaseAdmin
-        .from('turo_bookings')
-        .select('start_time, end_time')
-        .eq('car_id', carId)
-        .lt('start_time', windowEnd)
-        .gt('end_time', windowStart)
-    if (tErr) throw new Error(tErr.message)
-    if (conflictingTuro?.length) {
-        throw new Error(conflictMessage(conflictingTuro, startTime, endTime))
-    }
-}
-
-// Turns a conflicting row into something the customer can act on. A trip that
-// merely lands inside the turnaround buffer is a different problem from one that
-// genuinely overlaps — the first is fixed by nudging a dropdown a few hours, and
-// saying "no longer available" would send them hunting for another car instead.
-function conflictMessage(
-    conflicts: { start_time: string; end_time: string }[],
-    startTime: string,
-    endTime: string,
-): string {
-    const start = new Date(startTime).getTime()
-    const end = new Date(endTime).getTime()
-
-    const bufferOnly = conflicts.find(c => {
-        const cStart = new Date(c.start_time).getTime()
-        const cEnd = new Date(c.end_time).getTime()
-        return cStart >= end || cEnd <= start
-    })
-
-    if (!bufferOnly) return 'This car is no longer available for the selected dates'
-
-    const endsBeforeUs = new Date(bufferOnly.end_time).getTime() <= start
-    return endsBeforeUs
-        ? `This car is being returned at ${formatBusinessDateTime(bufferOnly.end_time)}. ` +
-          `Trips need at least ${TURNAROUND_HOURS} hours between them, so please start later.`
-        : `Another trip starts at ${formatBusinessDateTime(bufferOnly.start_time)}. ` +
-          `Trips need at least ${TURNAROUND_HOURS} hours between them, so please return earlier.`
-}
+// assertCarIsAvailable — the authoritative conflict check — lives in
+// src/lib/availability.server.ts, shared with trip extensions.
 
 // The pickup selection as it arrives from the browser: loose, optional fields
 // pulled straight off URL search params. Nothing here is trusted.
@@ -600,6 +488,9 @@ async function quoteTripOnServer(input: {
         pickupFeeLabel: input.pickup.feeLabel,
         bookingRate: input.bookingRate,
         extraIds: input.extraIds,
+        // Local sales tax by where the car is picked up, from the same server-
+        // side resolution as the fee.
+        taxJurisdiction: input.pickup.taxJurisdiction,
     })
 
     if (quote.billableDays < 1) throw new Error('Minimum trip duration is 24 hours')
@@ -621,74 +512,86 @@ async function quoteTripOnServer(input: {
     return quote
 }
 
-// ── Payment method families ───────────────────────────────────────────────────
+// ── Payment methods: cards only ───────────────────────────────────────────────
+//
+// Decided 2026-09-25: every booking is paid by card (including Apple Pay and
+// Google Pay, which are cards), and the card is saved. Two things need a card on
+// file after checkout — the security deposit hold before pickup, and any charge
+// after it — and neither works on the methods this used to offer behind "Other
+// payment options": Affirm can't be saved at all, and none of Cash App, Amazon
+// Pay or Klarna can hold a deposit for a trip's length. Policy:
+// ImportantFiles/payments-overview.md.
 //
 // PaymentElement shows exactly the methods the PaymentIntent permits; there is
-// no client-side filter for it. Leaving payment_method_types unset lets Stripe
-// enable everything switched on in the dashboard, which is what turned the
-// payment step into a six-row accordion (Card, Bank, Cash App, Affirm, Amazon
-// Pay, Klarna) with nothing expanded.
+// no client-side filter for it. Naming 'card' is also what keeps Stripe's
+// automatic payment methods from turning the step back into an accordion of
+// everything enabled in the dashboard.
 //
-// Naming the types splits that in two: 'card' is a single type, so the Element
-// draws the card fields directly with no chooser above them, and 'other' is
-// everything else, sitting behind "Pay another way". The `other` list must stay
-// a subset of what's actually enabled on the Stripe account — an unenabled or
-// ineligible type makes the whole PaymentIntent fail to create.
-export type PaymentMode = 'card' | 'other'
-
 // us_bank_account (ACH) is deliberately left out, and must not be added back
 // without first changing how bookings hold a car. ACH sits in `processing` for
 // ~4 business days, far beyond PENDING_HOLD_MS: the hold lapses, the sweep marks
 // the row `expired`, someone else books those dates, and when the debit finally
 // clears the webhook's `payment_intent.succeeded` revives the expired row to
 // `confirmed` — two paid bookings on one car. (Reviving expired rows is correct
-// for a late *card* payment; see CLAUDE.md.) It can also bounce after the guest
-// has driven off. Every method here must settle within the hold.
-const PAYMENT_METHOD_TYPES: Record<PaymentMode, string[]> = {
-    card: ['card'],
-    other: ['cashapp', 'affirm', 'klarna', 'amazon_pay'],
-}
+// for a late *card* payment.) It can also bounce after the guest has driven off.
+// Every method here must settle within the hold.
+const PAYMENT_METHOD_TYPES = ['card']
 
-// Whether an existing intent already offers exactly this mode's methods.
+// Whether an existing checkout intent is one this code would create today: card
+// only, for this customer, saving the card. An intent from before card saving —
+// or from the old "Other payment options" — fails this and is rebuilt, so no
+// booking can be paid without its card being kept.
 //
-// automatic_payment_methods is checked first and is the important half. An
-// intent created without either parameter gets APM enabled by default (Stripe
-// changed the default in Aug 2023), and APM keeps deciding what the Element
-// shows no matter what payment_method_types says — which is why a card-only
-// list still rendered Bank and Klarna rows.
-function intentMatchesMode(intent: Stripe.PaymentIntent, mode: PaymentMode): boolean {
+// automatic_payment_methods is checked first. An intent created without either
+// parameter gets APM enabled by default, and APM keeps deciding what the
+// Element shows no matter what payment_method_types says.
+function intentIsCurrent(intent: Stripe.PaymentIntent, customerId: string): boolean {
     if (intent.automatic_payment_methods?.enabled) return false
+    if (intent.setup_future_usage !== 'off_session') return false
+    if ((typeof intent.customer === 'string' ? intent.customer : intent.customer?.id) !== customerId) return false
 
-    const wanted = PAYMENT_METHOD_TYPES[mode]
     // Stripe attaches 'link' to card intents on its own; it isn't a choice
     // anyone made here, so it shouldn't count as a mismatch and force a rebuild.
     const current = (intent.payment_method_types ?? []).filter(t => t !== 'link')
-
-    return current.length === wanted.length && wanted.every(t => current.includes(t))
+    return current.length === 1 && current[0] === 'card'
 }
 
-// Returns an intent for this booking that offers `mode`'s payment methods,
-// rebuilding it if the existing one doesn't.
+// The checkout PaymentIntent's shared parameters. `setup_future_usage` is what
+// saves the card to the guest's Stripe customer when the payment succeeds —
+// and it can only be set here, on the payment the guest consents to, which is
+// why the checkout agreement says so (PaymentStep.tsx).
+function checkoutIntentParams(
+    customerId: string,
+    metadata: Record<string, string>,
+): Pick<Stripe.PaymentIntentCreateParams, 'currency' | 'customer' | 'setup_future_usage' | 'payment_method_types' | 'metadata'> {
+    return {
+        currency: 'usd',
+        customer: customerId,
+        setup_future_usage: 'off_session',
+        payment_method_types: PAYMENT_METHOD_TYPES,
+        // `kind` tells the webhook this is the checkout charge rather than one
+        // of the later ledger charges (src/lib/payments.server.ts).
+        metadata: { kind: 'trip', ...metadata },
+    }
+}
+
+// Returns a current intent for this booking at the row's amount, rebuilding it
+// if the existing one isn't.
 //
-// Rebuild rather than update, because automatic_payment_methods is not an
-// updatable field — it isn't in the update endpoint's parameter list, so an
-// APM-enabled intent can never be narrowed in place. The only way to get a
-// card-only Element is a new intent created with payment_method_types set.
+// Rebuild rather than update, because automatic_payment_methods and customer
+// can't be changed on an intent the way this needs.
 //
 // The booking row is repointed at the replacement in the same breath:
 // stripe_payment_intent_id holds exactly one id, and an orphaned intent that
 // nothing references is one that can be paid without confirming any booking.
-async function intentForMode(
+async function intentForBooking(
     booking: { id: string; total_price: number | string; car_id: number; user_id: string; start_time: string; end_time: string; pickup_location: string | null; stripe_payment_intent_id: string },
-    mode: PaymentMode,
+    customerId: string,
 ) {
     const amount = Math.round(Number(booking.total_price) * 100)
 
     const existing = await stripe.paymentIntents.retrieve(booking.stripe_payment_intent_id)
 
-    // Both halves matter. The mode decides which methods the Element offers;
-    // the amount decides what the customer is charged.
-    //
     // The amount check is not paranoia — it's load-bearing since the booking
     // rate arrived. That's the one checkout input that re-prices a booking
     // *after* the row exists, and without this an intent created for the
@@ -696,22 +599,20 @@ async function intentForMode(
     // booking: the customer picks the flexible option and is quietly charged
     // the cheaper one. The row is the source of truth; this makes the intent
     // agree with it.
-    if (intentMatchesMode(existing, mode) && existing.amount === amount) return existing
+    if (intentIsCurrent(existing, customerId) && existing.amount === amount) return existing
 
     const replacement = await stripe.paymentIntents.create({
         // Copied from the row, which the caller has already re-priced if it
         // needed re-pricing. This function reconciles the intent to the row; it
         // never re-quotes on its own.
         amount,
-        currency: 'usd',
-        payment_method_types: PAYMENT_METHOD_TYPES[mode],
-        metadata: {
+        ...checkoutIntentParams(customerId, {
             carId: String(booking.car_id),
             userId: booking.user_id,
             startTime: booking.start_time,
             endTime: booking.end_time,
             pickupLocation: booking.pickup_location ?? '',
-        },
+        }),
     })
 
     if (!replacement.client_secret) throw new Error('Failed to create payment intent')
@@ -761,17 +662,14 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         pickupId?: string
         pickupAddress?: string
         bookingId?: string // optional
-        // Which family of payment methods the Element should offer. Has to be
-        // decided here rather than in the browser: PaymentElement renders
-        // whatever the PaymentIntent allows and gives the client no way to
-        // filter it, so "card only" is a property of the intent.
-        // Optional, defaulting to card, so an in-flight checkout from before
-        // this change keeps working.
-        paymentMode?: PaymentMode
-        // Which cancellation terms the trip is priced under. Optional for the
-        // same back-compat reason as paymentMode — an in-flight checkout during
-        // a deploy falls back to the anchor rate rather than failing, and the
-        // anchor is the cheaper of the two, so the fallback can never overcharge.
+        // Accepted and ignored. Checkout used to offer "Other payment options"
+        // and a checkout page loaded before this deploy still sends it; every
+        // intent is card-only now (PAYMENT_METHOD_TYPES).
+        paymentMode?: string
+        // Which cancellation terms the trip is priced under. Optional so an
+        // in-flight checkout during a deploy falls back to the anchor rate
+        // rather than failing, and the anchor is the cheaper of the two, so the
+        // fallback can never overcharge.
         bookingRate?: BookingRate
         // Extra ids only — never amounts. Re-priced here from the catalogue in
         // src/lib/extras.ts, exactly as the pickup fee is re-resolved, so a
@@ -806,6 +704,17 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         // payable, and a car booked by someone else in the meantime would still
         // take the money.
         assertStartIsBookable(data.startTime)
+
+        // Booking rows are written with the service-role client, after the checks
+        // in this function. Guests can no longer insert or update bookings through
+        // their own client at all: that policy let a guest PATCH any column of
+        // their own row with the anon key (see
+        // supabase/migrations/20260927120000_payments_ledger.sql).
+        const supabaseAdmin = getServiceRoleClient()
+
+        // The guest's Stripe customer, which the card is saved to when this
+        // payment succeeds. Created on first checkout.
+        const customerId = await getOrCreateCustomer(supabaseAdmin, user.id)
 
         // If we have bookingId, use directly
         if (data.bookingId) {
@@ -842,9 +751,9 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
                 // can't be honoured here, so the row's own rate is returned and
                 // the client snaps its selection back to it. Showing the truth
                 // beats silently pricing one rate and booking another.
-                const intent = await intentForMode(
+                const intent = await intentForBooking(
                     { ...existing, stripe_payment_intent_id: existing.stripe_payment_intent_id },
-                    data.paymentMode ?? 'card',
+                    customerId,
                 )
                 return {
                     clientSecret: intent.client_secret,
@@ -926,8 +835,8 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
                 })
 
                 // The row is updated before the intent is reconciled, because
-                // intentForMode reads the amount off the row — see there.
-                const { data: repriced, error: repriceErr } = await supabase
+                // intentForBooking reads the amount off the row — see there.
+                const { data: repriced, error: repriceErr } = await supabaseAdmin
                     .from('bookings')
                     .update({
                         total_price: requote.total,
@@ -939,9 +848,10 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
                         // breakdown here would describe a rate the guest just
                         // switched away from, and every refund computed from it
                         // would be wrong by the premium.
-                        price_quote: { version: 1, ...requote },
+                        price_quote: { version: 2, ...requote },
                     })
                     .eq('id', existingBooking.id)
+                    .eq('user_id', user.id)
                     .eq('status', 'pending')
                     .select()
                     .single()
@@ -951,12 +861,12 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
 
                 // The quote just changed, so the mirror has to follow it — a
                 // pending booking can be re-quoted repeatedly before payment.
-                await syncCheckoutExtras(getServiceRoleClient(), existingBooking.id, requote.extras)
+                await syncCheckoutExtras(supabaseAdmin, existingBooking.id, requote.extras)
             }
 
-            const intent = await intentForMode(
+            const intent = await intentForBooking(
                 { ...bookingRow, stripe_payment_intent_id: existingBooking.stripe_payment_intent_id },
-                data.paymentMode ?? 'card',
+                customerId,
             )
             return {
                 clientSecret: intent.client_secret,
@@ -1010,27 +920,23 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
 
         // A mismatch is either tampering or genuine drift between the widget's
         // quote and the server's — both are worth seeing in the logs.
-        if (Math.abs(quote.total - data.totalPrice) > 0.01) {
+        // Compared before tax: the car page's figure never includes tax.
+        if (Math.abs(quote.preTaxTotal - data.totalPrice) > 0.01) {
             console.warn(
                 `[pricing] client/server total mismatch — charging server price. ` +
-                `car=${carIdNum} user=${user.id} client=${data.totalPrice} server=${quote.total}`
+                `car=${carIdNum} user=${user.id} client=${data.totalPrice} server=${quote.preTaxTotal} (pre-tax)`
             )
         }
 
         const paymentIntent = await stripe.paymentIntents.create({
             amount: Math.round(quote.total * 100),
-            currency: 'usd',
-            // Naming these suppresses Stripe's automatic payment methods, which
-            // is what makes the card mode render as bare card fields instead of
-            // a chooser listing every method enabled on the account.
-            payment_method_types: PAYMENT_METHOD_TYPES[data.paymentMode ?? 'card'],
-            metadata: {
+            ...checkoutIntentParams(customerId, {
                 carId: data.carId,
                 userId: user.id,
                 startTime: data.startTime,
                 endTime: data.endTime,
                 pickupLocation: pickup.bookingLabel,
-            },
+            }),
         })
 
         // paymentIntent.client_secret can theoretically be null if the
@@ -1039,7 +945,7 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
             throw new Error('Failed to create payment intent')
         }
 
-        const { data: booking, error } = await supabase
+        const { data: booking, error } = await supabaseAdmin
             .from('bookings')
             .insert({
                 car_id: carIdNum,
@@ -1072,7 +978,9 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
                 // Written once and never updated. See the migration: this is a
                 // snapshot of what the guest agreed to, not a cache of what the
                 // price list currently says.
-                price_quote: { version: 1, ...quote },
+                // version 2: carries tax (taxJurisdiction, taxLines, taxTotal,
+                // preTaxTotal). storedQuote reads a version 1 as untaxed.
+                price_quote: { version: 2, ...quote },
                 stripe_payment_intent_id: paymentIntent.id,
                 status: 'pending',
             })
@@ -1084,7 +992,7 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         // Mirror into booking_extras so both reservation pages have one place to
         // read "what does this trip have". price_quote above stays the frozen
         // pricing record the refund math reads.
-        await syncCheckoutExtras(getServiceRoleClient(), booking!.id, quote.extras)
+        await syncCheckoutExtras(supabaseAdmin, booking!.id, quote.extras)
 
         // After the null check above, TS now knows booking is not null
         return {
@@ -1125,15 +1033,11 @@ export const confirmBooking = createServerFn({ method: 'POST' })
 
         if (error) throw new Error(error.message)
 
-        // The third confirmation path, so it notifies too. Whichever of the
-        // three gets here first sends; the others find the claim taken and do
-        // nothing. Never throws, so a mail failure can't fail the confirmation.
-        await notifyAdminBookingConfirmed(supabaseAdmin, data.bookingId)
-        // The third confirmation path, so it sends the guest's copy too. Each
-        // email holds its own claim, so whichever path arrives first sends both
-        // and the others no-op. A fourth confirmation path added later must call
-        // both of these, not just one.
-        await notifyGuestBookingConfirmed(supabaseAdmin, data.bookingId)
+        // One of the four confirmation paths, so it runs everything that follows
+        // a confirmation: saving the card, the deposit hold if the trip is
+        // within a day, and both emails. Every step claims itself, so whichever
+        // path gets here first does the work and the others no-op. Never throws.
+        await onBookingConfirmed(supabaseAdmin, data.bookingId)
 
         return booking
     })
@@ -1240,6 +1144,10 @@ export const cancelBooking = createServerFn({ method: 'POST' })
         // simply walked away from.
         const isPending = existing.status === 'pending'
 
+        // The trip the checkout charge paid for ends where it did at booking —
+        // an extension moved end_time, and is refunded on its own below.
+        const bookedEnd = isPending ? existing.end_time : await originalEndTime(supabaseAdmin, data.bookingId, existing.end_time)
+
         // Decided before the claim so the refund is computed against the state
         // the caller actually saw, and so an un-cancellable status fails without
         // having written anything. Skipped entirely for a hold: there is no
@@ -1249,7 +1157,7 @@ export const cancelBooking = createServerFn({ method: 'POST' })
             rate: (existing.booking_rate ?? DEFAULT_BOOKING_RATE) as BookingRate,
             bookedAt: new Date(existing.created_at),
             tripStart: new Date(existing.start_time),
-            tripEnd: new Date(existing.end_time),
+            tripEnd: new Date(bookedEnd),
             // Through storedQuote rather than a bare cast: it rejects a
             // malformed snapshot and fills in fields added after the row was
             // written. A cast asserts a shape the database never promised, and
@@ -1370,9 +1278,15 @@ export const cancelBooking = createServerFn({ method: 'POST' })
             }
         }
 
-        await notifyBookingCanceled(supabaseAdmin, data.bookingId, outcome)
+        // Everything charged after checkout follows the trip's outcome:
+        // extensions and later extras refunded by laterChargeRefund, deposit
+        // and request holds released, owners' charges left alone. Never throws —
+        // anything it can't settle is reported to the owners.
+        const laterRefund = await settleLedgerOnCancellation(supabaseAdmin, data.bookingId, outcome)
 
-        return { success: true, alreadyCanceled: false, outcome }
+        await notifyBookingCanceled(supabaseAdmin, data.bookingId, outcome, laterRefund)
+
+        return { success: true, alreadyCanceled: false, outcome, laterRefund }
 })
 
 // Read-only companion to cancelBooking: what WOULD happen if this booking were
@@ -1396,11 +1310,13 @@ export const previewCancellation = createServerFn({ method: 'GET' })
 
         if (error || !booking) throw new Error('Booking not found')
 
+        const bookedEnd = await originalEndTime(supabaseAdmin, data.bookingId, booking.end_time)
+
         const outcome = refundForCancellation({
             rate: (booking.booking_rate ?? DEFAULT_BOOKING_RATE) as BookingRate,
             bookedAt: new Date(booking.created_at),
             tripStart: new Date(booking.start_time),
-            tripEnd: new Date(booking.end_time),
+            tripEnd: new Date(bookedEnd),
             // Same narrowing as cancelBooking — the preview has to arrive at the
             // figure cancelBooking will, or the dialog quotes one number and the
             // card is refunded another.
@@ -1409,12 +1325,19 @@ export const previewCancellation = createServerFn({ method: 'GET' })
             byAdmin: isAdmin,
         })
 
+        // What comes back for extensions and later extras, from the same rule
+        // cancelBooking applies — so the dialog quotes what is actually paid.
+        const laterRefund = booking.status === 'confirmed'
+            ? laterChargesRefundTotal(outcome, await laterChargesFor(supabaseAdmin, data.bookingId))
+            : 0
+
         // A pending row was never charged, so no refund figure should be shown
         // for it however the policy scores the dates.
         return {
             outcome: booking.status === 'pending'
                 ? { ...outcome, kind: 'none' as const, refundAmount: 0, cancellationFee: 0, retainedPremium: 0 }
                 : outcome,
+            laterRefund,
             wasCharged: booking.status === 'confirmed',
             byAdmin: isAdmin,
         }
@@ -1513,10 +1436,17 @@ export const getTripForGuest = createServerFn({ method: 'GET' })
         // it before the booking is paid for. Reading it fresh each load also
         // means a rotated code is correct on the page even when the emailed one
         // has gone stale.
-        const lockboxCode =
-            booking.status === 'confirmed' && new Date(booking.end_time) > new Date()
-                ? await lockboxCodeForCar(supabaseAdmin, booking.car_id)
-                : null
+        //
+        // A guest also only gets it once the trip's security deposit hold is on
+        // their card, or an owner waived it (src/lib/lockbox.server.ts). Owners
+        // always see it.
+        const codeFor = (row: typeof booking) =>
+            isAdmin
+                ? row.status === 'confirmed' && new Date(row.end_time) > new Date()
+                    ? lockboxCodeForCar(supabaseAdmin, row.car_id)
+                    : Promise.resolve(null)
+                : guestLockboxCode(supabaseAdmin, row)
+        const lockboxCode = await codeFor(booking)
 
         // Hand-entered off-platform bookings never had an intent, so there is
         // nothing to verify and nothing to put on a receipt.
@@ -1609,22 +1539,18 @@ export const getTripForGuest = createServerFn({ method: 'GET' })
             } else {
                 booking.status = 'confirmed'
 
-                // This is a confirmation path like any other, so it owes the
-                // same notifications — see CLAUDE.md. It was silently missing
-                // them: a booking whose webhook never arrived got confirmed
-                // here and the owners were never told a trip had been booked.
-                // Both claim their own send, so the usual path having already
-                // mailed makes these no-ops.
-                await notifyAdminBookingConfirmed(supabaseAdmin, bookingId)
-                await notifyGuestBookingConfirmed(supabaseAdmin, bookingId)
+                // This is a confirmation path like any other, so it owes
+                // everything that follows one: the saved card, the deposit hold
+                // and both emails. It was once silently missing the emails — a
+                // booking whose webhook never arrived got confirmed here and
+                // the owners were never told. Every step claims itself, so the
+                // usual path having already run makes this a no-op.
+                await onBookingConfirmed(supabaseAdmin, bookingId)
 
                 // The code was skipped above while this row still read pending.
                 // Fetch it now rather than making the guest reload to see the
                 // message they were just emailed.
-                currentLockboxCode =
-                    new Date(booking.end_time) > new Date()
-                        ? await lockboxCodeForCar(supabaseAdmin, booking.car_id)
-                        : null
+                currentLockboxCode = await codeFor(booking)
             }
         }
 
@@ -2219,41 +2145,8 @@ const TRIP_MEDIA_URL_TTL_SECONDS = 60 * 60
 
 type TripMediaKind = 'photo' | 'video'
 
-function getServiceRoleClient() {
-    return createClient(
-        process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        { auth: { persistSession: false, autoRefreshToken: false } }
-    )
-}
-
-// Trip media is readable and writable by platform admins and by the renter on
-// the booking. Every trip-media server function calls this itself: route-level
-// admin auth does not cover server functions invoked directly, and the same
-// check has to hold for the guest-facing view once it exists.
-async function assertBookingAccess(bookingId: string) {
-    const supabase = getSupabaseServerClient()
-    const authResult = await supabase.auth.getUser()
-    const user = authResult.data.user
-    if (!user) throw new Error('Not authenticated')
-
-    const { data: profile } = await supabase
-        .from('profiles').select('is_admin').eq('id', user.id).single()
-
-    const supabaseAdmin = getServiceRoleClient()
-    const { data: booking, error } = await supabaseAdmin
-        .from('bookings')
-        .select('id, user_id')
-        .eq('id', bookingId)
-        .single()
-
-    if (error || !booking) throw new Error('Booking not found')
-
-    const isAdmin = Boolean(profile?.is_admin)
-    if (!isAdmin && booking.user_id !== user.id) throw new Error('Not authorized')
-
-    return { user, isAdmin, supabase, supabaseAdmin }
-}
+// getServiceRoleClient and assertBookingAccess live in src/lib/access.server.ts,
+// shared with the payment server functions in src/lib/payments.ts.
 
 // Editing or removing one item is narrower than reading the set: booking access
 // alone would let a renter delete the host's photos of the damage they caused.
@@ -2495,21 +2388,6 @@ function cleanReviewInput(input: ReviewInput): ReviewInput {
     const checked = validateReviewBody(input.body ?? '')
     if (!checked.ok) throw new Error(checked.error)
     return { rating: input.rating, body: checked.body }
-}
-
-async function requireUser() {
-    const supabase = getSupabaseServerClient()
-    const { data } = await supabase.auth.getUser()
-    if (!data.user) throw new Error('Not authenticated')
-    return { user: data.user, supabase }
-}
-
-async function requireAdmin() {
-    const { user, supabase } = await requireUser()
-    const { data: profile } = await supabase
-        .from('profiles').select('is_admin').eq('id', user.id).single()
-    if (!profile?.is_admin) throw new Error('Not authorized')
-    return { user }
 }
 
 // Every visible review, newest first — all of them for /reviews, or one car's
@@ -2907,11 +2785,12 @@ export const removeAdditionalDriver = createServerFn({ method: 'POST' })
 
 // ── Post-booking extras requests ─────────────────────────────────────────────
 //
-// A guest asking for extras on a trip they've already paid for. Deliberately a
-// request and not a charge: it emails the owners and writes nothing. No second
-// PaymentIntent, no change to total_price, and — the important one — no change
-// to price_quote, so the refund arithmetic in cancellation-policy.ts keeps
-// describing exactly what was actually charged.
+// A guest asking for extras on a trip they've already paid for. A request with a
+// hold behind it: the saved card is held for each extra, an owner approves
+// (captured) or declines (released). Each is its own ledger charge — no change
+// to total_price and, the important one, no change to price_quote, so the
+// refund arithmetic in cancellation-policy.ts keeps describing exactly what the
+// checkout charged.
 // ── booking_extras helpers ───────────────────────────────────────────────────
 //
 // booking_extras is "what does this trip have now"; bookings.price_quote is the
@@ -2931,6 +2810,8 @@ export type TripExtraRow = {
     source: 'checkout' | 'post-booking'
     status: TripExtraStatus
     charged: boolean
+    /** The hold/charge behind a post-booking extra; null at checkout and for requests from before holds. */
+    charge_id: string | null
     created_at: string
     decided_at: string | null
 }
@@ -2941,7 +2822,7 @@ async function loadTripExtras(
 ): Promise<TripExtraRow[]> {
     const { data, error } = await supabaseAdmin
         .from('booking_extras')
-        .select('id, extra_id, name, billing, unit_price, quantity, amount, source, status, charged, created_at, decided_at')
+        .select('id, extra_id, name, billing, unit_price, quantity, amount, source, status, charged, charge_id, created_at, decided_at')
         .eq('booking_id', bookingId)
         // Declined rows are history, not part of the trip. Kept in the table so
         // the answer is on record and the partial unique index lets the guest
@@ -3007,7 +2888,7 @@ export const requestTripExtras = createServerFn({ method: 'POST' })
         message?: string
     }) => input)
     .handler(async ({ data }) => {
-        const { supabaseAdmin } = await assertBookingAccess(data.bookingId)
+        const { supabaseAdmin, user } = await assertBookingAccess(data.bookingId)
 
         const { data: booking, error } = await supabaseAdmin
             .from('bookings')
@@ -3046,9 +2927,9 @@ export const requestTripExtras = createServerFn({ method: 'POST' })
         // by loadTripExtras, so a previous "no" doesn't block asking again.
         const existing = await loadTripExtras(supabaseAdmin, data.bookingId)
         const taken = new Set(existing.map(extra => extra.extra_id))
-        const requested = data.extraIds.filter(id => !taken.has(id))
+        const wanted = data.extraIds.filter(id => !taken.has(id))
 
-        const { items } = resolveExtras(requested, billableDays)
+        const { items } = resolveExtras(wanted, billableDays)
 
         if (items.length === 0) {
             throw new Error(
@@ -3058,30 +2939,75 @@ export const requestTripExtras = createServerFn({ method: 'POST' })
             )
         }
 
-        // status 'requested': asked for, not yet on the trip. Nothing is charged
-        // and price_quote is untouched, so the refund math keeps describing
-        // exactly what Stripe took. The owners answer on the reservation page.
-        const { error: insertErr } = await supabaseAdmin
-            .from('booking_extras')
-            .insert(items.map(item => ({
-                booking_id: data.bookingId,
-                extra_id: item.id,
-                name: item.name,
-                billing: item.billing,
-                unit_price: item.unitPrice,
-                quantity: item.quantity,
-                amount: item.amount,
-                source: 'post-booking',
-                status: 'requested',
-                charged: false,
-            })))
+        // Decided 2026-09-25: the card on file is HELD for each extra when it's
+        // requested, charged when an owner approves, released if they decline
+        // (ImportantFiles/charges-and-invoicing.md). One hold per extra,
+        // because each is answered on its own and a hold captures only once.
+        //
+        // status 'requested': asked for, not yet on the trip. price_quote is
+        // untouched — the checkout record never changes — and the charge, if
+        // approved, is its own ledger row with its own receipt.
+        //
+        // A hold that the bank wants the guest to authenticate comes back as an
+        // action for the page to run; one that's declined refuses that extra
+        // outright rather than recording a request nobody can pay for.
+        const requested: string[] = []
+        const actions: { chargeId: string; clientSecret: string }[] = []
+        const errors: string[] = []
 
-        if (insertErr) {
-            if ((insertErr as any).code === '23505') {
-                throw new Error('Those extras are already on this trip.')
+        for (const item of items) {
+            let attempt
+            try {
+                attempt = await holdExtraRequest(supabaseAdmin, {
+                    bookingId: data.bookingId,
+                    extra: item,
+                    createdBy: user.id,
+                })
+            } catch (err: any) {
+                // No card on the trip — nothing will hold, so stop here.
+                throw new Error(err?.message || 'Could not hold your card for that extra.')
             }
-            throw new Error(insertErr.message)
+
+            const held = attempt.charge.status === 'authorized'
+            if (!held && !attempt.needsAction) {
+                await settleExtraDecision(supabaseAdmin, attempt.charge.id, false)
+                errors.push(`${item.name}: ${attempt.error ?? 'your card was declined'}`)
+                continue
+            }
+
+            const { error: insertErr } = await supabaseAdmin
+                .from('booking_extras')
+                .insert({
+                    booking_id: data.bookingId,
+                    extra_id: item.id,
+                    name: item.name,
+                    billing: item.billing,
+                    unit_price: item.unitPrice,
+                    quantity: item.quantity,
+                    amount: item.amount,
+                    source: 'post-booking',
+                    status: 'requested',
+                    charged: false,
+                    charge_id: attempt.charge.id,
+                })
+
+            if (insertErr) {
+                // Already asked for (a second tab, a retry): let the new hold go.
+                await settleExtraDecision(supabaseAdmin, attempt.charge.id, false)
+                if ((insertErr as any).code === '23505') {
+                    errors.push(`${item.name} is already on this trip.`)
+                    continue
+                }
+                throw new Error(insertErr.message)
+            }
+
+            requested.push(item.name)
+            if (attempt.needsAction && attempt.clientSecret) {
+                actions.push({ chargeId: attempt.charge.id, clientSecret: attempt.clientSecret })
+            }
         }
+
+        if (requested.length === 0) throw new Error(errors[0] ?? 'Choose at least one extra.')
 
         const message = (data.message ?? '').trim().slice(0, MAX_EXTRAS_MESSAGE) || null
 
@@ -3090,12 +3016,17 @@ export const requestTripExtras = createServerFn({ method: 'POST' })
         // way. Failing the call over a mail outage would tell the guest their
         // request didn't go through when it did.
         try {
-            await sendExtrasRequestedEmail(supabaseAdmin, data.bookingId, items, message)
+            await sendExtrasRequestedEmail(
+                supabaseAdmin,
+                data.bookingId,
+                items.filter(item => requested.includes(item.name)),
+                message,
+            )
         } catch (err: any) {
             console.error('[email] extras-requested notification failed:', err?.message || err)
         }
 
-        return { requested: items.length }
+        return { requested: requested.length, actions, errors }
     })
 
 /**
@@ -3122,13 +3053,30 @@ export const decideTripExtra = createServerFn({ method: 'POST' })
             })
             .eq('id', data.extraId)
             .eq('status', 'requested')
-            .select('id, booking_id, name, status')
+            .select('id, booking_id, name, status, charge_id')
             .maybeSingle()
 
         if (error) throw new Error(error.message)
         // Lost the race, or it was already answered. Not an error: the caller's
         // intent already holds.
         if (!updated) return { alreadyDecided: true }
+
+        // The money follows the answer: approve captures the hold placed when the
+        // guest asked, decline releases it. A request from before holds existed
+        // has no charge and is settled in person, as it always was.
+        if (updated.charge_id) {
+            try {
+                await settleExtraDecision(supabaseAdmin, updated.charge_id, data.approve)
+            } catch (err: any) {
+                // Put the request back: an approval that couldn't be charged
+                // shouldn't leave the extra looking paid for.
+                await supabaseAdmin
+                    .from('booking_extras')
+                    .update({ status: 'requested', decided_at: null })
+                    .eq('id', updated.id)
+                throw new Error(err?.message || 'Could not charge the hold for that extra.')
+            }
+        }
 
         return { alreadyDecided: false, status: updated.status }
     })
@@ -3152,19 +3100,24 @@ export const getTripExtras = createServerFn({ method: 'GET' })
  *
  * Null once the trip has ended, matching getTripForGuest: the code opens a real
  * car, and there is no reason to keep serving it for a trip that is over.
+ *
+ * The admin reservation page is the intended caller, but a guest can call a
+ * server function directly — so a guest gets the same deposit-gated answer as
+ * on their trip page (src/lib/lockbox.server.ts), never the raw code.
  */
 export const getTripLockboxCode = createServerFn({ method: 'GET' })
     .inputValidator((bookingId: string) => bookingId)
     .handler(async ({ data: bookingId }) => {
-        const { supabaseAdmin } = await assertBookingAccess(bookingId)
+        const { supabaseAdmin, isAdmin } = await assertBookingAccess(bookingId)
 
         const { data: booking } = await supabaseAdmin
             .from('bookings')
-            .select('car_id, status, end_time')
+            .select('id, car_id, status, start_time, end_time, deposit_waived_at')
             .eq('id', bookingId)
             .single()
 
         if (!booking) return null
+        if (!isAdmin) return guestLockboxCode(supabaseAdmin, booking)
         if (booking.status !== 'confirmed') return null
         if (new Date(booking.end_time) <= new Date()) return null
 

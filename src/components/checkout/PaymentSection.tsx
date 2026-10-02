@@ -1,22 +1,12 @@
 import { Elements } from '@stripe/react-stripe-js'
 import type { Appearance, Stripe } from '@stripe/stripe-js'
-import type { PaymentMode } from '@/lib/db'
 import { PaymentStep } from './PaymentStep'
-import { RadioDot } from './RadioDot'
 
-// Card is first and is the default
-const OPTIONS: { mode: PaymentMode; label: string; description: string }[] = [
-    {
-        mode: 'card',
-        label: 'Pay now',
-        description: 'Pay the full trip total today with a credit or debit card.',
-    },
-    {
-        mode: 'other',
-        label: 'Other payment options',
-        description: 'Cash App Pay, Amazon Pay, Affirm or Klarna.',
-    },
-]
+// Card only (credit/debit, Apple Pay, Google Pay). There used to be a "Choose
+// when to pay" chooser here with Cash App, Amazon Pay, Affirm and Klarna behind
+// it; it went when checkout started saving the card for the deposit hold and
+// later charges, which those methods can't support. See PAYMENT_METHOD_TYPES in
+// src/lib/db.ts.
 
 export function PaymentSection({
     stripePromise,
@@ -26,8 +16,6 @@ export function PaymentSection({
     clientSecret,
     bookingId,
     total,
-    paymentMode,
-    onPaymentModeChange,
 }: {
     stripePromise: Promise<Stripe | null>
     appearance: Appearance
@@ -36,40 +24,9 @@ export function PaymentSection({
     clientSecret: string | null
     bookingId: string | null
     total: number
-    paymentMode: PaymentMode
-    onPaymentModeChange: (mode: PaymentMode) => void
 }) {
     return (
         <div>
-            {/* Deliberately outside <Elements>: switching mode swaps the client
-                secret, which remounts the whole Elements tree. Keeping the
-                chooser above that boundary means it doesn't flicker as the new
-                PaymentIntent is fetched. */}
-            <h2 className="text-2xl font-bold text-ink mb-4">Choose when to pay</h2>
-
-            <div className="bg-surface border border-line rounded-2xl divide-y divide-line shadow-sm">
-                {OPTIONS.map(({ mode, label, description }) => (
-                    <label
-                        key={mode}
-                        className="flex items-start gap-3 p-4 cursor-pointer"
-                    >
-                        <input
-                            type="radio"
-                            name="paymentMode"
-                            className="sr-only"
-                            checked={paymentMode === mode}
-                            onChange={() => onPaymentModeChange(mode)}
-                            disabled={isLoading}
-                        />
-                        <RadioDot checked={paymentMode === mode} />
-                        <div>
-                            <span className="text-ink font-medium">{label}</span>
-                            <p className="text-sm text-muted mt-1">{description}</p>
-                        </div>
-                    </label>
-                ))}
-            </div>
-
             <h2 className="text-2xl font-bold text-ink mt-8 mb-4">Payment</h2>
 
             {isLoading && (

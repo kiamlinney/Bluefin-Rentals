@@ -69,7 +69,7 @@ export async function sendExtrasRequestedEmail(
         <h1 style="margin:0 0 16px;font:700 24px/1.3 Helvetica,Arial,sans-serif;color:${INK};text-align:center">${escapeHtml(who)} asked for extras</h1>
         ${paragraph(`For their ${escapeHtml(carName(booking.cars))} trip,
             ${escapeHtml(longDateTime(booking.start_time))} to ${escapeHtml(longDateTime(booking.end_time))}.`)}
-        ${paragraph('<strong>Nothing has been charged and nothing is on the trip yet.</strong> Approve or decline it on the reservation page; if you approve, collect it at pickup.')}
+        ${paragraph('<strong>Their card is held for this, nothing is charged yet.</strong> Approve on the reservation page to charge it, or decline to release the hold.')}
     </td></tr>
 
     <tr><td style="padding:24px">
@@ -93,8 +93,8 @@ export async function sendExtrasRequestedEmail(
         html: shell({ bodyRows, footerNote: 'Sent when a guest asks for extras after booking.' }),
         text: [
             `${who} asked for extras on their ${carName(booking.cars)} trip.`,
-            'Nothing has been charged and nothing is on the trip yet.',
-            'Approve or decline it on the reservation page; if you approve, collect it at pickup.',
+            'Their card is held for this, nothing is charged yet.',
+            'Approve on the reservation page to charge it, or decline to release the hold.',
             '',
             ...extras.map(e => `  ${e.name}${e.billing === 'per-day' ? ` (${e.quantity} x ${money(e.unitPrice)})` : ''}  ${money(e.amount)}`),
             `  If approved: ${money(estimated)}`,

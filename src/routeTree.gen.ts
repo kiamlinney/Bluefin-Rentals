@@ -13,6 +13,7 @@ import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as ReviewsRouteImport } from './routes/reviews'
 import { Route as PoliciesRouteImport } from './routes/policies'
+import { Route as MyBookingsRouteImport } from './routes/my-bookings'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as FaqRouteImport } from './routes/faq'
 import { Route as ContactRouteImport } from './routes/contact'
@@ -30,12 +31,14 @@ import { Route as FleetCarSlugRouteImport } from './routes/fleet/$carSlug'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe-webhook'
 import { Route as AdminCalendarRouteImport } from './routes/admin/calendar'
 import { Route as AuthedProfileRouteImport } from './routes/_authed.profile'
-import { Route as AuthedMyBookingsRouteImport } from './routes/_authed.my-bookings'
+import { Route as AuthedTripsIndexRouteImport } from './routes/_authed.trips.index'
 import { Route as ApiCronSyncTuroRouteImport } from './routes/api/cron/sync-turo'
+import { Route as ApiCronPaymentsRouteImport } from './routes/api/cron/payments'
 import { Route as AdminUserUserIdRouteImport } from './routes/admin/user.$userId'
 import { Route as AdminTripsHistoryRouteImport } from './routes/admin/trips/history'
 import { Route as AdminTripsBookedRouteImport } from './routes/admin/trips/booked'
 import { Route as AdminReservationBookingIdRouteImport } from './routes/admin/reservation.$bookingId'
+import { Route as AdminBusinessTaxInformationRouteImport } from './routes/admin/business/tax-information'
 import { Route as AdminBusinessRatingsReviewsRouteImport } from './routes/admin/business/ratings-reviews'
 import { Route as AdminBusinessEarningsRouteImport } from './routes/admin/business/earnings'
 import { Route as AuthedTripsBookingIdRouteImport } from './routes/_authed.trips.$bookingId'
@@ -44,6 +47,7 @@ import { Route as AuthedCheckoutCarIdRouteImport } from './routes/_authed.checko
 import { Route as AuthedTripsBookingIdReceiptRouteImport } from './routes/_authed.trips.$bookingId_.receipt'
 import { Route as AuthedTripsBookingIdPhotosRouteImport } from './routes/_authed.trips.$bookingId_.photos'
 import { Route as AuthedTripsBookingIdExtrasRouteImport } from './routes/_authed.trips.$bookingId_.extras'
+import { Route as AuthedTripsBookingIdPayChargeIdRouteImport } from './routes/_authed.trips.$bookingId_.pay.$chargeId'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -63,6 +67,11 @@ const ReviewsRoute = ReviewsRouteImport.update({
 const PoliciesRoute = PoliciesRouteImport.update({
   id: '/policies',
   path: '/policies',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MyBookingsRoute = MyBookingsRouteImport.update({
+  id: '/my-bookings',
+  path: '/my-bookings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -149,14 +158,19 @@ const AuthedProfileRoute = AuthedProfileRouteImport.update({
   path: '/profile',
   getParentRoute: () => AuthedRoute,
 } as any)
-const AuthedMyBookingsRoute = AuthedMyBookingsRouteImport.update({
-  id: '/my-bookings',
-  path: '/my-bookings',
+const AuthedTripsIndexRoute = AuthedTripsIndexRouteImport.update({
+  id: '/trips/',
+  path: '/trips/',
   getParentRoute: () => AuthedRoute,
 } as any)
 const ApiCronSyncTuroRoute = ApiCronSyncTuroRouteImport.update({
   id: '/api/cron/sync-turo',
   path: '/api/cron/sync-turo',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCronPaymentsRoute = ApiCronPaymentsRouteImport.update({
+  id: '/api/cron/payments',
+  path: '/api/cron/payments',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminUserUserIdRoute = AdminUserUserIdRouteImport.update({
@@ -178,6 +192,12 @@ const AdminReservationBookingIdRoute =
   AdminReservationBookingIdRouteImport.update({
     id: '/reservation/$bookingId',
     path: '/reservation/$bookingId',
+    getParentRoute: () => AdminRoute,
+  } as any)
+const AdminBusinessTaxInformationRoute =
+  AdminBusinessTaxInformationRouteImport.update({
+    id: '/business/tax-information',
+    path: '/business/tax-information',
     getParentRoute: () => AdminRoute,
   } as any)
 const AdminBusinessRatingsReviewsRoute =
@@ -224,6 +244,12 @@ const AuthedTripsBookingIdExtrasRoute =
     path: '/trips/$bookingId/extras',
     getParentRoute: () => AuthedRoute,
   } as any)
+const AuthedTripsBookingIdPayChargeIdRoute =
+  AuthedTripsBookingIdPayChargeIdRouteImport.update({
+    id: '/trips/$bookingId_/pay/$chargeId',
+    path: '/trips/$bookingId/pay/$chargeId',
+    getParentRoute: () => AuthedRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -233,11 +259,11 @@ export interface FileRoutesByFullPath {
   '/contact': typeof ContactRoute
   '/faq': typeof FaqRoute
   '/login': typeof LoginRoute
+  '/my-bookings': typeof MyBookingsRoute
   '/policies': typeof PoliciesRouteWithChildren
   '/reviews': typeof ReviewsRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/my-bookings': typeof AuthedMyBookingsRoute
   '/profile': typeof AuthedProfileRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
@@ -252,14 +278,18 @@ export interface FileRoutesByFullPath {
   '/trips/$bookingId': typeof AuthedTripsBookingIdRoute
   '/admin/business/earnings': typeof AdminBusinessEarningsRoute
   '/admin/business/ratings-reviews': typeof AdminBusinessRatingsReviewsRoute
+  '/admin/business/tax-information': typeof AdminBusinessTaxInformationRoute
   '/admin/reservation/$bookingId': typeof AdminReservationBookingIdRoute
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
   '/admin/user/$userId': typeof AdminUserUserIdRoute
+  '/api/cron/payments': typeof ApiCronPaymentsRoute
   '/api/cron/sync-turo': typeof ApiCronSyncTuroRoute
+  '/trips/': typeof AuthedTripsIndexRoute
   '/trips/$bookingId/extras': typeof AuthedTripsBookingIdExtrasRoute
   '/trips/$bookingId/photos': typeof AuthedTripsBookingIdPhotosRoute
   '/trips/$bookingId/receipt': typeof AuthedTripsBookingIdReceiptRoute
+  '/trips/$bookingId/pay/$chargeId': typeof AuthedTripsBookingIdPayChargeIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -268,11 +298,11 @@ export interface FileRoutesByTo {
   '/contact': typeof ContactRoute
   '/faq': typeof FaqRoute
   '/login': typeof LoginRoute
+  '/my-bookings': typeof MyBookingsRoute
   '/policies': typeof PoliciesRouteWithChildren
   '/reviews': typeof ReviewsRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/my-bookings': typeof AuthedMyBookingsRoute
   '/profile': typeof AuthedProfileRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
@@ -287,14 +317,18 @@ export interface FileRoutesByTo {
   '/trips/$bookingId': typeof AuthedTripsBookingIdRoute
   '/admin/business/earnings': typeof AdminBusinessEarningsRoute
   '/admin/business/ratings-reviews': typeof AdminBusinessRatingsReviewsRoute
+  '/admin/business/tax-information': typeof AdminBusinessTaxInformationRoute
   '/admin/reservation/$bookingId': typeof AdminReservationBookingIdRoute
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
   '/admin/user/$userId': typeof AdminUserUserIdRoute
+  '/api/cron/payments': typeof ApiCronPaymentsRoute
   '/api/cron/sync-turo': typeof ApiCronSyncTuroRoute
+  '/trips': typeof AuthedTripsIndexRoute
   '/trips/$bookingId/extras': typeof AuthedTripsBookingIdExtrasRoute
   '/trips/$bookingId/photos': typeof AuthedTripsBookingIdPhotosRoute
   '/trips/$bookingId/receipt': typeof AuthedTripsBookingIdReceiptRoute
+  '/trips/$bookingId/pay/$chargeId': typeof AuthedTripsBookingIdPayChargeIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -306,11 +340,11 @@ export interface FileRoutesById {
   '/contact': typeof ContactRoute
   '/faq': typeof FaqRoute
   '/login': typeof LoginRoute
+  '/my-bookings': typeof MyBookingsRoute
   '/policies': typeof PoliciesRouteWithChildren
   '/reviews': typeof ReviewsRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/_authed/my-bookings': typeof AuthedMyBookingsRoute
   '/_authed/profile': typeof AuthedProfileRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
@@ -325,14 +359,18 @@ export interface FileRoutesById {
   '/_authed/trips/$bookingId': typeof AuthedTripsBookingIdRoute
   '/admin/business/earnings': typeof AdminBusinessEarningsRoute
   '/admin/business/ratings-reviews': typeof AdminBusinessRatingsReviewsRoute
+  '/admin/business/tax-information': typeof AdminBusinessTaxInformationRoute
   '/admin/reservation/$bookingId': typeof AdminReservationBookingIdRoute
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
   '/admin/user/$userId': typeof AdminUserUserIdRoute
+  '/api/cron/payments': typeof ApiCronPaymentsRoute
   '/api/cron/sync-turo': typeof ApiCronSyncTuroRoute
+  '/_authed/trips/': typeof AuthedTripsIndexRoute
   '/_authed/trips/$bookingId_/extras': typeof AuthedTripsBookingIdExtrasRoute
   '/_authed/trips/$bookingId_/photos': typeof AuthedTripsBookingIdPhotosRoute
   '/_authed/trips/$bookingId_/receipt': typeof AuthedTripsBookingIdReceiptRoute
+  '/_authed/trips/$bookingId_/pay/$chargeId': typeof AuthedTripsBookingIdPayChargeIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -344,11 +382,11 @@ export interface FileRouteTypes {
     | '/contact'
     | '/faq'
     | '/login'
+    | '/my-bookings'
     | '/policies'
     | '/reviews'
     | '/robots.txt'
     | '/sitemap.xml'
-    | '/my-bookings'
     | '/profile'
     | '/admin/calendar'
     | '/api/stripe-webhook'
@@ -363,14 +401,18 @@ export interface FileRouteTypes {
     | '/trips/$bookingId'
     | '/admin/business/earnings'
     | '/admin/business/ratings-reviews'
+    | '/admin/business/tax-information'
     | '/admin/reservation/$bookingId'
     | '/admin/trips/booked'
     | '/admin/trips/history'
     | '/admin/user/$userId'
+    | '/api/cron/payments'
     | '/api/cron/sync-turo'
+    | '/trips/'
     | '/trips/$bookingId/extras'
     | '/trips/$bookingId/photos'
     | '/trips/$bookingId/receipt'
+    | '/trips/$bookingId/pay/$chargeId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -379,11 +421,11 @@ export interface FileRouteTypes {
     | '/contact'
     | '/faq'
     | '/login'
+    | '/my-bookings'
     | '/policies'
     | '/reviews'
     | '/robots.txt'
     | '/sitemap.xml'
-    | '/my-bookings'
     | '/profile'
     | '/admin/calendar'
     | '/api/stripe-webhook'
@@ -398,14 +440,18 @@ export interface FileRouteTypes {
     | '/trips/$bookingId'
     | '/admin/business/earnings'
     | '/admin/business/ratings-reviews'
+    | '/admin/business/tax-information'
     | '/admin/reservation/$bookingId'
     | '/admin/trips/booked'
     | '/admin/trips/history'
     | '/admin/user/$userId'
+    | '/api/cron/payments'
     | '/api/cron/sync-turo'
+    | '/trips'
     | '/trips/$bookingId/extras'
     | '/trips/$bookingId/photos'
     | '/trips/$bookingId/receipt'
+    | '/trips/$bookingId/pay/$chargeId'
   id:
     | '__root__'
     | '/'
@@ -416,11 +462,11 @@ export interface FileRouteTypes {
     | '/contact'
     | '/faq'
     | '/login'
+    | '/my-bookings'
     | '/policies'
     | '/reviews'
     | '/robots.txt'
     | '/sitemap.xml'
-    | '/_authed/my-bookings'
     | '/_authed/profile'
     | '/admin/calendar'
     | '/api/stripe-webhook'
@@ -435,14 +481,18 @@ export interface FileRouteTypes {
     | '/_authed/trips/$bookingId'
     | '/admin/business/earnings'
     | '/admin/business/ratings-reviews'
+    | '/admin/business/tax-information'
     | '/admin/reservation/$bookingId'
     | '/admin/trips/booked'
     | '/admin/trips/history'
     | '/admin/user/$userId'
+    | '/api/cron/payments'
     | '/api/cron/sync-turo'
+    | '/_authed/trips/'
     | '/_authed/trips/$bookingId_/extras'
     | '/_authed/trips/$bookingId_/photos'
     | '/_authed/trips/$bookingId_/receipt'
+    | '/_authed/trips/$bookingId_/pay/$chargeId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -454,6 +504,7 @@ export interface RootRouteChildren {
   ContactRoute: typeof ContactRoute
   FaqRoute: typeof FaqRoute
   LoginRoute: typeof LoginRoute
+  MyBookingsRoute: typeof MyBookingsRoute
   PoliciesRoute: typeof PoliciesRouteWithChildren
   ReviewsRoute: typeof ReviewsRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
@@ -461,6 +512,7 @@ export interface RootRouteChildren {
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
   FleetCarSlugRoute: typeof FleetCarSlugRoute
   FleetIndexRoute: typeof FleetIndexRoute
+  ApiCronPaymentsRoute: typeof ApiCronPaymentsRoute
   ApiCronSyncTuroRoute: typeof ApiCronSyncTuroRoute
 }
 
@@ -492,6 +544,13 @@ declare module '@tanstack/react-router' {
       path: '/policies'
       fullPath: '/policies'
       preLoaderRoute: typeof PoliciesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/my-bookings': {
+      id: '/my-bookings'
+      path: '/my-bookings'
+      fullPath: '/my-bookings'
+      preLoaderRoute: typeof MyBookingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -613,11 +672,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedProfileRouteImport
       parentRoute: typeof AuthedRoute
     }
-    '/_authed/my-bookings': {
-      id: '/_authed/my-bookings'
-      path: '/my-bookings'
-      fullPath: '/my-bookings'
-      preLoaderRoute: typeof AuthedMyBookingsRouteImport
+    '/_authed/trips/': {
+      id: '/_authed/trips/'
+      path: '/trips'
+      fullPath: '/trips/'
+      preLoaderRoute: typeof AuthedTripsIndexRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/api/cron/sync-turo': {
@@ -625,6 +684,13 @@ declare module '@tanstack/react-router' {
       path: '/api/cron/sync-turo'
       fullPath: '/api/cron/sync-turo'
       preLoaderRoute: typeof ApiCronSyncTuroRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cron/payments': {
+      id: '/api/cron/payments'
+      path: '/api/cron/payments'
+      fullPath: '/api/cron/payments'
+      preLoaderRoute: typeof ApiCronPaymentsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/user/$userId': {
@@ -653,6 +719,13 @@ declare module '@tanstack/react-router' {
       path: '/reservation/$bookingId'
       fullPath: '/admin/reservation/$bookingId'
       preLoaderRoute: typeof AdminReservationBookingIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/business/tax-information': {
+      id: '/admin/business/tax-information'
+      path: '/business/tax-information'
+      fullPath: '/admin/business/tax-information'
+      preLoaderRoute: typeof AdminBusinessTaxInformationRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/business/ratings-reviews': {
@@ -711,29 +784,38 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedTripsBookingIdExtrasRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/trips/$bookingId_/pay/$chargeId': {
+      id: '/_authed/trips/$bookingId_/pay/$chargeId'
+      path: '/trips/$bookingId/pay/$chargeId'
+      fullPath: '/trips/$bookingId/pay/$chargeId'
+      preLoaderRoute: typeof AuthedTripsBookingIdPayChargeIdRouteImport
+      parentRoute: typeof AuthedRoute
+    }
   }
 }
 
 interface AuthedRouteChildren {
-  AuthedMyBookingsRoute: typeof AuthedMyBookingsRoute
   AuthedProfileRoute: typeof AuthedProfileRoute
   AuthedCheckoutCarIdRoute: typeof AuthedCheckoutCarIdRoute
   AuthedProfileEditRoute: typeof AuthedProfileEditRoute
   AuthedTripsBookingIdRoute: typeof AuthedTripsBookingIdRoute
+  AuthedTripsIndexRoute: typeof AuthedTripsIndexRoute
   AuthedTripsBookingIdExtrasRoute: typeof AuthedTripsBookingIdExtrasRoute
   AuthedTripsBookingIdPhotosRoute: typeof AuthedTripsBookingIdPhotosRoute
   AuthedTripsBookingIdReceiptRoute: typeof AuthedTripsBookingIdReceiptRoute
+  AuthedTripsBookingIdPayChargeIdRoute: typeof AuthedTripsBookingIdPayChargeIdRoute
 }
 
 const AuthedRouteChildren: AuthedRouteChildren = {
-  AuthedMyBookingsRoute: AuthedMyBookingsRoute,
   AuthedProfileRoute: AuthedProfileRoute,
   AuthedCheckoutCarIdRoute: AuthedCheckoutCarIdRoute,
   AuthedProfileEditRoute: AuthedProfileEditRoute,
   AuthedTripsBookingIdRoute: AuthedTripsBookingIdRoute,
+  AuthedTripsIndexRoute: AuthedTripsIndexRoute,
   AuthedTripsBookingIdExtrasRoute: AuthedTripsBookingIdExtrasRoute,
   AuthedTripsBookingIdPhotosRoute: AuthedTripsBookingIdPhotosRoute,
   AuthedTripsBookingIdReceiptRoute: AuthedTripsBookingIdReceiptRoute,
+  AuthedTripsBookingIdPayChargeIdRoute: AuthedTripsBookingIdPayChargeIdRoute,
 }
 
 const AuthedRouteWithChildren =
@@ -744,6 +826,7 @@ interface AdminRouteChildren {
   AdminIndexRoute: typeof AdminIndexRoute
   AdminBusinessEarningsRoute: typeof AdminBusinessEarningsRoute
   AdminBusinessRatingsReviewsRoute: typeof AdminBusinessRatingsReviewsRoute
+  AdminBusinessTaxInformationRoute: typeof AdminBusinessTaxInformationRoute
   AdminReservationBookingIdRoute: typeof AdminReservationBookingIdRoute
   AdminTripsBookedRoute: typeof AdminTripsBookedRoute
   AdminTripsHistoryRoute: typeof AdminTripsHistoryRoute
@@ -755,6 +838,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminIndexRoute: AdminIndexRoute,
   AdminBusinessEarningsRoute: AdminBusinessEarningsRoute,
   AdminBusinessRatingsReviewsRoute: AdminBusinessRatingsReviewsRoute,
+  AdminBusinessTaxInformationRoute: AdminBusinessTaxInformationRoute,
   AdminReservationBookingIdRoute: AdminReservationBookingIdRoute,
   AdminTripsBookedRoute: AdminTripsBookedRoute,
   AdminTripsHistoryRoute: AdminTripsHistoryRoute,
@@ -788,6 +872,7 @@ const rootRouteChildren: RootRouteChildren = {
   ContactRoute: ContactRoute,
   FaqRoute: FaqRoute,
   LoginRoute: LoginRoute,
+  MyBookingsRoute: MyBookingsRoute,
   PoliciesRoute: PoliciesRouteWithChildren,
   ReviewsRoute: ReviewsRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
@@ -795,6 +880,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
   FleetCarSlugRoute: FleetCarSlugRoute,
   FleetIndexRoute: FleetIndexRoute,
+  ApiCronPaymentsRoute: ApiCronPaymentsRoute,
   ApiCronSyncTuroRoute: ApiCronSyncTuroRoute,
 }
 export const routeTree = rootRouteImport

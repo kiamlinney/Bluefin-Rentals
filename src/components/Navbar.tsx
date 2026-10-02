@@ -113,12 +113,13 @@ const Navbar = ({ user }: { user: any | null }) => {
 
     // Shared by the desktop dropdown and the phone panel, so the two can't
     // offer different options.
+    // Admins get Trips too: an owner can book trips of their own, and the admin
+    // page doesn't list them as a guest sees them.
     const accountLinks = user?.id
         ? [
               { label: "View Profile", to: "/profile" },
-              user.is_admin
-                  ? { label: "Admin Page", to: "/admin" }
-                  : { label: "My Bookings", to: "/my-bookings" },
+              { label: "Trips", to: "/trips" },
+              ...(user.is_admin ? [{ label: "Admin Page", to: "/admin" }] : []),
           ]
         : [];
 

@@ -27,7 +27,7 @@ export const adminNav: AdminNavItem[] = [
         children: [
            // { label: 'Earnings', path: '/admin/business/earnings'},
             { label: 'Ratings & reviews', path: '/admin/business/ratings-reviews'},
-           // { label: 'Tax Information', path: '/admin/business/tax-information'},
+            { label: 'Tax information', path: '/admin/business/tax-information'},
            // { label: 'Transaction History', path: '/admin/business/transaction-history'},
         ],
     },

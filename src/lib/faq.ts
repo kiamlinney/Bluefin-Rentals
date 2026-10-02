@@ -5,6 +5,7 @@
 import { DELIVERY_FEE, DELIVERY_RADIUS_MILES } from './pickup'
 import { MIN_LEAD_TIME_HOURS } from './availability'
 import { BUSINESS } from './business'
+import { DEPOSIT_PLACE_BEFORE_HOURS, DEPOSIT_RELEASE_AFTER_HOURS, formatDepositAmount } from './deposit'
 
 export type FaqItem = { question: string; answer: string }
 
@@ -43,10 +44,17 @@ export const FAQS: FaqItem[] = [
         answer:
             "A valid driver's license and a credit or debit card. Your license is verified through Stripe Identity during checkout — you'll photograph the front and back and take a selfie, and it's usually confirmed within a minute.",
     },
+    // Card saving and the deposit: ImportantFiles/payments-overview.md and
+    // deposit.md, and sections 2–3 of /policies/terms.
     {
         question: 'When am I charged?',
         answer:
-            'The full amount is charged when you book, through Stripe. We never see or store your card details.',
+            `The full trip total is charged when you book, through Stripe, and your card is saved to the trip. About ${DEPOSIT_PLACE_BEFORE_HOURS} hours before pickup we place a refundable ${formatDepositAmount()} security hold on it. After booking, the card is only charged for things you ask for, like an extension or extras, or for costs from the trip such as damage, mileage over your allowance, fuel or tolls, and you get a receipt for each. Stripe stores the card; we never see the full number.`,
+    },
+    {
+        question: 'Is a security deposit required?',
+        answer:
+            `Yes. About ${DEPOSIT_PLACE_BEFORE_HOURS} hours before pickup we place a ${formatDepositAmount()} hold on your card. It's a hold, not a charge, and it's released ${DEPOSIT_RELEASE_AFTER_HOURS} hours after you return the car, unless it's needed to cover damage or other costs from the trip. The lockbox code is sent once the hold is in place.`,
     },
 ]
 
@@ -58,7 +66,6 @@ export const PENDING_FAQS: string[] = [
     'What is the minimum age to rent?',
     'Do I need my own insurance, or is coverage included?',
     'Is there a mileage limit?',
-    'Is a security deposit required?',
     'What is the cancellation policy?',
     'What is the fuel policy?',
     'Can I add a second driver?',

@@ -7,18 +7,15 @@ import { distanceFeeForTrip, formatMiles, milesIncluded } from '@/lib/distance.t
 import { hasUnlimitedMileage } from '@/lib/extras.ts'
 import type { Car } from '@/types.ts'
 import { carMainImageUrl } from '@/lib/car-images.ts'
+import { displayTaxLines } from '@/lib/tax.ts'
 
-// ── Placeholder ───────────────────────────────────────────────────────────────
+// ── Tax ───────────────────────────────────────────────────────────────────────
 //
-// Sales tax isn't real yet, and isn't part of any charge. The Trip total below
-// is `total`, which is the server's quote — the exact amount the PaymentIntent
-// is created for. It's printed at $0.00 rather than omitted so the row exists
-// and has an obvious home once a rate is settled on.
-//
-// If it's ever made real it belongs in calculateTripPrice (src/lib/pricing.ts),
-// not here, so that the widget, the server quote, the PaymentIntent and
-// bookings.total_price all move together.
-const PLACEHOLDER_SALES_TAX = 0
+// Itemised from quote.taxLines, which calculateTripPrice produced — the same
+// function the server charges with — so the lines here add up to the Trip total
+// below, which is the exact amount of the PaymentIntent. Grouped by
+// displayTaxLines into sales tax and the rental tax, as the receipt prints
+// them. Rules and sources: src/lib/tax.ts.
 
 const formatMoney = (amount: number): string => `$${amount.toFixed(2)}`
 
@@ -176,9 +173,15 @@ export function TripSummaryCard({
                     />
                 ))}
 
-                <Row label="Sales tax" value={formatMoney(PLACEHOLDER_SALES_TAX)} />
+                {displayTaxLines(quote.taxLines).map((tax) => (
+                    <Row
+                        key={tax.id}
+                        label={tax.label}
+                        value={`+${formatMoney(tax.amount)}`}
+                    />
+                ))}
 
-                {/* Not a price line — it sits below Sales tax and above the
+                {/* Not a price line — it sits below the taxes and above the
                     Trip total divider, and never enters the total. The overage
                     is settled after the trip against a real odometer reading. */}
                 <div>

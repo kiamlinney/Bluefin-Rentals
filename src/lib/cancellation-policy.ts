@@ -306,7 +306,18 @@ export function refundForCancellation(input: RefundInput): RefundOutcome {
 
     // The rule, stated directly: the trip price back minus the fee, plus the
     // delivery fee and the extras that bought nothing, keeping the premium.
-    const rawRefund = tripPrice - cancellationFee + pickupFee + extras
+    const preTaxRefund = tripPrice - cancellationFee + pickupFee + extras
+
+    // And the tax on what comes back, in proportion: tax was charged on the
+    // whole, so the refunded share's tax returns with it and the fee's stays.
+    // ▶ PLACEHOLDER whether a retained cancellation fee is itself taxable —
+    // ImportantFiles/tax-todo.md, item 4. A quote from before tax existed
+    // has taxTotal 0, and this adds nothing.
+    const taxTotal = input.quote?.taxTotal ?? 0
+    const preTaxTotal = input.quote?.preTaxTotal ?? 0
+    const taxRefund = taxTotal > 0 && preTaxTotal > 0 ? taxTotal * (Math.max(preTaxRefund, 0) / preTaxTotal) : 0
+
+    const rawRefund = preTaxRefund + taxRefund
     const refundAmount = roundMoney(Math.min(Math.max(rawRefund, 0), ceiling))
     const retainedPremium = roundMoney(Math.min(premium, Math.max(ceiling - refundAmount, 0)))
 
@@ -325,6 +336,56 @@ export function refundForCancellation(input: RefundInput): RefundOutcome {
         reason: 'late-cancellation',
         estimated,
     }
+}
+
+// ── Charges made after booking ───────────────────────────────────────────────
+//
+// A trip can carry charges beyond its checkout: an extension, or an extra added
+// later (ImportantFiles/cancellation-and-refunds.md). When the trip is
+// cancelled each follows the trip's own outcome, so a guest is never refunded
+// more generously for the part they bought later than for the trip itself:
+//
+//   Extensions — decided 2026-09-25 ("follow the trip's policy"); the partial
+//   case below is PROPOSED, awaiting review:
+//     full    -> everything back.
+//     none    -> nothing back.
+//     partial -> everything back except the extension's own refundable premium
+//                (and the tax on it). The one-day cancellation fee is only ever
+//                taken once, on the trip — never again on an extension.
+//
+//   Extras added after booking — exactly as extras bought at checkout already
+//   are: back in full unless the trip's outcome is no refund at all.
+//
+// Owner-entered charges (damage, tolls…) are never refunded by a cancellation;
+// the owners refund those by hand. Deposit holds are simply released.
+//
+// Pure, like everything above: the cancel dialog shows this figure and
+// cancelBooking pays it, from the same function.
+
+export type LaterCharge = {
+    id: string
+    kind: 'extension' | 'extra'
+    /** Pre-tax amount charged. */
+    amount: number
+    tax: number
+    captured: number
+    refunded: number
+    /** The extension's refundable premium, pre-tax. 0 for extras and the non-refundable rate. */
+    refundablePremium: number
+}
+
+export function laterChargeRefund(outcome: Pick<RefundOutcome, 'kind'>, charge: LaterCharge): number {
+    const outstanding = roundMoney(Math.max(0, charge.captured - charge.refunded))
+    if (outstanding <= 0 || outcome.kind === 'none') return 0
+    if (outcome.kind === 'full' || charge.kind === 'extra') return outstanding
+
+    const taxRate = charge.amount > 0 ? charge.tax / charge.amount : 0
+    const retained = roundMoney(charge.refundablePremium * (1 + taxRate))
+    return roundMoney(Math.max(0, outstanding - retained))
+}
+
+export function laterChargesRefundTotal(outcome: Pick<RefundOutcome, 'kind'>, charges: LaterCharge[]): number {
+    return roundMoney(charges.reduce((sum, charge) => sum + laterChargeRefund(outcome, charge), 0))
 }
 
 /** One line of guest-facing explanation. Shared by the dialog and both emails. */

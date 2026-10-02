@@ -3,6 +3,8 @@ import { ArrowLeft, Printer } from 'lucide-react'
 import { getTripForGuest } from '@/lib/db.ts'
 import { buildReceipt } from '@/lib/receipt.ts'
 import { TripReceipt } from '@/components/trip/TripReceipt.tsx'
+import { AdditionalReceipts } from '@/components/trip/AdditionalReceipts.tsx'
+import { getTripPayments } from '@/lib/payments.ts'
 import { displayName } from '@/lib/profile.ts'
 import type { BookingWithDetails } from '@/types.ts'
 
@@ -22,15 +24,21 @@ import type { BookingWithDetails } from '@/types.ts'
 // the row would print "Trip total" over an abandoned checkout.
 export const Route = createFileRoute('/_authed/trips/$bookingId_/receipt')({
     loader: async ({ params }) => {
-        const trip = await getTripForGuest({ data: params.bookingId })
+        const [trip, payments] = await Promise.all([
+            getTripForGuest({ data: params.bookingId }),
+            getTripPayments({ data: params.bookingId }),
+        ])
         const booking = trip.booking as BookingWithDetails
-        return { ...trip, booking, receipt: buildReceipt(booking, booking.cars) }
+        // Every charge after checkout, deposit captures included — the receipts
+        // appended below the checkout one.
+        const laterCharges = [...payments.charges, ...payments.deposit.history]
+        return { ...trip, booking, receipt: buildReceipt(booking, booking.cars), laterCharges }
     },
     component: TripReceiptPage,
 })
 
 function TripReceiptPage() {
-    const { booking, receipt, card, paymentState, isAdmin } = Route.useLoaderData()
+    const { booking, receipt, card, paymentState, isAdmin, laterCharges } = Route.useLoaderData()
     const { bookingId } = Route.useParams()
 
     return (
@@ -82,6 +90,7 @@ function TripReceiptPage() {
                         paymentState={paymentState}
                         isAdmin={isAdmin}
                     />
+                    <AdditionalReceipts charges={laterCharges} checkoutNet={receipt.netCharged} />
                 </div>
             </div>
         </div>

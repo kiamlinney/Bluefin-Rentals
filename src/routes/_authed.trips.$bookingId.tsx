@@ -30,6 +30,12 @@ import { AdditionalDriversSection } from '@/components/trip/AdditionalDriversSec
 import { TripExtrasSection } from '@/components/trip/TripExtrasSection'
 import { BookedTripModal } from '@/components/trip/BookedTripModal'
 import { TripMessages } from '@/components/trip/TripMessages'
+import { TripChargesSection } from '@/components/trip/TripChargesSection'
+import { TripDepositSection } from '@/components/trip/TripDepositSection'
+import { TripExtensionsSection } from '@/components/trip/TripExtensionsSection'
+import { ExtendTripDialog } from '@/components/trip/ExtendTripDialog'
+import { getTripPayments } from '@/lib/payments'
+import { paidAfterCheckout } from '@/lib/charges'
 
 // The guest's permanent page for one trip. This replaced /booking-confirmed,
 // which was a one-shot receipt with no authorization of its own and no idea
@@ -38,7 +44,7 @@ import { TripMessages } from '@/components/trip/TripMessages'
 // Confirmation is a state of this page rather than a page of its own — the same
 // URL serves the moment after checkout, the week before pickup, and the year
 // after the trip ended. `?booked=1` is what distinguishes "just arrived from
-// checkout" from "opened this from My Bookings", and nothing else depends on it.
+// checkout" from "opened this from Trips", and nothing else depends on it.
 //
 // Laid out as the host's reservation page is, because a guest asking "what did
 // I actually book?" wants the same facts the host has. The two share their
@@ -48,13 +54,14 @@ export const Route = createFileRoute('/_authed/trips/$bookingId')({
         booked: z.literal('1').optional(),
     }),
     loader: async ({ params }) => {
-        const [trip, review, drivers, extras] = await Promise.all([
+        const [trip, review, drivers, extras, payments] = await Promise.all([
             getTripForGuest({ data: params.bookingId }),
             getBookingReview({ data: params.bookingId }),
             getAdditionalDrivers({ data: params.bookingId }),
             getTripExtras({ data: params.bookingId }),
+            getTripPayments({ data: params.bookingId }),
         ])
-        return { ...trip, review, drivers, extras }
+        return { ...trip, review, drivers, extras, payments }
     },
     component: TripPage,
 })
@@ -69,7 +76,7 @@ const STATUS_BADGE: Record<string, string> = {
 }
 
 function TripPage() {
-    const { booking, paymentState, card, review, isAdmin, drivers, extras, lockboxCode } =
+    const { booking, paymentState, card, review, isAdmin, drivers, extras, lockboxCode, payments } =
         Route.useLoaderData()
     const { booked } = Route.useSearch()
     const router = useRouter()
@@ -101,8 +108,20 @@ function TripPage() {
     const showBookedModal = booked === '1' && paymentState === 'confirmed' && !modalDismissed
 
     const [cancelling, setCancelling] = useState(false)
+    const [extending, setExtending] = useState(false)
+    const [notice, setNotice] = useState<string | null>(null)
 
     const canCancel = booking.status === 'confirmed' && !hasEnded
+    // Up to the trip's last minute. Inside the last hour it becomes a request
+    // the owners answer; after the end it's a late return (extensions.md).
+    const canExtend = booking.status === 'confirmed' && isPaid && !hasEnded
+    const openExtension = payments.extensions.some(e => e.status === 'pending' || e.status === 'requested')
+
+    // What the guest has paid since checkout, net of refunds — including any part
+    // of a deposit that was kept. The checkout receipt itself never changes
+    // (charges.ts); the totals on this page are that plus this.
+    const paidSinceCheckout = paidAfterCheckout([...payments.charges, ...payments.deposit.history])
+    const totalPaid = Math.round((Number(booking.total_price) + paidSinceCheckout) * 100) / 100
     const canManageDrivers = booking.status === 'confirmed' && !hasStarted
 
     const cancelDeadline = effectiveFreeCancellationDeadline(booking.booking_rate, {
@@ -201,7 +220,13 @@ function TripPage() {
                         </TripSection>
 
                         <TripSection title="Total cost">
-                            <p className="text-lg text-ink">${booking.total_price}</p>
+                            <p className="text-lg text-ink">${totalPaid.toFixed(2)}</p>
+                            {paidSinceCheckout > 0 && (
+                                <p className="text-sm text-muted">
+                                    ${Number(booking.total_price).toFixed(2)} at booking, plus $
+                                    {paidSinceCheckout.toFixed(2)} in charges since.
+                                </p>
+                            )}
                             <Link
                                 to="/trips/$bookingId/receipt"
                                 params={{ bookingId: booking.id }}
@@ -210,6 +235,30 @@ function TripPage() {
                                 View detailed receipt
                             </Link>
                         </TripSection>
+
+                        <TripDepositSection
+                            bookingId={booking.id}
+                            deposit={payments.deposit}
+                            card={payments.card}
+                            voice="guest"
+                            tripStart={booking.start_time}
+                            tripEnd={booking.end_time}
+                            active={isPaid && booking.status === 'confirmed'}
+                            onChanged={() => router.invalidate()}
+                        />
+
+                        <TripExtensionsSection
+                            extensions={payments.extensions}
+                            voice="guest"
+                            onChanged={() => router.invalidate()}
+                        />
+
+                        <TripChargesSection
+                            bookingId={booking.id}
+                            charges={payments.charges}
+                            voice="guest"
+                            onChanged={() => router.invalidate()}
+                        />
 
                         <TripSection
                             title="Cancellation policy"
@@ -330,6 +379,19 @@ function TripPage() {
                                 </>
                             ) : null}
 
+                            {notice && <p className="text-sm text-pine-700">{notice}</p>}
+
+                            {canExtend && (
+                                <button
+                                    type="button"
+                                    onClick={() => setExtending(true)}
+                                    disabled={openExtension}
+                                    className="w-full px-4 py-2.5 rounded-xl bg-brand text-on-brand text-sm font-bold hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {openExtension ? 'Extension in progress' : 'Extend trip'}
+                                </button>
+                            )}
+
                             {isPaid && !hasStarted && (
                                 <Link
                                     to="/trips/$bookingId/extras"
@@ -359,6 +421,7 @@ function TripPage() {
                             booking={booking}
                             card={card}
                             onRecheck={() => router.invalidate()}
+                            paidAfterBooking={paidSinceCheckout}
                         />
 
                         <p className="text-xs font-bold uppercase tracking-wider text-muted">
@@ -366,7 +429,7 @@ function TripPage() {
                         </p>
 
                         <Link
-                            to="/my-bookings"
+                            to="/trips"
                             className="block text-muted hover:text-ink text-sm transition-colors"
                         >
                             All my trips →
@@ -391,6 +454,19 @@ function TripPage() {
                             search: ({ booked: _booked, ...rest }) => rest,
                             replace: true,
                         })
+                    }}
+                />
+            )}
+
+            {extending && (
+                <ExtendTripDialog
+                    bookingId={booking.id}
+                    currentEnd={booking.end_time}
+                    onClose={() => setExtending(false)}
+                    onDone={(message) => {
+                        setExtending(false)
+                        setNotice(message)
+                        router.invalidate()
                     }}
                 />
             )}

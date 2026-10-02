@@ -21,6 +21,7 @@ import type { TripQuote } from './pricing.ts'
 import { getTripDurationMinutes } from './pricing.ts'
 import { businessDateKey, businessWallClockTime } from './dates.ts'
 import { distanceFeeForTrip, maxDistanceFee, milesIncluded } from './distance.ts'
+import { DEFAULT_TAX_JURISDICTION, isTaxJurisdiction } from './tax.ts'
 import type { Car } from '@/types.ts'
 
 
@@ -78,10 +79,20 @@ export function storedQuote(booking: Pick<ReceiptBooking, 'price_quote'>): TripQ
     // the one place a stored quote is narrowed to TripQuote, so it's where the
     // shape is made whole again — otherwise every consumer has to remember the
     // `?? []`, and the one that forgets is a runtime error over a real booking.
+    // Snapshots taken before tax existed (version 1) carry no tax fields. They
+    // were charged no tax, so they're filled in as exactly that — the total
+    // they charged is the pre-tax total, and every receipt and refund computed
+    // from one reads as it always did.
+    const taxLines = Array.isArray(quote.taxLines) ? quote.taxLines : []
+    const taxTotal = Number(quote.taxTotal) || 0
     return {
         ...quote,
         extras: Array.isArray(quote.extras) ? quote.extras : [],
         extrasTotal: Number(quote.extrasTotal) || 0,
+        taxJurisdiction: isTaxJurisdiction(quote.taxJurisdiction) ? quote.taxJurisdiction : DEFAULT_TAX_JURISDICTION,
+        taxLines,
+        taxTotal,
+        preTaxTotal: typeof quote.preTaxTotal === 'number' ? quote.preTaxTotal : roundMoney(Number(quote.total) - taxTotal),
     }
 }
 
@@ -101,8 +112,15 @@ export function storedQuote(booking: Pick<ReceiptBooking, 'price_quote'>): TripQ
  * return and would bill an extra 200 miles.
  */
 function billableDaysFor(booking: ReceiptBooking, quote: TripQuote | null): number {
-    if (quote) return quote.billableDays
+    const fromTimes = billableDaysFromTimes(booking)
+    // An extended trip bills more days than its checkout quote froze: the
+    // extension moved end_time, and each added billable day brings its own
+    // mileage allowance (ImportantFiles/extensions.md). Taking the larger
+    // keeps a legacy row, and an unextended one, exactly where they were.
+    return quote ? Math.max(quote.billableDays, fromTimes) : fromTimes
+}
 
+function billableDaysFromTimes(booking: ReceiptBooking): number {
     const start = new Date(booking.start_time)
     const end = new Date(booking.end_time)
     const minutes = getTripDurationMinutes(

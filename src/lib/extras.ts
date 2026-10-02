@@ -89,6 +89,8 @@ export function extraPriceLabel(extra: ExtraDefinition): string {
 }
 
 // One priced extra, exactly as stored inside bookings.price_quote.
+
+
 //
 // `name` and `unitPrice` are snapshotted rather than looked up at render time,
 // for the same reason QuoteDay carries its own price: a receipt opened next year

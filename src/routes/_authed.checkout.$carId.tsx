@@ -1,12 +1,11 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { loadStripe } from '@stripe/stripe-js'
+import { stripeAppearance, stripePromise } from '@/lib/stripe-client'
 import {
     getCarById,
     getCarPriceOverrides,
     getProfile,
     createCheckoutSession,
-    type PaymentMode,
 } from '@/lib/db'
 import {
     buildOverrideMap,
@@ -26,42 +25,7 @@ import { DriverInfoStep } from '@/components/checkout/DriverInfoStep'
 import { IdentityStep } from '@/components/checkout/IdentityStep'
 import { PaymentSection } from '@/components/checkout/PaymentSection'
 
-// loadStripe is called once at module level — NOT inside a component.
-// If it were inside a component, a new Stripe instance would be created
-// on every render, which breaks the Elements context and causes payment
-// initialization to restart repeatedly.
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
-
-// Stripe's own inputs, themed to match the rest of this page rather than
-// Stripe's defaults. Defined at module level so the object identity is stable —
-// passing a fresh appearance object on every render remounts the iframe.
-//
-// Stripe renders in an iframe and takes literal colours, so these can't use the
-// Tailwind tokens. Each is copied from the palette in src/index.css — keep them
-// in step if that palette changes.
-const stripeAppearance = {
-    theme: 'stripe' as const,
-    variables: {
-        colorPrimary: '#152110',       // pine-900 / brand — focus rings, accents
-        colorBackground: '#ffffff',    // surface
-        colorText: '#1f2a1c',          // ink-900 / ink
-        colorTextSecondary: '#5d6558', // ink-600 / muted
-        colorDanger: '#b91c1c',        // red-700
-        fontFamily: 'Mona Sans, ui-sans-serif, system-ui, sans-serif',
-        borderRadius: '10px',
-        spacingUnit: '4px',
-    },
-    rules: {
-        '.Input': {
-            border: '1px solid #dcd7ca', // cream-300 / line, same as this page's own inputs
-            boxShadow: 'none',
-        },
-        '.Input:focus': {
-            border: '1px solid #152110',
-            boxShadow: 'none',
-        },
-    },
-}
+// Stripe.js and its theme are shared with every other page that takes a card.
 
 export const Route = createFileRoute('/_authed/checkout/$carId')({
     validateSearch: checkoutSearchSchema,
@@ -155,12 +119,6 @@ function CheckoutFlow() {
     const [paymentError, setPaymentError] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(false)
 
-    // Which family of payment methods the Element offers. This lives up here
-    // rather than inside PaymentStep because changing it changes the
-    // PaymentIntent — see createCheckoutSession — so the client secret has to be
-    // fetched again and <Elements> remounted with it.
-    const [paymentMode, setPaymentMode] = useState<PaymentMode>('card')
-
     // ── The itemised quote behind the summary card ────────────────────────────
     //
     // Rebuilt here from the same inputs the server uses, not read off the URL.
@@ -204,6 +162,7 @@ function CheckoutFlow() {
         overrides,
         pickupFee: resolvedPickup.fee,
         pickupFeeLabel: resolvedPickup.feeLabel,
+        taxJurisdiction: resolvedPickup.taxJurisdiction,
         bookingRate,
         // Priced into both rate quotes, so the radio compares like with like:
         // leaving extras out of one side would make the cheaper rate look
@@ -240,9 +199,8 @@ function CheckoutFlow() {
     // server total just under this — they must agree on what "the current
     // selection" means, or one of them goes stale while the other doesn't.
     //
-    // paymentMode decides which payment methods the intent allows; bookingRate
-    // and the extras each decide its amount.
-    const initKey = `${paymentMode}:${search.bookingRate}:${search.extras ?? ''}`
+    // bookingRate and the extras each decide its amount.
+    const initKey = `${search.bookingRate}:${search.extras ?? ''}`
 
     // The price the server actually charged. createCheckoutSession recomputes the
     // real total and returns it, and that's the number shown everywhere once it
@@ -289,9 +247,9 @@ function CheckoutFlow() {
 
         const init = async () => {
             setIsLoading(true)
-            // Drop the previous secret first: it belongs to an intent that
-            // allows the other set of methods, and leaving it mounted would show
-            // the old form for as long as the request takes.
+            // Drop the previous secret first: it belongs to an intent for the
+            // previous amount, and leaving it mounted would show a form that
+            // pays the old total for as long as the request takes.
             setClientSecret(null)
             setPaymentError(null)
             try {
@@ -314,7 +272,6 @@ function CheckoutFlow() {
                         pickupId: search.pickupId,
                         pickupAddress: search.pickupAddress,
                         bookingId: search.bookingId,
-                        paymentMode,
                         bookingRate: search.bookingRate,
                         // Ids only. The server re-prices them from its own
                         // catalogue — an amount from here would be a price the
@@ -433,8 +390,6 @@ function CheckoutFlow() {
                             clientSecret={clientSecret}
                             bookingId={bookingId}
                             total={displayTotal}
-                            paymentMode={paymentMode}
-                            onPaymentModeChange={setPaymentMode}
                         />
                     )}
                 </div>

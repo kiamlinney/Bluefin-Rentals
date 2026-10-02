@@ -45,8 +45,19 @@ export const CANCELLATION_EMAIL_SELECT =
 
 // ── Shared wording ───────────────────────────────────────────────────────────
 
-/** What the owners need to know about the money, in one sentence. */
-function hostRefundLine(outcome: RefundOutcome, who: string, totalPaid: number | string): string {
+/**
+ * What the owners need to know about the money. The trip's outcome first,
+ * because that's what they keep or lose; then anything refunded for charges
+ * made after booking, and the total that went back to the guest.
+ */
+function hostRefundLine(outcome: RefundOutcome, who: string, totalPaid: number | string, laterRefund = 0): string {
+    const trip = hostTripRefundLine(outcome, who, totalPaid)
+    if (laterRefund <= 0) return trip
+    const total = totalRefunded(outcome, laterRefund)
+    return `${trip} A further ${money(laterRefund)} was refunded for extensions and extras charged after booking, so ${money(total)} went back to ${who} in total.`
+}
+
+function hostTripRefundLine(outcome: RefundOutcome, who: string, totalPaid: number | string): string {
     const kept = money(totalPaid)
     switch (outcome.kind) {
         case 'full':
@@ -60,8 +71,44 @@ function hostRefundLine(outcome: RefundOutcome, who: string, totalPaid: number |
     }
 }
 
-/** The same facts from the guest's side. */
-function guestRefundLine(outcome: RefundOutcome): string {
+function roundCents(n: number): number {
+    return Math.round(n * 100) / 100
+}
+
+/**
+ * The same facts from the guest's side, including whatever came back for charges
+ * made after booking (extensions, later extras — laterChargeRefund in
+ * cancellation-policy.ts).
+ *
+ * When there is such a refund the sentence leads with the combined total — the
+ * figure the cancel dialog quoted — and then splits it, because it arrives on
+ * the guest's statement as separate refunds and they'll look for each one.
+ */
+function guestRefundLine(outcome: RefundOutcome, laterRefund = 0): string {
+    if (laterRefund <= 0) return tripRefundLine(outcome)
+
+    const strong = (n: number) => `<strong>${escapeHtml(money(n))}</strong>`
+    const total = totalRefunded(outcome, laterRefund)
+    const split =`${strong(total)} in total: ${escapeHtml(money(outcome.refundAmount))} for your trip and ${escapeHtml(money(laterRefund))} for extensions and extras charged after booking.`
+
+    switch (outcome.kind) {
+        case 'full':
+            return outcome.reason === 'admin-initiated'
+                ? `We're sorry — we had to cancel this trip. You've been refunded in full, ${split}`
+                : `You cancelled within the free cancellation window, so you've been refunded in full, ${split}`
+        case 'partial':
+            return `You cancelled outside the free cancellation window, so a cancellation fee of ${strong(outcome.cancellationFee)} was kept from the trip. You've been refunded ${split}`
+        case 'none':
+            return `${tripRefundLine(outcome)} Charges made after booking have still been refunded: ${strong(laterRefund)} for extensions and extras.`
+    }
+}
+
+/** Everything that went back to the guest: the trip's refund plus later charges'. */
+function totalRefunded(outcome: RefundOutcome, laterRefund: number): number {
+    return roundCents(outcome.refundAmount + laterRefund)
+}
+
+function tripRefundLine(outcome: RefundOutcome): string {
     switch (outcome.kind) {
         case 'full':
             return outcome.reason === 'admin-initiated'
@@ -77,8 +124,8 @@ function guestRefundLine(outcome: RefundOutcome): string {
 }
 
 /** Only shown when money actually moved. */
-function settlementNote(outcome: RefundOutcome): string {
-    return outcome.refundAmount > 0
+function settlementNote(outcome: RefundOutcome, laterRefund = 0): string {
+    return outcome.refundAmount > 0 || laterRefund > 0
         ? 'Refunds are returned to the original card and usually appear within 5–10 business days.'
         : ''
 }
@@ -108,7 +155,7 @@ function reasonBox(reason: string | null): string {
 // Exported so the markup can be rendered and inspected without sending — the
 // refund wording has six branches and they are much easier to check side by side
 // than one test email at a time.
-export function buildHostHtml(booking: CancellationEmailRow, outcome: RefundOutcome): string {
+export function buildHostHtml(booking: CancellationEmailRow, outcome: RefundOutcome, laterRefund = 0): string {
     const car = booking.cars
     const guest = booking.profiles
     const who = firstName(guest?.full_name ?? null)
@@ -131,7 +178,7 @@ export function buildHostHtml(booking: CancellationEmailRow, outcome: RefundOutc
     <tr><td align="center" style="padding:28px 24px 0;text-align:center">
         <h1 style="margin:0 0 16px;font:700 24px/1.3 Helvetica,Arial,sans-serif;color:${INK};text-align:center">${escapeHtml(headline)}</h1>
         ${paragraph(`${escapeHtml(who)} has cancelled this trip with your ${escapeHtml(carName(car))}.`)}
-        ${paragraph(escapeHtml(hostRefundLine(outcome, who, booking.total_price)))}
+        ${paragraph(escapeHtml(hostRefundLine(outcome, who, booking.total_price, laterRefund)))}
         ${outcome.estimated
             ? paragraph(`<span style="color:${MUTED};font-size:13px">This booking predates itemised pricing, so the refund was calculated from the trip total.</span>`)
             : ''}
@@ -144,7 +191,7 @@ ${carCard({
         statsRowHtml: `
                     ${statCell('Trip start', formatBusinessDate(booking.start_time, SHORT_DATE), formatBusinessTime(booking.start_time).toLowerCase())}
                     ${statCell('Trip end', formatBusinessDate(booking.end_time, SHORT_DATE), formatBusinessTime(booking.end_time).toLowerCase())}
-                    ${statCell('Refunded', money(outcome.refundAmount), outcome.kind === 'none' ? 'nothing returned' : 'to the guest')}`,
+                    ${statCell('Refunded', money(totalRefunded(outcome, laterRefund)), totalRefunded(outcome, laterRefund) > 0 ? 'to the guest' : 'nothing returned')}`,
     })}
     <tr><td style="padding:24px 24px 0" align="center">${button(`${SITE_URL}/admin/reservation/${booking.id}`, 'View reservation')}</td></tr>
 
@@ -160,22 +207,28 @@ ${carCard({
     return shell({ bodyRows, footerNote: 'Sent automatically when a trip is cancelled.' })
 }
 
-function buildHostText(booking: CancellationEmailRow, outcome: RefundOutcome): string {
+function buildHostText(booking: CancellationEmailRow, outcome: RefundOutcome, laterRefund = 0): string {
     const who = firstName(booking.profiles?.full_name ?? null)
     const guest = booking.profiles
 
     return [
         `${who} has cancelled their trip with your ${carName(booking.cars)}.`,
         '',
-        hostRefundLine(outcome, who, booking.total_price),
+        hostRefundLine(outcome, who, booking.total_price, laterRefund),
         ...(booking.cancellation_reason?.trim()
             ? ['', 'Reason given by the guest:', `  ${booking.cancellation_reason.trim()}`]
             : []),
         '',
         `Trip start:  ${longDateTime(booking.start_time)}`,
         `Trip end:    ${longDateTime(booking.end_time)}`,
-        `Total paid:  ${money(booking.total_price)}`,
-        `Refunded:    ${money(outcome.refundAmount)}`,
+        `Trip total:  ${money(booking.total_price)}`,
+        ...(laterRefund > 0
+            ? [
+                `Trip refund: ${money(outcome.refundAmount)}`,
+                `Later charges refunded: ${money(laterRefund)}`,
+            ]
+            : []),
+        `Refunded:    ${money(totalRefunded(outcome, laterRefund))}`,
         `Location:    ${booking.pickup_location || 'Home base'}`,
         '',
         'Guest',
@@ -191,10 +244,10 @@ function buildHostText(booking: CancellationEmailRow, outcome: RefundOutcome): s
 // ── Guest email ──────────────────────────────────────────────────────────────
 
 /** Exported alongside buildHostHtml, for the same reason. */
-export function buildGuestHtml(booking: CancellationEmailRow, outcome: RefundOutcome): string {
+export function buildGuestHtml(booking: CancellationEmailRow, outcome: RefundOutcome, laterRefund = 0): string {
     const car = booking.cars
     const sentAt = String(Date.now())
-    const note = settlementNote(outcome)
+    const note = settlementNote(outcome, laterRefund)
 
     // Itemised only when something was withheld — on a full refund there is
     // nothing to explain, and the rows would just be noise.
@@ -207,7 +260,11 @@ export function buildGuestHtml(booking: CancellationEmailRow, outcome: RefundOut
             ${outcome.retainedPremium > 0
                 ? `<tr><td style="color:${MUTED}">Refundable rate</td><td align="right" style="color:${MUTED}">−${escapeHtml(money(outcome.retainedPremium))}</td></tr>`
                 : ''}
-            <tr><td style="border-top:1px solid ${LINE};padding-top:8px;font-weight:700">Refunded</td><td align="right" style="border-top:1px solid ${LINE};padding-top:8px;font-weight:700">${escapeHtml(money(outcome.refundAmount))}</td></tr>
+            ${laterRefund > 0
+                ? `<tr><td style="border-top:1px solid ${LINE};padding-top:8px">Trip refund</td><td align="right" style="border-top:1px solid ${LINE};padding-top:8px">${escapeHtml(money(outcome.refundAmount))}</td></tr>
+            <tr><td>Extensions and extras</td><td align="right">+${escapeHtml(money(laterRefund))}</td></tr>`
+                : ''}
+            <tr><td style="border-top:1px solid ${LINE};padding-top:8px;font-weight:700">Refunded</td><td align="right" style="border-top:1px solid ${LINE};padding-top:8px;font-weight:700">${escapeHtml(money(totalRefunded(outcome, laterRefund)))}</td></tr>
         </table>
     </td></tr>`
         : ''
@@ -216,7 +273,7 @@ export function buildGuestHtml(booking: CancellationEmailRow, outcome: RefundOut
     <tr><td align="center" style="padding:28px 24px 0;text-align:center">
         <h1 style="margin:0 0 16px;font:700 24px/1.3 Helvetica,Arial,sans-serif;color:${INK};text-align:center">Your trip has been cancelled</h1>
         ${paragraph(`Your trip with the ${escapeHtml(carName(car))} from <strong>${escapeHtml(longDateTime(booking.start_time))}</strong> to <strong>${escapeHtml(longDateTime(booking.end_time))}</strong> has been cancelled.`)}
-        ${paragraph(guestRefundLine(outcome))}
+        ${paragraph(guestRefundLine(outcome, laterRefund))}
         ${note ? paragraph(`<span style="color:${MUTED};font-size:13px">${escapeHtml(note)}</span>`) : ''}
     </td></tr>
 ${breakdown}
@@ -227,7 +284,7 @@ ${carCard({
         statsRowHtml: `
                     ${statCell('Trip start', formatBusinessDate(booking.start_time, SHORT_DATE), formatBusinessTime(booking.start_time).toLowerCase())}
                     ${statCell('Trip end', formatBusinessDate(booking.end_time, SHORT_DATE), formatBusinessTime(booking.end_time).toLowerCase())}
-                    ${statCell('Refunded', money(outcome.refundAmount), outcome.kind === 'none' ? 'no refund' : 'to your card')}`,
+                    ${statCell('Refunded', money(totalRefunded(outcome, laterRefund)), totalRefunded(outcome, laterRefund) > 0 ? 'to your card' : 'no refund')}`,
     })}
     <tr><td style="padding:24px 24px 0" align="center">${button(`${SITE_URL}/fleet`, 'Book another trip')}</td></tr>
 
@@ -242,12 +299,12 @@ ${carCard({
     return shell({ bodyRows, footerNote: 'Questions about this cancellation? Just reply to this address.' })
 }
 
-function buildGuestText(booking: CancellationEmailRow, outcome: RefundOutcome): string {
-    const note = settlementNote(outcome)
+function buildGuestText(booking: CancellationEmailRow, outcome: RefundOutcome, laterRefund = 0): string {
+    const note = settlementNote(outcome, laterRefund)
     return [
         `Your trip with the ${carName(booking.cars)} has been cancelled.`,
         '',
-        guestRefundLine(outcome).replace(/<[^>]+>/g, ''),
+        guestRefundLine(outcome, laterRefund).replace(/<[^>]+>/g, ''),
         ...(note ? ['', note] : []),
         '',
         `Trip start:  ${longDateTime(booking.start_time)}`,
@@ -256,7 +313,13 @@ function buildGuestText(booking: CancellationEmailRow, outcome: RefundOutcome): 
         ...(outcome.kind === 'partial'
             ? [`Fee kept:    ${money(outcome.cancellationFee + outcome.retainedPremium)}`]
             : []),
-        `Refunded:    ${money(outcome.refundAmount)}`,
+        ...(laterRefund > 0
+            ? [
+                `Trip refund: ${money(outcome.refundAmount)}`,
+                `Extensions and extras refunded: ${money(laterRefund)}`,
+            ]
+            : []),
+        `Refunded:    ${money(totalRefunded(outcome, laterRefund))}`,
         '',
         `Reservation #${booking.id}`,
     ].join('\n')
@@ -280,6 +343,8 @@ export async function notifyBookingCanceled(
     supabaseAdmin: SupabaseClient<any, any, any>,
     bookingId: string,
     outcome: RefundOutcome,
+    /** Refunded for extensions and later extras, on top of the trip's refund. */
+    laterRefund = 0,
 ): Promise<void> {
     let claimed = false
     try {
@@ -302,8 +367,8 @@ export async function notifyBookingCanceled(
         await sendEmail({
             to: ADMIN_RECIPIENT,
             subject: `Bluefin - ${who} has cancelled their trip with your ${carName(row.cars)}`,
-            html: buildHostHtml(row, outcome),
-            text: buildHostText(row, outcome),
+            html: buildHostHtml(row, outcome, laterRefund),
+            text: buildHostText(row, outcome, laterRefund),
         })
 
         // Sent second and guarded separately: an off-platform booking may have no
@@ -313,8 +378,8 @@ export async function notifyBookingCanceled(
             await sendEmail({
                 to: guestEmail,
                 subject: `Your Bluefin trip with the ${carName(row.cars)} has been cancelled`,
-                html: buildGuestHtml(row, outcome),
-                text: buildGuestText(row, outcome),
+                html: buildGuestHtml(row, outcome, laterRefund),
+                text: buildGuestText(row, outcome, laterRefund),
             })
         }
 

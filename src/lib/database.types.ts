@@ -59,11 +59,195 @@ export type Database = {
           },
         ]
       }
+      booking_charges: {
+        Row: {
+          action_email_sent_at: string | null
+          amount: number
+          amount_captured: number
+          amount_refunded: number
+          booking_id: string
+          capture_before: string | null
+          category: string | null
+          created_at: string
+          created_by: string | null
+          description: string
+          failure_message: string | null
+          id: string
+          initiated_by: string
+          keep_holding: boolean
+          kind: string
+          line_items: Json
+          payment_method_id: string | null
+          receipt_sent_at: string | null
+          refund_id: string | null
+          renews_charge_id: string | null
+          settled_at: string | null
+          status: string
+          stripe_payment_intent_id: string | null
+          tax_amount: number
+          tax_lines: Json
+        }
+        Insert: {
+          action_email_sent_at?: string | null
+          amount: number
+          amount_captured?: number
+          amount_refunded?: number
+          booking_id: string
+          capture_before?: string | null
+          category?: string | null
+          created_at?: string
+          created_by?: string | null
+          description: string
+          failure_message?: string | null
+          id?: string
+          initiated_by: string
+          keep_holding?: boolean
+          kind: string
+          line_items?: Json
+          payment_method_id?: string | null
+          receipt_sent_at?: string | null
+          refund_id?: string | null
+          renews_charge_id?: string | null
+          settled_at?: string | null
+          status?: string
+          stripe_payment_intent_id?: string | null
+          tax_amount?: number
+          tax_lines?: Json
+        }
+        Update: {
+          action_email_sent_at?: string | null
+          amount?: number
+          amount_captured?: number
+          amount_refunded?: number
+          booking_id?: string
+          capture_before?: string | null
+          category?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          failure_message?: string | null
+          id?: string
+          initiated_by?: string
+          keep_holding?: boolean
+          kind?: string
+          line_items?: Json
+          payment_method_id?: string | null
+          receipt_sent_at?: string | null
+          refund_id?: string | null
+          renews_charge_id?: string | null
+          settled_at?: string | null
+          status?: string
+          stripe_payment_intent_id?: string | null
+          tax_amount?: number
+          tax_lines?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_charges_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_charges_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_charges_renews_charge_id_fkey"
+            columns: ["renews_charge_id"]
+            isOneToOne: false
+            referencedRelation: "booking_charges"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      booking_extensions: {
+        Row: {
+          amount: number
+          booking_id: string
+          charge_id: string | null
+          created_at: string
+          created_by: string | null
+          decided_at: string | null
+          decided_by: string | null
+          from_end_time: string
+          id: string
+          mode: string
+          quote: Json
+          status: string
+          to_end_time: string
+        }
+        Insert: {
+          amount: number
+          booking_id: string
+          charge_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          decided_at?: string | null
+          decided_by?: string | null
+          from_end_time: string
+          id?: string
+          mode: string
+          quote: Json
+          status?: string
+          to_end_time: string
+        }
+        Update: {
+          amount?: number
+          booking_id?: string
+          charge_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          decided_at?: string | null
+          decided_by?: string | null
+          from_end_time?: string
+          id?: string
+          mode?: string
+          quote?: Json
+          status?: string
+          to_end_time?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_extensions_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_extensions_charge_id_fkey"
+            columns: ["charge_id"]
+            isOneToOne: false
+            referencedRelation: "booking_charges"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_extensions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_extensions_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       booking_extras: {
         Row: {
           amount: number
           billing: string
           booking_id: string
+          charge_id: string | null
           charged: boolean
           created_at: string
           decided_at: string | null
@@ -79,6 +263,7 @@ export type Database = {
           amount: number
           billing: string
           booking_id: string
+          charge_id?: string | null
           charged?: boolean
           created_at?: string
           decided_at?: string | null
@@ -94,6 +279,7 @@ export type Database = {
           amount?: number
           billing?: string
           booking_id?: string
+          charge_id?: string | null
           charged?: boolean
           created_at?: string
           decided_at?: string | null
@@ -113,6 +299,13 @@ export type Database = {
             referencedRelation: "bookings"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "booking_extras_charge_id_fkey"
+            columns: ["charge_id"]
+            isOneToOne: false
+            referencedRelation: "booking_charges"
+            referencedColumns: ["id"]
+          },
         ]
       }
       bookings: {
@@ -125,10 +318,13 @@ export type Database = {
           cancellation_reason: string | null
           car_id: number
           created_at: string
+          deposit_waived_at: string | null
+          deposit_waived_by: string | null
           end_time: string
           guest_notified_at: string | null
           id: string
           miles_driven: number | null
+          payment_method_id: string | null
           pickup_location: string
           price_quote: Json | null
           refund_id: string | null
@@ -149,10 +345,13 @@ export type Database = {
           cancellation_reason?: string | null
           car_id: number
           created_at?: string
+          deposit_waived_at?: string | null
+          deposit_waived_by?: string | null
           end_time: string
           guest_notified_at?: string | null
           id?: string
           miles_driven?: number | null
+          payment_method_id?: string | null
           pickup_location: string
           price_quote?: Json | null
           refund_id?: string | null
@@ -173,10 +372,13 @@ export type Database = {
           cancellation_reason?: string | null
           car_id?: number
           created_at?: string
+          deposit_waived_at?: string | null
+          deposit_waived_by?: string | null
           end_time?: string
           guest_notified_at?: string | null
           id?: string
           miles_driven?: number | null
+          payment_method_id?: string | null
           pickup_location?: string
           price_quote?: Json | null
           refund_id?: string | null
@@ -382,6 +584,7 @@ export type Database = {
           num_trips: number | null
           phone: string | null
           state: string | null
+          stripe_customer_id: string | null
           stripe_identity_session_id: string | null
           zip: string | null
         }
@@ -399,6 +602,7 @@ export type Database = {
           num_trips?: number | null
           phone?: string | null
           state?: string | null
+          stripe_customer_id?: string | null
           stripe_identity_session_id?: string | null
           zip?: string | null
         }
@@ -416,6 +620,7 @@ export type Database = {
           num_trips?: number | null
           phone?: string | null
           state?: string | null
+          stripe_customer_id?: string | null
           stripe_identity_session_id?: string | null
           zip?: string | null
         }
