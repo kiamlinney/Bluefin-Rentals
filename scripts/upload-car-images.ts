@@ -26,16 +26,15 @@ const SOURCE_DIR = 'ClaudeFiles/car_images'
 const CACHE_CONTROL = '31536000' // 1 year, in seconds
 
 /**
- * Local folder -> `cars.id`. Cherokee (5) and Fusion Hybrid (4) are absent on
- * purpose: no Turo photos for them yet, so they keep serving the old PNGs out
- * of the `car gallery` bucket. Car 6 is the retired Cherokee.
- *
- * Adding a car here means also adding its id to MIGRATED_CAR_IDS in
- * src/lib/car-images.ts, or the site will keep pointing at the old bucket.
+ * Local folder -> `cars.id`. Every car in the fleet is here; there is no longer
+ * a car without Turo photos. A new car needs a folder, an entry here, and the
+ * SQL this prints.
  */
 const FOLDER_TO_CAR_ID: Record<string, number> = {
     Civic: 1,
     Fusion: 3,
+    'Fusion Hybrid': 4,
+    Cherokee: 5,
     Camry: 7,
     Prius: 8,
     CRV: 9,

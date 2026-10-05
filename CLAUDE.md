@@ -484,7 +484,7 @@ Fuel taxability is the likeliest placeholder to be wrong (fuel is generally sale
 
 Called by the admin-only `syncTuroBookings` server function (a full 400-day catch-up) and by the cron route (the last 1 day). It lives in its own `.server.ts` file rather than in `db.ts` because `db.ts` is imported by browser pages: the build strips `createServerFn` handler bodies for the client but keeps plain exported functions, so a plain export there drags `googleapis` into the browser bundle and fails `vite build`. Keep new server-only helpers out of `db.ts` for the same reason.
 
-It reads Gmail via the `googleapis` OAuth2 client (refresh token in env) to find Turo booking-confirmation emails, regex-parses trip dates/car/renter/reservation ID out of the plain-text MIME body, and writes `turo_bookings`. Matching against `cars` requires year, make **and** model to match the parsed car string. Turo's emails carry no trim or plate, so identical cars can't be told apart. Active cars (`is_available`) win over retired ones (there are two 2018 Jeep Cherokees, id 6 retired, id 5 active), and anything still ambiguous is reported as an error, not guessed. `AddDriverToTripOwner` and `ReservationReminder*` emails are skipped, and Gmail rate limits are retried with backoff. This is a bridge during the Turo migration, not a general-purpose email integration — treat the parsing regexes as fragile/format-specific if Turo changes their email template.
+It reads Gmail via the `googleapis` OAuth2 client (refresh token in env) to find Turo booking-confirmation emails, regex-parses trip dates/car/renter/reservation ID out of the plain-text MIME body, and writes `turo_bookings`. Matching against `cars` requires year, make **and** model to match the parsed car string. Turo's emails carry no trim or plate, so identical cars can't be told apart. Active cars (`is_available`) win over retired ones, and anything still ambiguous is reported as an error, not guessed. That tiebreak is generic, with no car id in it; it was written because there were then two 2018 Jeep Cherokees (id 5 active, id 6 retired) and trips for the active one were landing on the retired one, leaving the active Jeep bookable while it was out. Car 6 has since been deleted, so nothing exercises the tiebreak today — keep it for the next pair of identical cars. `AddDriverToTripOwner` and `ReservationReminder*` emails are skipped, and Gmail rate limits are retried with backoff. This is a bridge during the Turo migration, not a general-purpose email integration — treat the parsing regexes as fragile/format-specific if Turo changes their email template.
 
 **One row per Turo trip, not per email.** Turo sends several emails about one trip, told apart by the `Notification-Name` header: `ReservationBookedOwner`, `AutoApprovedTripChangeHost` (renter changed dates), `ReservationReminderLongTerm` (day-before reminder) and `CancelledReservationOwner`. Rows are keyed on `turo_trip_id` (unique, taken from the `Reservation-ID` header) and the email with the newest `email_sent_at` (Gmail `internalDate`) wins, so a changed trip *replaces* its original dates. Reminders are skipped outright; cancellations delete by trip id. Don't go back to inserting per email: the table used to be unique only on `gmail_message_id`, and a changed trip kept blocking the car on its old dates alongside the new ones.
 
@@ -514,7 +514,7 @@ It reads Gmail via the `googleapis` OAuth2 client (refresh token in env) to find
 - **`TripCalendar` is a bottom sheet on phones** (below Tailwind's `sm`, 639px, checked with `matchMedia` when it opens) and an anchored popover from `sm` up. The sheet is portalled to `<body>`, locks page scroll while open and closes on a backdrop tap. The larger day cells in `tripCalendarClassNames` switch at the same `sm` breakpoint, so they only ever appear inside the sheet. Every caller gets this for free, including the car page's start/end calendars.
 - **Car page below `lg`** (Turo-style):
   - **Order:** the photo comes first and runs edge to edge, then the title and spec chips, then "Your trip" (`order-first` on the widget column), then features and reviews. Desktop keeps its original layout.
-  - **Main photo:** takes `aspect-[5/3]`, because every main photo is 1242×745. A fixed height on a narrow screen cropped the sides off each car.
+  - **Main photo:** takes `aspect-[5/3]`, because every main photo is 5:3 (1242×745, or 1240×744 for the Cherokee). A fixed height on a narrow screen cropped the sides off each car.
   - **Bottom bar:** a sticky bar carries the total and a single button that walks through "Select dates", "Select times", then "Continue". It's `sticky`, not `fixed`, so it settles above the site footer instead of covering it.
 - **`PhotoGallery`** (`src/components/PhotoGallery.tsx`) opens *on top of* the car page rather than replacing it, so closing it keeps the scroll position. Tapping a photo opens a lightbox (arrow buttons, arrow keys, swipe), and Esc backs out one layer at a time: lightbox, then grid, then the page.
 - `src/components/admin/*` are admin-shell-only components (sidebar, calendar grid/toolbar, trip cards); everything else under `src/components/` is used by the public-facing site.
@@ -548,6 +548,62 @@ It reads Gmail via the `googleapis` OAuth2 client (refresh token in env) to find
 - `src/components/trips/*` (plural) is that trip list: `UpcomingTripCard`,
   `PendingCheckoutCard`, `TripHistoryRow`, `NoTripsIllustration`. These replaced a single
   `BookingCard` that tried to be all three.
+
+### Car photos (`src/lib/car-images.ts`)
+
+**Never hand-build a storage URL.** `carMainImageUrl(carId)` covers the single photo most
+surfaces show, `carPhotoUrl(carId, 'top_left')` the car page's fixed slots, and
+`carImageUrl(carId, fileName)` exact names out of `cars.gallery_images`. The URL was duplicated
+across ten files before this existed, which is what made changing buckets a day's work.
+
+All photos live in the **`car-gallery`** bucket. There was a second bucket called
+`car gallery` — with a space, so every URL carried `%20`; buckets can't be renamed, so the fix
+was a new bucket and a copy. **It holds nothing the site reads; it can be deleted.**
+
+The photos are real Turo listing exports: **`.avif`, 5:3 (1242x745), ~40-190KB each**, replacing phone
+screenshots that were 1206x2622 portrait and ~1.3MB. **Don't convert them to WebP or re-encode
+them** — they're already lossy AVIF at the right size for every slot that renders them, so a
+transcode only loses quality.
+
+Every car has them, so the helper is **one bucket and one extension** with no per-car exception.
+It briefly carried both, for the retired Cherokee (car 6), which was totalled before photos were
+pulled. **Car 6 was deleted outright on 2026-10-05**, together with its two bookings — sandbox
+tests, `livemode=false` intents, nothing else attached.
+
+**Deleting a car is not normally possible.** `bookings.car_id` is `ON DELETE RESTRICT`, so a car
+with any booking — including a completed one — refuses to delete until those bookings go, and
+deleting a real booking destroys a financial record (see "Money is a legal record"). Six tables
+reference `bookings` (`booking_additional_drivers`, `booking_charges`, `booking_extensions`,
+`booking_extras`, `reviews`, `trip_media`) and six reference `cars` (`bookings`,
+`car_blocked_dates`, `car_price_overrides`, `car_secrets`, `reviews`, `turo_bookings`). Car 6 was
+only safe because every one of those counts was zero apart from the two test bookings. Retiring a
+car normally means `is_available = false`, not a delete — and note **`getCarById` doesn't filter
+`is_available`**, so a retired car's page and its trips' pages still render and still need photos.
+
+`scripts/upload-car-images.ts` uploads from `ClaudeFiles/car_images/<Folder>` and prints the SQL
+for `image_url`/`gallery_images`. Two things it exists for:
+
+- **`cacheControl: '31536000'`.** The Supabase dashboard uploader sets its own value and gives
+  you no way to change it; the old bucket's `max-age=3600` meant a revalidation round trip per
+  image per page view. **Verify a cache header with GET, not HEAD** — Storage returns `no-cache`
+  on HEAD regardless of what's stored, which reads exactly like the setting having failed:
+  `curl -s -D- -o /dev/null -r 0-0 '<url>' | grep -i cache-control`.
+- **Gallery order.** The four corners were renamed out of the middle of the numbered run, so each
+  car's numbering has exactly four holes and those holes are where the corners belong
+  (`bottom_left, top_right, top_left, bottom_right`, ascending). The script derives that and
+  throws rather than guessing. Fusion (car 3) is numbered differently and is written out in
+  `MANUAL_ORDER`. It **cannot** detect a deleted numbered file — the hole count comes out to four
+  by construction — so if you remove a photo, re-read the printed SQL.
+
+**Order of operations when adding a car:** upload the files, *then* run the SQL. The page reads
+`image_url`/`gallery_images`, so a row pointing at files that aren't uploaded yet is a broken
+gallery.
+
+The car page's four corner thumbnails are `hidden lg:block` and carry `loading="lazy"`
+**deliberately**: browsers fetch `display:none` images, so without it phones downloaded
+280-600KB per car page that never rendered (measured in Chrome — 5 image requests down to 1).
+`fetchPriority="high"` belongs on the main photo **only**; it works by ranking one resource above
+others, so spreading it across all five puts the LCP image back in a five-way contest.
 
 ## Deployment (Railway + Namecheap)
 
