@@ -1,25 +1,32 @@
 // Business facts shared by structured data and page metadata.
 import { absoluteUrl, SITE_URL } from './site'
 import { carMainImageUrl } from './car-images'
+import { BUSINESS_CLOSE_MINUTES, BUSINESS_OPEN_MINUTES } from './availability'
 
-// Real operating hours. Open is 10:00 every day; only closing moves.
-//
-// NOTE: availability.ts still uses a single flat BUSINESS_CLOSE_MINUTES (22:30)
-// for every day, so the booking calendar and this table disagree — see the
-// closing times below. The calendar is the one that needs fixing.
+/** 600 -> "10:00" */
+const toHhmm = (minutes: number) =>
+    `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+
+// Operating hours, the same every day. Built from the constants the booking
+// calendar uses, so the hours we publish are the hours a trip can start and end.
 export const OPENING_HOURS = [
-    { days: ['Monday', 'Tuesday', 'Saturday', 'Sunday'], opens: '10:00', closes: '23:30' },
-    { days: ['Wednesday', 'Friday'], opens: '10:00', closes: '21:30' },
-    { days: ['Thursday'], opens: '10:00', closes: '22:30' },
+    {
+        days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+        opens: toHhmm(BUSINESS_OPEN_MINUTES),
+        closes: toHhmm(BUSINESS_CLOSE_MINUTES),
+    },
 ] as const
 
-/** "23:30" -> "11:30 PM" */
+/** "23:30" -> "11:30 PM", "23:00" -> "11 PM" */
 export function to12Hour(hhmm: string): string {
     const [h = 0, m = 0] = hhmm.split(':').map(Number)
     const period = h >= 12 ? 'PM' : 'AM'
     const hour = h % 12 === 0 ? 12 : h % 12
-    return `${hour}:${String(m).padStart(2, '0')} ${period}`
+    return m === 0 ? `${hour} ${period}` : `${hour}:${String(m).padStart(2, '0')} ${period}`
 }
+
+/** "10 AM to 11 PM" — for prose. Every day keeps the same hours, so one range covers them. */
+export const DAILY_HOURS = `${to12Hour(OPENING_HOURS[0].opens)} to ${to12Hour(OPENING_HOURS[0].closes)}`
 
 export const BUSINESS = {
     name: 'Bluefin Rentals',

@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noUnusedLocals": false,
+    "noUncheckedIndexedAccess": false,
+    "noUnusedParameters": false
+  },
+  "include": ["./**/*.ts", "../src", "../vitest.config.ts"]
+}

@@ -29,7 +29,24 @@ silently resolves to `dist/server/dist/client`, finds nothing, and falls back to
 the site renders as unstyled HTML with no JS. The startup banner is the tell: it must
 read `Static files: ./dist/client/`, not `(create public/ dir)`.
 
-There is no test suite in this repo. `eslint.config.js` exists but `eslint` is not installed (missing from `package.json`/`node_modules`), so linting is currently non-functional — don't rely on `npm run lint`.
+```bash
+npm test        # type-check (app + tests), then every Vitest suite, including all scripts/verify-*.ts
+```
+
+**`npm test` must pass before any deploy, and every money change adds to it** (Liam's rule,
+2026-10-07). Vitest since 2026-10-07 (`vitest.config.ts`, separate from `vite.config.ts`).
+`tests/` runs the **real server code** — `cancelBooking`, `confirmBooking`, the webhook route
+(`Route.options.server.handlers.POST`), the ledger, deposits, extensions, extras, the sweep,
+`/fleet`'s search — against `tests/fakes/supabase.ts` and `tests/fakes/stripe.ts`.
+`tests/setup.ts` mocks only Stripe, the Supabase clients, `sendEmail` and `createServerFn`
+(which just calls the handler). The fakes deliberately keep the rules the code leans on: the
+partial unique indexes, the bookings status trigger as written in the latest migration,
+Stripe idempotency keys, refund limits, "can't cancel a succeeded intent". **Change a DB rule
+→ change the fake too.** Build test data with `tests/fixtures.ts` (`world`, `paidTrip`,
+`depositHold`, …). A new test should fail with the bug put back: every 2026-10-07 fix was
+checked that way. `verify-*.ts` scripts still run standalone too.
+
+`eslint.config.js` exists but `eslint` is not installed (missing from `package.json`/`node_modules`), so linting is currently non-functional — don't rely on `npm run lint`.
 
 ## Architecture
 
@@ -44,9 +61,9 @@ There is no test suite in this repo. `eslint.config.js` exists but `eslint` is n
 
 - `_authed.tsx` is a pathless layout route: its `beforeLoad` calls `getUser()` and, if not logged in, renders `<LoginOrSignUp>` inline instead of the child routes (no redirect). On `/checkout` it adds an "Almost there" heading and a back link above the form, because checkout is a bare shell with no navbar.
   - **The `redirect` it passes must be a relative path** (`useLocation().href`, e.g. `/checkout/11?startDate=…`), never `window.location.href`. `SignUpForm` only follows redirects starting with `/`. Passing an absolute URL sent customers who signed up mid-checkout to `/fleet` and lost their trip.
-  - **Child loaders still run for signed-out visitors** even though the child component isn't rendered. The checkout loader skips `getProfile()` when `context.isLoggedIn` is false, because it throws without a session.
+  - **Child loaders still run for signed-out visitors** even though the child component isn't rendered. The checkout loader skips `getProfile()` when `context.isLoggedIn` is false, because it throws without a session. **Every other `_authed` loader starts with `if (!context.isLoggedIn) return SIGNED_OUT`** (`src/lib/signed-out.ts`, typed `never` so `useLoaderData()` isn't widened). Before 2026-10-08 seven of them threw, and each signed-out visit (every guest opening an emailed trip or pay link) answered HTTP 500 behind a correct-looking sign-in form. A new `_authed` page needs the guard; `tests/signed-out.test.ts` lists the pages and must gain it.
 - `admin.tsx` is a real layout route: its `beforeLoad` calls `getUserWithProfile()`, redirects to `/login` if unauthenticated and `/403` if `!user.is_admin`.
-- There is **no centralized admin middleware for data access** — every admin-only function in `src/lib/db.ts` independently re-fetches the caller's profile and checks `profile.is_admin` before doing privileged work. When adding a new admin server function, copy this per-function check rather than assuming route-level auth covers it (server functions can be called directly, not just through a loader).
+- There is **no centralized admin middleware for data access** — every admin-only function in `src/lib/db.ts` independently re-fetches the caller's profile and checks `profile.is_admin` before doing privileged work. When adding a new admin server function, copy this per-function check rather than assuming route-level auth covers it (server functions can be called directly, not just through a loader). **That includes debugging helpers nobody calls**: `inspectTuroEmail` sat unguarded until 2026-10-07, letting anyone read the business inbox by message id, because its only caller was commented out.
 
 ### Data layer (`src/lib/db.ts`, `src/lib/auth.ts`)
 
@@ -62,7 +79,8 @@ Two different Supabase clients are used, and picking the right one matters:
 
 ### Booking / payment flow
 
-- Pickup location is chosen on the car page via `PickupLocationPicker` and modelled as the `PickupSelection` union in `src/lib/pickup.ts` (home base / a listed location / a custom delivery address). Listed locations are free; delivery is a flat `DELIVERY_FEE` and only allowed within `DELIVERY_RADIUS_MILES` of `HOME_BASE`. The selection travels to checkout as structured search params (`pickupKind`/`pickupId`/`pickupAddress`/…) alongside the human-readable `pickupLocation` string — the string is display-only, and `createCheckoutSession` re-resolves the selection server-side (re-geocoding delivery addresses via `src/lib/geocode.ts`) to recompute the fee and the stored `pickup_location`.
+- Pickup location is chosen on the car page via `PickupLocationPicker` and modelled as the `PickupSelection` union in `src/lib/pickup.ts` (home base / a listed location / a custom delivery address). **Only the home base is free.** Each listed location carries its own `fee`/`feeLabel` (all `LISTED_PICKUP_FEE`, $100, since 2026-10-07 — they were free before); delivery is a flat `DELIVERY_FEE` and only allowed within `DELIVERY_RADIUS_MILES` of `HOME_BASE`. Every kind of pickup fee travels as `quote.pickupFee`, so it is refunded, taxed (under the `delivery` taxability key) and skipped on extensions exactly like the delivery fee. Customer copy quoting these prices (homepage, FAQ, picker) interpolates the constants.
+- **Opening hours are `BUSINESS_OPEN_MINUTES`/`BUSINESS_CLOSE_MINUTES` in `src/lib/availability.ts`** (10 AM–11 PM every day since 2026-10-07), which are also the first and last pickup/return slot. `OPENING_HOURS` and `DAILY_HOURS` in `business.ts` are built from them, so the footer, FAQ, homepage and JSON-LD can't drift from the booking calendar. Never type hours into a page. The selection travels to checkout as structured search params (`pickupKind`/`pickupId`/`pickupAddress`/…) alongside the human-readable `pickupLocation` string — the string is display-only, and `createCheckoutSession` re-resolves the selection server-side (re-geocoding delivery addresses via `src/lib/geocode.ts`) to recompute the fee and the stored `pickup_location`.
 - **Anyone can price a trip and press Continue.** The car page's booking widget (`src/routes/fleet/$carSlug.tsx`) shows whether or not you're signed in; sign-in happens at checkout through `_authed`.
 - **Signing in at checkout relies on a remount.** `CheckoutPage` is a thin wrapper that renders `<CheckoutFlow key={profile?.id ?? 'signed-out'} />`. **Don't remove the key.** After a login or sign-up on that page, `router.invalidate()` flips `_authed`'s context to logged-in *before* the checkout loader re-runs. `CheckoutFlow` therefore first mounts on the signed-out load's data (`profile: null`), and its starting step, `currentProfile` and the driver form are all seeded once from that. Without the key they stayed null for good: ID-verified customers were sent back to step 1 with a blank form, and new sign-ups had to retype their email. (The profile row itself, with the email filled in, is created by the `handle_new_user` trigger.) Any other `_authed` child that seeds `useState` from loader data has the same problem.
 - **Trip times start empty.** `startTime`/`endTime` are `""` ("Select Time") until the customer picks one, and everything that prices or validates the trip waits on `tripComplete` (both dates and both times set). `timeToMinutes("")` returns 0 (midnight) rather than failing, so an unguarded empty time silently disables slots or skews pricing. If a date change makes a chosen time unavailable, the time is cleared, never snapped to another slot: every time must be one the customer chose.
@@ -71,6 +89,7 @@ Two different Supabase clients are used, and picking the right one matters:
 - **Cards only, and every card is saved.** `PAYMENT_METHOD_TYPES` in `db.ts` is `['card']` (Apple Pay / Google Pay are cards; Stripe adds `link` itself). The "Other payment options" (Cash App / Affirm / Klarna / Amazon Pay) were removed on 2026-09-25 because the deposit hold and every later charge need a saved card, and Affirm can't be saved at all. Every checkout intent is created with the guest's Stripe Customer and `setup_future_usage: 'off_session'` (`checkoutIntentParams`); `intentForBooking` rebuilds any older intent that lacks either, so no booking can be paid without its card being kept. The checkout consent line in `PaymentStep.tsx` is the guest's authorization for that — change it only together with `/policies/terms`.
 - **Every payment method must settle inside `PENDING_HOLD_MS`.** `us_bank_account` (ACH) was removed and must not come back without first changing how a booking holds a car: ACH sits in `processing` for ~4 business days, so the 1-hour hold lapses, the sweep marks the row `expired`, someone else books those dates, and when the debit finally clears the webhook's `payment_intent.succeeded` — which matches on `stripe_payment_intent_id` with no status filter — revives the expired row to `confirmed`. Two paid bookings, one car. (Reviving `expired` rows is correct for a late *card* payment; see below.) ACH can also bounce after the guest has driven off. Anything enabled in the Stripe dashboard is irrelevant unless it is also in that list.
 - `src/routes/api/stripe-webhook.ts` is the source of truth for confirming payment: it verifies the Stripe signature against the **raw request body** (must call `request.text()` before any JSON parsing) and flips bookings to `confirmed` on `payment_intent.succeeded` / `charge.succeeded` (handled as a backup path since event ordering isn't guaranteed). `confirmBooking` in `db.ts` is a client-driven fallback that checks the PaymentIntent status directly.
+  - **Which statuses a succeeded checkout payment may confirm is `checkoutPaymentEffect`** (`src/lib/booking-status.ts`): `pending`/`expired`/`failed` confirm, `canceled`/`completed` never do. The webhook and `confirmBooking` both use it. **`confirmBooking` had no status filter until 2026-10-07** — it's callable directly, so a guest could cancel inside the free window, keep the full refund, call it with their succeeded intent and get the trip back (hold, welcome email, lockbox code). Any new confirmation path takes the same rule.
   - **Every event is routed first**: a PaymentIntent with `metadata.chargeId` (or a `kind` other than `'trip'`) is a ledger charge and goes to `syncChargeFromIntent`; anything else is a checkout. Before the ledger, a second PaymentIntent on a booking matched no row, returned 500, and would have been retried for three days.
   - `confirmCheckout` **reads the row before updating**: no row → 500 (the insert may not have committed; retry); `canceled`/`completed` → left alone (a refunded trip is never revived); `pending`/`expired`/`failed` → confirmed.
   - **`payment_intent.payment_failed` no longer marks a checkout `failed`.** Stripe fires it for every declined attempt and the guest can retry on the same intent; marking the row failed made the successful retry unconfirmable.
@@ -78,7 +97,7 @@ Two different Supabase clients are used, and picking the right one matters:
 
 ### Pending holds — the rule three places have to agree on
 
-A `pending` booking is a **soft hold** on the car, lasting `PENDING_HOLD_MS` (1 hour, `src/lib/availability.server.ts`). A trip **extension** that is being paid for (`pending`, inside the same hour) or waiting on an owner (`requested`) holds its added time the same way — `extensionHoldRows`, read by both of the first two places below. Three places encode that rule and they must not drift, which is exactly the bug they were introduced to fix — the calendar showed a date as open and checkout then refused it, self-healing an hour later so it looked random:
+A `pending` booking is a **soft hold** on the car, lasting `PENDING_HOLD_MS` (1 hour, defined in the pure `src/lib/availability.ts` so the terms page can state it; `availability.server.ts` re-exports it). A trip **extension** that is being paid for (`pending`, inside the same hour) or waiting on an owner (`requested`) holds its added time the same way — `extensionHoldRows`, read by both of the first two places below. Three places encode that rule and they must not drift, which is exactly the bug they were introduced to fix — the calendar showed a date as open and checkout then refused it, self-healing an hour later so it looked random:
 
 - `assertCarIsAvailable` (`src/lib/availability.server.ts`, shared by checkout and extensions) — the enforcement point. `confirmed` always blocks; `pending` blocks only while live.
 - `getBookedDates` — what the calendar greys out. The `get_car_unavailability` RPC returns `confirmed` **only**, so live holds are read separately with the service-role client and tagged `kind: 'booking'`. They're deliberately *not* added to the RPC: it's `SECURITY DEFINER` and public, so it has no viewer to scope against and would leak in-progress checkouts to anonymous callers. The gathering itself lives in `loadUnavailabilityRows`, which `getFeaturedCars` (the homepage's "Available this week" cars) also calls — so a new source of unavailability added there reaches the calendar and the homepage together. Don't give the homepage its own availability query.
@@ -213,6 +232,43 @@ leaves out `created_by`, which no page displays. Same reasoning as `BOOKING_PROF
 `removeAdditionalDriver` reads the row to find its booking *before* authorizing, because a
 driver id alone must not be enough to delete someone off another guest's trip.
 
+### Vehicle swaps (`src/lib/vehicle-swap.server.ts`, `src/lib/vehicle-swap.ts`)
+
+An admin moves a trip onto another car from the reservation page's **Swap vehicle** button
+(`SwapVehicleModal`). `getSwapCandidates` / `swapBookingVehicle` in `db.ts` are thin
+`requireAdmin` wrappers. The rules (decided 2026-10-06, `ImportantFiles/decisions-log.md` 36–40):
+
+- **Confirmed trips only, and only before `start_time`.** The server re-checks both inside the
+  claim (`.eq('car_id', from).eq('status','confirmed').gt('start_time', now)`), so a double click
+  or a second tab can't swap twice.
+- **Eligible = `is_available` and passes `assertCarIsAvailable`**, the same check checkout uses.
+  That covers trips, live holds, Turo trips, blocked dates and the `TURNAROUND_HOURS` buffer.
+  The range runs to the *effective* end, including this booking's open extension request,
+  because that hold follows `bookings.car_id`. Like checkout this is check-then-write; a checkout
+  for the target car in the same instant isn't locked out.
+- **The original car is always shown, at the top** (`findSwapCandidates` → `original`), once a
+  trip has left it. When it can't be picked it is greyed out with the reason, instead of
+  silently missing like other busy cars. Its absence was reported as a "can't swap back" bug
+  when the real cause was another booking holding it.
+- **Only `bookings.car_id` moves.** Deposit, extras, drivers, media, extension holds and the
+  calendar all hang off the booking. **The price is not changed** (no charge, no refund,
+  `price_quote` untouched).
+- **The per-mile rate stays the quoted car's.** `getBookingById` / `getTripForGuest` attach
+  `vehicle_swaps` and `pricing_car` (the first swap's `from_car_id`) via `withVehicleSwaps`, and
+  `buildReceipt` prices mileage off `pricing_car ?? car`. Any new mileage display must do the
+  same.
+- **`booking_vehicle_swaps` has no FK to `cars` (or `profiles`)** on purpose. A table with FKs
+  to both `bookings` and `cars` risks making every `cars(...)` embed from `bookings` ambiguous
+  (`PGRST201`), the trap that took production down over `deposit_waived_by`. Cars are fetched
+  separately. RLS on, no policies, service role only.
+- **The guest email** (`src/lib/swap-email.ts`) carries the reason and the *new* car's lockbox code
+  through `guestLockboxCode`, saying it replaces any earlier one. A same-day trip's welcome email
+  already gave out the old car's code. The "hold placed" email reads `car_id` when it sends, so a
+  later code is the new car's. The email is sent after the swap commits and never fails it:
+  `{ emailSent: false }` tells the admin to contact the guest.
+- `TripVehicleSwapSection` (shared, `voice` prop) lists the swaps and reasons on both trip pages.
+  `/policies/terms` section 7 states the rules to customers.
+
 ### Guest welcome email (`src/lib/welcome-message.ts`, `src/lib/welcome-email.ts`)
 
 The arrival instructions a guest gets when payment clears, modelled on the message BlueFin sent
@@ -223,10 +279,13 @@ output, so the two cannot drift.
 `notifyGuestBookingConfirmed` mirrors `notifyAdminBookingConfirmed` exactly, claiming on
 `bookings.guest_notified_at`. **There are four confirmation paths** — both webhook events,
 `confirmBooking`, and the revival branch in `getTripForGuest` that confirms a booking whose
-webhook never arrived. **All four call `onBookingConfirmed`** (`src/lib/payments.server.ts`),
-which records the saved card, places the deposit hold if the trip starts within a day, then
-sends both emails — in that order, so a same-day trip's welcome email can carry the lockbox
-code. A fifth path must call it too; never call the notify functions directly.
+webhook never arrived. **Since 2026-10-07 all four call `confirmPaidCheckout`**
+(`src/lib/payments.server.ts`), which applies `checkoutPaymentEffect`, re-checks the dates of
+a payment that arrived after its hold lapsed (refunding it — `canceled_by: 'system'` — if
+they were taken), moves the row, and then calls `onBookingConfirmed`, which records the saved
+card, places the deposit hold if the trip starts within a day, then sends both emails — in
+that order, so a same-day trip's welcome email can carry the lockbox code. A fifth path must
+call `confirmPaidCheckout` too; never update the status or call the notify functions directly.
 
 **The lockbox code is withheld from a guest until the trip's deposit hold is in place** (or an
 owner waived it) — `guestLockboxCode` in `src/lib/lockbox.server.ts` is the only way a guest
@@ -272,9 +331,22 @@ rule below.
 owners, it doesn't go in the product — ask, or leave an obvious placeholder. A
 plausible invented detail is worse than a visible gap because nobody questions it.
 
+**Every money or Stripe change ships with its tests, in the same piece of work** — Liam's rule
+(2026-10-07): "imperative, especially when dealing with money and Stripe". A check in a
+`scripts/verify-*.ts` suite when the rule is pure, and a numbered Do/Expect test in
+`ImportantFiles/go-live-checklist.md` when it needs Stripe. Ask of every change: what if it
+runs on the **wrong status**, runs **twice**, **two callers race**, or the server **dies
+halfway**? Every bug in `ImportantFiles/pre-launch-audit.md` was one of those, in status-handling
+glue around pure rules that were themselves tested. **Put a status decision in one pure
+function** (`cancelDecisionFor`, `ledgerActionOnCancel`, `checkoutPaymentEffect`,
+`depositHoldBelongs`) and test it against `Constants.public.Enums.booking_status` from the
+generated types, so a new status fails the suite until someone decides how it's handled.
+
 **The written record is `ImportantFiles/*.md`** (README, payments-overview, deposit,
 extensions, charges-and-invoicing, cancellation-and-refunds, tax, tax-todo, decisions-log,
-go-live-checklist). Any money change updates the matching document and adds a dated row to
+go-live-checklist, pre-launch-audit). `pre-launch-audit.md` lists every money/status function
+checked on 2026-10-07, what was fixed, and five open items waiting on Liam (A–E; A is a
+possible double booking from a late payment on an expired hold). Any money change updates the matching document and adds a dated row to
 `decisions-log.md` (Decided vs **Proposed**, i.e. filled in to cover a gap). Documents refer to
 code as `` `path#Symbol` `` (never line numbers) and tag numbers as
 `<!-- const:NAME -->…<!-- /const -->`; `scripts/verify-policy-docs.ts` fails if either drifts
@@ -328,7 +400,15 @@ browser pages import** — type-only imports are fine.
   request", alerts the owners and gives the guest a neutral message. It never runs the
   guest-facing decline emails for it.
 - **Owner charges** (`createAdjustmentCharge`): off-session; a decline or 3DS leaves the row
-  `requires_payment` and emails the guest `/trips/$bookingId/pay/$chargeId`.
+  `requires_payment` and emails the guest `/trips/$bookingId/pay/$chargeId`. **They open at
+  pickup**: `ownerChargeBlockedReason` (`charges.ts`) adds a start-time rule on top of
+  `ownerChargeAllowed`'s status rule, and the reservation page shows its reason in place of
+  the button. **The deposit hold and saved-card charges are independent.** The card is
+  chargeable from checkout on, and the hold only guarantees funds for damage. Before
+  2026-10-07, Charge guest worked days before a trip (on a trip with no hold yet), which
+  looked like a deposit bug but was this missing rule.
+- **`TripDepositSection` is shared, so its copy goes through `voice`.** It used to tell the
+  owner about "your Visa card" and "after you return the car".
 - **The payments sweep** (`runPaymentsSweep`, `/api/cron/payments`, every 15 min via pg_cron):
   places, retries, renews and releases holds, and expires abandoned extension payments.
 - An extended trip's mileage allowance and receipt billable days come from its *current* times
@@ -353,6 +433,14 @@ browser pages import** — type-only imports are fine.
   for any status other than confirmed/pending — checked *after* the held check, so a completed
   trip whose hold is still on for the inspection window still reads `held`. Before this, a
   trip cancelled inside the hold window told the guest "we couldn't place your hold".
+- **A hold that lands on a trip that isn't confirmed or completed is released on the spot**,
+  silently (`applyDepositEffects`, rule `depositHoldBelongs`). The sweep or the trip page can
+  start placing a hold in the same instant a trip is cancelled; without this it stayed on the
+  card and the guest got "your hold is placed" for a cancelled trip.
+- **`decideExtension` refuses to approve unless the trip is still `confirmed`.** The hourly
+  `auto_complete_bookings` closes a trip at its end even with a last-hour request open, and
+  `confirmExtension` only moves a confirmed trip's end, so approving captured the money and
+  then only alerted. Decline and bill the extra time as an adjustment.
 
 ### Testing payments locally (`ImportantFiles/go-live-checklist.md`, step 1)
 
@@ -379,7 +467,7 @@ Two rules that are easy to get wrong and have both already caused bugs:
 - **The two rates measure their free window from opposite ends** — non-refundable runs 24h from *booking*, refundable runs 24h before *trip start*. They cross on any booking made under ~48h ahead, which let a non-refundable guest out-refund the one who paid `REFUNDABLE_SURCHARGE` for flexibility. `effectiveFreeCancellationDeadline` caps non-refundable by the refundable deadline to prevent it. Don't "simplify" that cap away.
 - **A rule stated without a rate qualifier is probably wrong.** The policy page once claimed "cancel at least 24 hours before trip start" as a general full-refund rule; that's the refundable rule only, and a non-refundable guest reading it would expect money they don't get.
 
-`scripts/verify-cancellation-policy.ts` (`node --experimental-strip-types scripts/verify-cancellation-policy.ts`) is the standing suite — 32 checks including an invariant sweep over 290 lead-time × cancel-time combinations asserting refundable is never worse than non-refundable, and the later-charges rules. Run it after touching the deadline logic. There's no test framework in the repo; it's a plain script that exits non-zero. Its siblings: `verify-extension-pricing.ts`, `verify-tax.ts`, `verify-policy-docs.ts`. Modules they reach must import with explicit `.ts` extensions (`node --experimental-strip-types` resolves specifiers literally).
+`tests/cancellation.test.ts` runs the real cancellation end to end (every status, guest and owner, every kind of later charge, a refund Stripe refuses, double cancels, crash recovery, preview = refund); see Commands. `scripts/verify-cancellation-policy.ts` (`node --experimental-strip-types scripts/verify-cancellation-policy.ts`) is the standing suite for the pure rules — an invariant sweep over 290 lead-time × cancel-time combinations asserting refundable is never worse than non-refundable, the later-charges rules, which booking statuses can be cancelled (`cancelDecisionFor`), and what a cancellation does to every charge kind × status (`ledgerActionOnCancel`). Run it after touching the deadline logic or the ledger settlement (`npm test` runs it too). It's a plain script that exits non-zero. Its siblings: `verify-booking-status.ts`, `verify-extension-pricing.ts`, `verify-tax.ts`, `verify-pickup-pricing.ts`, `verify-owner-charges.ts`, `verify-policy-docs.ts`. Modules they reach must import with explicit `.ts` extensions (`node --experimental-strip-types` resolves specifiers literally).
 
 **Charges made after booking follow the trip's outcome** (`laterChargeRefund`): an extension is
 refunded in full on `full`, not at all on `none`, and on `partial` minus its own refundable
@@ -391,6 +479,17 @@ anything it couldn't settle. `previewCancellation` returns `laterRefund` from th
 A partial refund also returns tax in proportion to the pre-tax amount refunded.
 
 `cancelBooking` claims the status transition *before* refunding and releases the claim if Stripe fails, so a refund can never succeed against a row that stayed `confirmed`. The refund carries `idempotencyKey: refund_<bookingId>`, so a retry returns the same refund rather than making a second one.
+
+**Everything after the claim is `completeCancellation`** (`payments.server.ts`): the policy
+outcome recomputed as of `canceled_at`, the checkout refund (counting what Stripe already
+refunded on the payment, so it never refunds twice), `settleLedgerOnCancellation`, the emails.
+It throws only `CheckoutRefundError`, before money moves — which is why `cancelBooking` can
+always release the claim on a throw. **The payments sweep (step 6) runs the same function** for
+any `canceled` row with `cancel_notified_at` null, 10 minutes to 7 days after `canceled_at`, so
+a crash between claim and refund no longer leaves a guest unpaid. That makes `canceled` mean
+"a paid trip was called off", always: the webhook's `payment_intent.canceled` now marks a
+pending row `expired`, and `completeCancellation` closes (marks notified, no emails) any
+cancelled row whose payment never succeeded.
 
 **Extras are refunded in full**, alongside the delivery fee and for the same reason: a prepaid
 tank, a child seat and a cleaning are all services rendered *during* a trip, so a trip that
@@ -409,6 +508,50 @@ The claim is `.eq('status', existing.status)`, not `.in([...])`. Just as strong,
 branch to the status actually read — with `.in`, a row flipping `pending → confirmed` between
 the read and the claim got cancelled down the *pending* path: no refund, no emails, money kept.
 
+**"Cancelled by the business" is decided by whose booking it is, not by `is_admin`**
+(`cancelsAsBusiness`, used by `cancelBooking` and `previewCancellation`). An owner cancelling
+their *own* booking gets the guest's terms and `canceled_by: 'guest'`. Until 2026-10-08 any
+admin got the full "we cancelled" refund, which made every rehearsal run from Liam's own
+(admin) account look like a full refund — the same mistake `startExtension` had with
+on-session charging. **Liam's usual test account is an admin**, so when a rehearsal result
+looks too generous, check `canceled_by` and who owns the booking first.
+
+**`cancelBooking` refuses anything but `pending` and `confirmed`** (returns `alreadyCanceled` for
+`canceled`/`expired`/`failed`, throws for `completed`; the rule is `cancelDecisionFor` in
+`cancellation-policy.ts`). Before 2026-10-06 it didn't check: the
+claim is pinned to the status it read, so cancelling an already-`canceled` trip re-ran the
+refund, and once the 24-hour idempotency key had lapsed Stripe refused it and `releaseClaim`
+put the row back to **`confirmed`**, reviving a refunded trip onto the calendar. The admin page
+still showed Cancel Trip on cancelled future trips at the time.
+
+**What a page calls a trip comes from `tripPhase` (`src/lib/booking-status.ts`), never from
+`status` or the clock alone.** A trip stays `confirmed` after it ends until the hourly job
+marks it `completed` (up to an hour; 48 with an extension request open), so status alone says
+"booked" for a finished trip and the clock alone says "upcoming" for a cancelled one. In rehearsal
+Test 18 the guest page, the owner page and the owner's trip list each disagreed about the same
+ended trip. The guest page, the owner page and `TripCard` use it; a new page showing a trip's
+state must too. `TRIP_PHASE_LABEL` is the wording ("Completed" from the moment a trip ends).
+
+**The admin reservation page branches on status before the clock.** Its right-hand card used
+to branch on time alone, so a trip cancelled before its start counted down to pickup and kept
+its Cancel button. Cancelled trips now show who cancelled, when, the refund and the reason.
+The owner's cancel is `src/components/admin/CancelTripModal.tsx` (on `ModalShell`): it quotes
+the refund from `previewCancellation` and takes an optional reason. **An owner's reason is
+emailed to the guest** ("Why we cancelled"); a guest's reason goes only to the owners. Both
+emails read `canceled_by`: the owners' copy used to say the guest cancelled even when we did.
+If the trip stopped being confirmed after the page loaded (another tab, the guest), the
+dialog says so instead of quoting a refund.
+
+**What a cancellation does to each ledger row is `ledgerActionOnCancel`** — release a deposit
+hold, abandon anything unfinished (an extra/extension hold, or a deposit **still waiting on 3D
+Secure**, which used to be left payable), refund paid extensions/extras, leave owner charges.
+**`abandonUnfinishedCharge` only closes a row once Stripe confirms the intent is cancelled.**
+The old code swallowed the cancel's error and closed the row anyway; a closed row never moves
+again (`syncChargeFromIntent` ignores settled rows), so a payment that then landed had no
+record. `abandonCharge` (stale deposit attempts, the sweep's abandoned extension payments)
+follows the same rule but records what Stripe says instead, and `ensureDepositHold` returns
+`held` rather than placing a second hold on top of an attempt that went through.
+
 `CancelTripDialog` only ever sees confirmed trips now. It exists to quote a refund, and a hold
 has none — discarding a pending checkout gets a plain inline confirm on its card on the Trips
 page instead. **Cancelling a confirmed trip lives on the guest trip page**, not on the Trips
@@ -422,9 +565,64 @@ Reviews disappear in two ways, and they're different on purpose. A guest deletin
 
 The table has no write policies: all writes go through the service-role client after the server function's own checks. Anonymous reads go through a column grant that leaves out `user_id` and `booking_id`. `getReviews` works out `is_mine` server-side and strips `user_id` before returning. All three pages (`/reviews`, `/fleet/$carSlug`, `/admin/business/ratings-reviews`) summarise through `summarizeRatings` so their numbers can't disagree.
 
+### Testimonials (`src/lib/testimonials.ts`)
+
+Longer statements from repeat guests, asked for directly by the owners. They're separate from
+reviews: hard-coded in the `TESTIMONIALS` array, with no table and no admin UI. Each is
+`{ quote, name, date: 'YYYY-MM' }`. **Array order is display order**, and `/about` features
+the first entry, so the strongest goes first.
+
+**While the array is empty, the feature doesn't exist.** `/testimonials` throws `notFound()`,
+and the About quote, the line on `/reviews`, the footer link and the sitemap entry all hide
+behind `HAS_TESTIMONIALS`. Add an entry and they all appear together.
+
+**Publish a testimonial only with the guest's written OK** on both the words and the name, and
+keep that email. Never invent one, and don't trade a discount for a statement unless the page
+says so. There is deliberately no Review JSON-LD: Google treats a business's reviews of itself
+on its own site as self-serving.
+
 ### Scheduled jobs
 
 Recurring work runs as **pg_cron jobs inside the linked Supabase project**, calling `security definer` SQL functions — `auto_complete_bookings()` and `expire_stale_pending_bookings()`, both hourly. There is no CI, no cron config in the repo, and no scheduler in the Node server, so **grepping the codebase will not tell you what is scheduled**; query `cron.job`. Both functions wrap their `UPDATE` in `set local session_replication_role = 'replica'` to bypass table triggers. Follow that pattern for new jobs rather than adding an app route or in-process timer.
+
+**Changing a booking's status by hand** (rehearsals, fixing data) is refused even in the SQL
+editor ("status is server-managed and cannot be changed by this role"), because the editor
+isn't the service role. Wrap it the way the jobs do:
+`begin; set local session_replication_role = 'replica'; update …; commit;`. That skips every
+trigger for that transaction, transition rules included, so check the change makes sense.
+
+**Read the live database, not `schema.sql`.** `npx supabase db query --linked "select …"` and
+`npx supabase db advisors --linked --type security` work without Docker (`db dump` needs it).
+Use them read-only; schema changes are Liam's to run. The 2026-10-07 audit
+(`ImportantFiles/pre-launch-audit.md`) found, in the live database:
+
+- **The bookings status trigger (`bookings_guard_status`) allowed `canceled → confirmed`
+  outright.** After `20261007120000_prelaunch_hardening.sql` it's allowed only while
+  `refund_id` is null on both sides — the one legitimate use is `cancelBooking` undoing a claim
+  whose refund failed. It also adds `expired/failed → canceled` (late-payment refunds) and
+  `'system'` to `bookings_canceled_by_chk`. `tests/fakes/supabase.ts` mirrors the trigger.
+- **`is_admin` wasn't guarded.** `profiles_guard_server_columns` now covers it, and the
+  `profiles_update_own` check (which compared `p.id = p.id`) is rewritten.
+- `auto_complete_bookings` leaves a trip open up to 48 hours past its end while an extension
+  request is unanswered; the job functions and trigger functions are no longer executable by
+  `anon`/`authenticated`; `search_path` is pinned on all of them.
+- **`get_available_cars` ran under the visitor's RLS and so excluded nothing for customers.**
+  `/fleet` now uses `getAvailableCars` → `loadUnavailabilityRows` + `dateRangeIsBookable`;
+  `20261007130000_drop_get_available_cars.sql` drops the function **after** deploy.
+
+**Status:** `20261007120000` and `20261008120000_fix_signup.sql` (below) were both run
+2026-10-08 (verified live). `20261007130000` (drop `get_available_cars`) runs after deploy.
+
+**Sign-ups were broken from 2026-09-27 to 2026-10-08** ("Database error saving new user"; no
+account created in between). `profiles_guard_server_columns` refused a new profile whose
+`stripe_identity_session_id` was not null, and **that column defaults to `''`, not null**, so
+the profile `handle_new_user` creates for every account tripped it. Fixed with `nullif(…, '')`.
+Two lessons: **text columns here may default to `''` — never test "is it set" with `is not null`
+alone**; and **`npm test` can't catch SQL bugs** (the fakes don't run Postgres). Every SQL
+change ships with a check Liam can run in the SQL editor inside `begin; … rollback;` (see the
+bottom of `20261008120000_fix_signup.sql`), and sign-up is part of rehearsal Test 15. Also:
+`revoke … from public` on a function takes it from Supabase's own roles too
+(`supabase_auth_admin` runs the auth triggers) — grant back what they need.
 
 The exception is work that needs app code, like reaching Gmail. `sync-turo-bookings` runs every 15 minutes and uses `pg_net` to `POST` to `/api/cron/sync-turo` (`src/routes/api/cron/sync-turo.ts`), authenticated by `CRON_SECRET`. The URL and secret live in Supabase Vault, not in the job's command, because `cron.job` stores commands as plain text. See `supabase/migrations/20260915130000_schedule_turo_sync.sql`, which only works once the site is deployed at a public URL.
 
@@ -439,7 +637,7 @@ a day of pickup, and nothing is released automatically.
 
 `sendEmail()` sends through the Gmail API using the same OAuth client `syncTuroBookings` reads with — it knows about messages, not bookings. `booking-email.ts` holds the admin "trip is booked" template (modelled on the Turo host email it replaces) and `notifyAdminBookingConfirmed()`.
 
-Four paths independently flip a booking to `confirmed` — `payment_intent.succeeded` and `charge.succeeded` in the webhook, the `confirmBooking` fallback, and `getTripForGuest`'s revival — and Stripe retries webhooks, so **all four call `onBookingConfirmed`, which calls `notifyAdminBookingConfirmed`, and the database decides who actually sends**. It claims the send with a conditional update on `bookings.admin_notified_at` (`.is('admin_notified_at', null)`), so exactly one caller gets a row back; the rest no-op. It never throws, and releases the claim if the send fails. When adding a fifth confirmation path, call `onBookingConfirmed` there too rather than reasoning about which path "really" confirms.
+Four paths can confirm a booking — `payment_intent.succeeded` and `charge.succeeded` in the webhook, the `confirmBooking` fallback, and `getTripForGuest`'s revival — and Stripe retries webhooks, so **all four go through `confirmPaidCheckout` → `onBookingConfirmed`, which calls `notifyAdminBookingConfirmed`, and the database decides who actually sends**. It claims the send with a conditional update on `bookings.admin_notified_at` (`.is('admin_notified_at', null)`), so exactly one caller gets a row back; the rest no-op. It never throws, and releases the claim if the send fails. When adding a fifth confirmation path, call `confirmPaidCheckout` there too rather than reasoning about which path "really" confirms.
 
 Emails about money after checkout (receipts, pay links, deposit held/declined/captured/released,
 extensions, owner alerts for refund failures and chargebacks) are in `src/lib/charge-email.ts`.
@@ -456,7 +654,13 @@ function every quote and charge goes through: state 6.875% + local rates by pick
 (`RENTAL_FEE_APPLIES`). What's taxable is `TAXABILITY`. **Many values are placeholders
 (`confirmed: false`) and `TAX_CONFIG_REVIEWED` is false** — there's no accountant yet; never
 present one as settled. The open questions, with instructions, are
-`ImportantFiles/tax-todo.md`; update it, `tax.md` and the constant together.
+`ImportantFiles/tax-todo.md`; update it, `tax.md` and the constant together. Both are written
+to be handed to an accountant (rewritten 2026-10-08): plain prose up front, code references
+only in tax.md section 10 and the italic "Code:" lines in tax-todo. **Don't renumber tax-todo's
+items 1–7** — `tax.ts`, `cancellation-policy.ts`, `tax-report.ts` and other documents cite them
+by number. Two known gaps it records: deliveries are taxed at Saint Paul rates although
+§ 297A.668 subd. 2(c) sources a delivered sale to the delivery address, and the tax report has
+no gross/exempt sales totals (untaxed charges like damage are left out).
 
 **Re-checked 2026-09-29 against Revenue Notice #06-08 (Sept 2025) and the Q4 2026 rate guide —
 the amounts are right; don't "fix" them down.** A home-base trip is taxed **19.075%**: 9.875%
@@ -509,6 +713,8 @@ It reads Gmail via the `googleapis` OAuth2 client (refresh token in env) to find
 - UI is hand-written Tailwind v4 with Lucide icons; there is no component library (shadcn/ui was removed). `src/lib/utils.ts` exports a `cn()` (clsx + tailwind-merge) helper for conditional classNames.
 - **Colours come from named tokens in `src/index.css`, never raw greys or hex values.** Use the semantic classes — `bg-page`, `bg-surface` (cards/popovers), `bg-subtle` (chips, hover fills), `border-line`, `text-ink` (main text, also the body default), `text-muted` (secondary text), `bg-brand` / `text-on-brand` — and fall back to the palette (`pine-*`, `cream-*`, `ink-*`) only for a deliberate one-off. Exceptions: text/overlays sitting on photos or the homepage video stay `white`/`black`, and `src/components/admin/*` keeps its own neutral greys inside `.admin-shell`.
 - The homepage navbar is transparent over the hero video and turns solid when the element marked `data-nav-solid-from` reaches it (`Navbar.tsx`); every other route gets the solid navbar.
+  - **Chrome that depends on the page reads the rendered route (`useMatches`), not `useLocation()`.** TanStack updates the location the moment a navigation starts but swaps the page in only once its loader finishes, so `useLocation` made the navbar change colour (and, in `__root.tsx`, vanish on the way to checkout) over the *old* page for as long as the loader took (~600ms to the homepage).
+  - The `<nav>` is keyed on hero/non-hero so a route change remounts it and the colour switch is instant; `transition-colors` then only animates the scroll-past-hero change. Without the key the bar faded for 300ms while the page swapped instantly.
 - **Check phone layouts against a real iPhone, or a short viewport like 390×664.** Devtools' default phone heights leave out Safari's toolbars, and the cramped homepage calendar only ever showed up on the real device.
 - **The search bar has no location field.** Every car serves the same Twin Cities pickup spots, and the real pickup choice is `PickupLocationPicker` on the car page. `/fleet`'s search params are just `start`/`end`.
 - **`TripCalendar` is a bottom sheet on phones** (below Tailwind's `sm`, 639px, checked with `matchMedia` when it opens) and an anchored popover from `sm` up. The sheet is portalled to `<body>`, locks page scroll while open and closes on a backdrop tap. The larger day cells in `tripCalendarClassNames` switch at the same `sm` breakpoint, so they only ever appear inside the sheet. Every caller gets this for free, including the car page's start/end calendars.

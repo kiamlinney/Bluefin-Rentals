@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 import { finishChargePayment, getChargePayLink } from '@/lib/payments'
+import { SIGNED_OUT } from '@/lib/signed-out'
 import { stripeAppearance, stripePromise } from '@/lib/stripe-client'
 import { chargeKindLabel, chargeTotal } from '@/lib/charges'
 import { formatBusinessDateTime } from '@/lib/dates'
@@ -20,7 +21,11 @@ import { DialogError, Money, primaryButtonClass } from '@/components/trip/ModalS
 // layout, like /receipt. getChargePayLink authorizes the caller against the
 // booking and checks the charge belongs to it.
 export const Route = createFileRoute('/_authed/trips/$bookingId_/pay/$chargeId')({
-    loader: ({ params }) => getChargePayLink({ data: { bookingId: params.bookingId, chargeId: params.chargeId } }),
+    // The pay link is emailed, so it's often opened signed out.
+    loader: ({ params, context }) => {
+        if (!context.isLoggedIn) return SIGNED_OUT
+        return getChargePayLink({ data: { bookingId: params.bookingId, chargeId: params.chargeId } })
+    },
     component: PayChargePage,
 })
 

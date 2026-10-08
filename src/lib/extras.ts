@@ -41,7 +41,7 @@ export const EXTRAS: ExtraDefinition[] = [
     {
         id: 'prepaid-refuel',
         name: 'Prepaid refuel',
-        price: 45,
+        price: 70,
         billing: 'per-trip',
         description:
             'Bring the car back at any fuel level and skip the refueling fee. Covers up to a full tank.',

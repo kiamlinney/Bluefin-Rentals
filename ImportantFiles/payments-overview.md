@@ -12,8 +12,14 @@ then **where the code enforces it** and **where customers are told**. Rules mark
 ## 1. The checkout charge
 
 - At checkout the guest pays the **trip total**: the days (after any discount), the
-  same-day surcharge if any, the refundable-rate premium if chosen, the delivery fee,
+  same-day surcharge if any, the refundable-rate premium if chosen, the pickup fee,
   checkout extras, and **tax**. One Stripe PaymentIntent, charged immediately.
+- **Pickup fee:** free at the home base; a flat
+  <!-- const:LISTED_PICKUP_FEE -->$100<!-- /const --> at MSP airport, the MSP light rail
+  station or the Grand Hotel Minneapolis; a flat <!-- const:DELIVERY_FEE -->$120<!-- /const -->
+  to deliver within <!-- const:DELIVERY_RADIUS_MILES -->10<!-- /const --> miles of the home base.
+  → `src/lib/pickup.ts#resolvePickup`. **Customers are told:** the pickup picker on the car
+  page, the homepage and the FAQ.
 - The server re-prices everything itself. Nothing the browser sends decides an amount.
   → `src/lib/db.ts#createCheckoutSession`, `src/lib/pricing.ts#calculateTripPrice`
 - The full breakdown is **frozen** into `bookings.price_quote` (now version 2, which
@@ -73,6 +79,10 @@ then **where the code enforces it** and **where customers are told**. Rules mark
   → `src/lib/payments.server.ts#syncChargeFromIntent`
 - Details: [charges-and-invoicing.md](charges-and-invoicing.md), [deposit.md](deposit.md),
   [extensions.md](extensions.md).
+- **A vehicle swap is not a charge.** Moving a trip onto another car (before it starts)
+  writes no ledger row and leaves `price_quote` alone; the deposit, extras and extensions
+  follow the booking. Mileage keeps the quoted car's per-mile rate. Decisions 36–40.
+  → `src/lib/vehicle-swap.server.ts#performVehicleSwap`
 
 ## 5. The Stripe webhook
 
@@ -106,8 +116,15 @@ doesn't cause an error; that feature just silently stops working:
 ## 6. What happens when a booking is confirmed
 
 Four paths can confirm a booking: both webhook events, the page's `confirmBooking`, and
-the trip page repairing a booking whose webhook never came. **All four call one
-function**, and every step in it claims itself in the database, so each happens once:
+the trip page repairing a booking whose webhook never came. **Since 2026-10-07 all four are
+one function** (`confirmPaidCheckout`): it decides from the booking's status whether the
+payment confirms it (never a cancelled, completed or refunded one), re-checks the dates of a
+payment that arrived after its hold lapsed (refunding it if they were taken), and then runs
+the follow-ups. Before that, `confirmBooking` confirmed any matching row, cancelled ones
+included. → `src/lib/payments.server.ts#confirmPaidCheckout`
+
+The follow-ups are one function too, and every step in it claims itself in the database, so
+each happens once:
 1. record the saved card on the booking;
 2. place the deposit hold if the trip starts within <!-- const:DEPOSIT_PLACE_BEFORE_HOURS -->24<!-- /const --> hours;
 3. email the owners; 4. email the guest.
@@ -116,8 +133,9 @@ function**, and every step in it claims itself in the database, so each happens 
 ## 7. The payments sweep (every 15 minutes)
 
 A scheduled job calls `/api/cron/payments`. It places deposit holds ahead of pickup,
-retries declined ones, renews holds on long trips, releases holds after trips, and lets
-go of extension payments nobody finished.
+retries declined ones, renews holds on long trips, releases holds after trips, lets
+go of extension payments nobody finished, and finishes any cancellation that stopped partway
+(refund, later charges, emails; see [cancellation-and-refunds.md](cancellation-and-refunds.md)).
 → `src/lib/payments.server.ts#runPaymentsSweep`, `src/routes/api/cron/payments.ts`,
 `supabase/migrations/20260927130000_schedule_payments_sweep.sql`
 **Why 15 minutes:** it's a backstop. Everything triggered by a person happens
@@ -139,6 +157,7 @@ delay, which matters near pickup.
 | Extension request | Owners | A last-hour extension needs an answer |
 | Trip extended / couldn't extend | Guest (+ owners) | An extension is confirmed or declined |
 | Refund failed, chargeback, charge problems | Owners | Something needs a person |
+| Payment refunded: dates taken | Guest + owners | A late payment for dates booked meanwhile was refunded (once) |
 
 → `src/lib/charge-email.ts`
 
@@ -150,6 +169,12 @@ delay, which matters near pickup.
 - **Guests could mark their own ID as verified.** A database trigger now makes identity
   and Stripe fields on profiles server-only.
 → `supabase/migrations/20260927120000_payments_ledger.sql#profiles_guard_server_columns`
+
+**More found 2026-10-07** (full list in [pre-launch-audit.md](pre-launch-audit.md)): anyone
+could read the business inbox through an unguarded debugging function; nothing in the
+database stopped a guest making themselves an admin; the status trigger let a refunded trip
+be confirmed again; a guest could get a refunded trip back by calling `confirmBooking`
+directly. All fixed, partly in `supabase/migrations/20261007120000_prelaunch_hardening.sql`.
 
 ## 10. Sandbox vs live
 

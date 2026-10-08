@@ -22,9 +22,10 @@ to review and to hold the code to. The customer-facing pages (`/policies/terms`,
 | [charges-and-invoicing.md](charges-and-invoicing.md) | Charging a guest after checkout: extras, damage, mileage and other charges, the pay link, receipts |
 | [cancellation-and-refunds.md](cancellation-and-refunds.md) | What a cancellation refunds, for the trip and for everything charged after it |
 | [tax.md](tax.md) | How tax is calculated, every rate with its source, and which parts are placeholders |
-| [tax-todo.md](tax-todo.md) | **Your checklist** of tax questions to answer (with or without an accountant) and where each answer goes in the code |
+| [tax-todo.md](tax-todo.md) | **Open questions for the accountant**, what we do now on each, and where each answer goes in the code |
 | [decisions-log.md](decisions-log.md) | Every policy decision, dated, and whether you decided it or it's a proposal awaiting your review |
 | [go-live-checklist.md](go-live-checklist.md) | Everything that must happen before real payments are taken |
+| [pre-launch-audit.md](pre-launch-audit.md) | Every money and status function checked for wrong-status, double, concurrent and half-finished runs: what was fixed, and what needs your decision |
 
 ## How these stay true
 
@@ -47,10 +48,17 @@ to review and to hold the code to. The customer-facing pages (`/policies/terms`,
 The other checks, all plain scripts that exit non-zero on failure:
 
 ```bash
-node --experimental-strip-types scripts/verify-cancellation-policy.ts   # refunds
+node --experimental-strip-types scripts/verify-cancellation-policy.ts   # refunds, what can be cancelled, what happens to each charge
+node --experimental-strip-types scripts/verify-booking-status.ts        # what a payment or a hold landing does to each booking status
 node --experimental-strip-types scripts/verify-extension-pricing.ts     # extensions
 node --experimental-strip-types scripts/verify-tax.ts                   # tax arithmetic
 ```
+
+5. **Every money change ships with its tests** in the same piece of work: a check in one of
+   these scripts when the rule is pure, and a numbered Do/Expect test in
+   [go-live-checklist.md](go-live-checklist.md) when it needs Stripe. Most bugs so far were
+   a status nobody had thought about, so a test should cover every status, not just the
+   usual one.
 
 ## Where these live
 

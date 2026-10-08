@@ -370,7 +370,7 @@ function CarDetails() {
 
     // Business hours now come from src/lib/availability.ts, which is also where
     // the "earliest start today" math reads them — the two can't disagree about
-    // when 10:30pm is, which matters because one greys out slots and the other
+    // when closing is, which matters because one greys out slots and the other
     // decides whether today is bookable at all.
     const baseTimeOptions = useMemo(() => {
         return Array.from({ length: (24 * 60) / SLOT_MINUTES }, (_, i) => {

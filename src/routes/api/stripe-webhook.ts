@@ -22,7 +22,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import Stripe from 'stripe'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import {
-    onBookingConfirmed,
+    confirmPaidCheckout,
     recordBookingPaymentMethod,
     syncChargeFromIntent,
 } from '../../lib/payments.server'
@@ -54,40 +54,23 @@ async function ledgerChargeFor(admin: AdminClient, paymentIntentId: string) {
  * never revive it). The old blind update couldn't tell them apart.
  */
 async function confirmCheckout(admin: AdminClient, paymentIntentId: string): Promise<Response | null> {
-    const { data: row, error } = await admin
-        .from('bookings')
-        .select('id, status')
-        .eq('stripe_payment_intent_id', paymentIntentId)
-        .maybeSingle()
-    if (error) throw error
+    // The one implementation every confirmation path shares
+    // (src/lib/payments.server.ts): the status rule, the re-check of dates for a
+    // payment that arrived after its hold lapsed, and everything that follows.
+    const { result, bookingId } = await confirmPaidCheckout(admin, paymentIntentId)
 
-    if (!row) {
+    if (result === 'not-found') {
         console.warn('No booking matched for PaymentIntent (will retry):', paymentIntentId)
         // 500 so Stripe retries: the insert may not have committed yet.
         return new Response('Booking not yet available', { status: 500 })
     }
-
-    if (row.status === 'canceled' || row.status === 'completed') {
+    if (result === 'left') {
         // A refunded or finished trip is never talked back into confirmed.
-        console.warn(`PaymentIntent ${paymentIntentId} succeeded for a ${row.status} booking ${row.id}; not reviving it.`)
-        return null
+        console.warn(`PaymentIntent ${paymentIntentId} succeeded for booking ${bookingId}, which has moved on; not reviving it.`)
     }
-
-    // pending, expired (a late card payment on an abandoned checkout — a paid
-    // trip is a real trip), failed (a retry after a decline) or already confirmed.
-    if (row.status !== 'confirmed') {
-        const { error: updateErr } = await admin
-            .from('bookings')
-            .update({ status: 'confirmed' })
-            .eq('id', row.id)
-            .eq('status', row.status)
-        if (updateErr) throw updateErr
-        console.log(`Booking confirmed for PaymentIntent: ${paymentIntentId}`)
+    if (result === 'refunded-conflict') {
+        console.warn(`PaymentIntent ${paymentIntentId} arrived after its hold lapsed and the dates were taken; refunded.`)
     }
-
-    // Everything that follows a confirmation: the saved card, the deposit hold,
-    // both emails. Called on every delivery; each step claims itself.
-    await onBookingConfirmed(admin, row.id)
     return null
 }
 
@@ -186,9 +169,15 @@ export const Route = createFileRoute('/api/stripe-webhook')({
                             // row `expired` before cancelling the intent, and
                             // intentForBooking repoints the row before cancelling
                             // the one it replaced — neither should be overwritten.
+                            //
+                            // `expired`, not `canceled`: nothing was paid, so this
+                            // is an abandoned checkout, the same as cancelBooking
+                            // discarding a hold. `canceled` means a paid trip was
+                            // called off, and the sweep's "finish cancellations"
+                            // step and the guest's trip list both rely on that.
                             const { error } = await supabaseAdmin
                                 .from('bookings')
-                                .update({ status: 'canceled' })
+                                .update({ status: 'expired' })
                                 .eq('stripe_payment_intent_id', pi.id)
                                 .eq('status', 'pending')
                             if (error) console.warn('Failed to mark booking as canceled:', error.message)

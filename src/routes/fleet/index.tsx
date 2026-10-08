@@ -2,7 +2,6 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import CarCard from "@/components/CarCard.tsx";
 import { getCars, getAvailableCars } from "@/lib/db.ts";
 import { SearchBar } from "@/components/SearchBar";
-import { addDays, wallClockToUtcIso } from "@/lib/pricing.ts";
 import { Car } from "@/types.ts";
 import { absoluteUrl } from '@/lib/site'
 import { seoMeta } from '@/lib/business'
@@ -14,10 +13,9 @@ type FleetSearch = {
 
 const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/
 
-// Only bare 'YYYY-MM-DD' keys get through. A stale bookmark carrying the old
-// full-ISO format would otherwise reach wallClockToUtcIso, which splits on '-',
-// gets NaN for the day, and throws — inside a loader, on the server. Rejecting
-// here degrades those URLs to "show every car" instead.
+// Only bare 'YYYY-MM-DD' keys get through; the server's availability check works
+// in date keys. A stale bookmark carrying the old full-ISO format degrades to
+// "show every car" instead of failing the loader.
 const asDateKey = (v: unknown): string | undefined =>
     typeof v === 'string' && DATE_KEY.test(v) ? v : undefined
 
@@ -48,17 +46,10 @@ export const Route = createFileRoute('/fleet/')({
             return { cars }
         }
 
-        // Whole-day bounds in the business's timezone, exclusive at the far
-        // end: get_available_cars compares half-open ranges, so passing the day
-        // *after* the return date is what makes the return day itself count.
-        // The calendar blocks a day if a booking touches it at all, and this
-        // filter has to agree or /fleet will list cars the car page rejects.
-        const cars = await getAvailableCars({
-            data: {
-                start: wallClockToUtcIso(start, '0:00'),
-                end: wallClockToUtcIso(addDays(end, 1), '0:00'),
-            },
-        })
+        // Date keys, both inclusive. The server judges them with the car page
+        // calendar's own rules (dateRangeIsBookable), so /fleet can't list a
+        // car the car page then refuses for these dates.
+        const cars = await getAvailableCars({ data: { start, end } })
         return { cars }
     },
     component: Fleet,

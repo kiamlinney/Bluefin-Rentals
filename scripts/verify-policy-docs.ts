@@ -41,10 +41,11 @@ import {
 } from '../src/lib/tax.ts'
 import { FREE_CANCELLATION_HOURS, REFUNDABLE_SURCHARGE } from '../src/lib/booking-rate.ts'
 import { LATE_BOOKING_GRACE_HOURS, LATE_BOOKING_WINDOW_HOURS, SHORT_TRIP_DAYS } from '../src/lib/cancellation-policy.ts'
-import { DELIVERY_FEE, DELIVERY_RADIUS_MILES } from '../src/lib/pickup.ts'
+import { DELIVERY_FEE, DELIVERY_RADIUS_MILES, LISTED_PICKUP_FEE } from '../src/lib/pickup.ts'
 import { MILES_INCLUDED_PER_DAY } from '../src/lib/distance.ts'
 import { EXTRAS } from '../src/lib/extras.ts'
 import { DISCOUNT_TIERS, LONG_DURATION_DISCOUNT, SAME_DAY_SURCHARGE } from '../src/lib/pricing.ts'
+import { PENDING_HOLD_MS } from '../src/lib/availability.ts'
 
 const ROOT = new URL('..', import.meta.url).pathname
 const DOCS = join(ROOT, 'ImportantFiles')
@@ -58,14 +59,10 @@ const extra = (id: string) => {
     return e ? `${dollars(e.price)}${e.billing === 'per-day' ? '/day' : '/trip'}` : 'MISSING'
 }
 
-// PENDING_HOLD_MS lives in a server-only module that can't be imported here, so
-// its value is read from the source: `export const PENDING_HOLD_MS = <expr>`.
+// PENDING_HOLD_MS moved to the pure availability.ts on 2026-10-07 (the terms
+// page states it), so it's imported like every other constant.
 function readPendingHoldHours(): string {
-    const src = readFileSync(join(ROOT, 'src/lib/availability.server.ts'), 'utf8')
-    const m = src.match(/export const PENDING_HOLD_MS = ([\d\s*]+)/)
-    if (!m) return 'MISSING'
-    const ms = m[1]!.split('*').map(Number).reduce((a, b) => a * b, 1)
-    const hours = ms / 3_600_000
+    const hours = PENDING_HOLD_MS / 3_600_000
     return `${hours} ${hours === 1 ? 'hour' : 'hours'}`
 }
 
@@ -96,6 +93,7 @@ const EXPECTED: Record<string, string> = {
     SHORT_TRIP_DAYS: String(SHORT_TRIP_DAYS),
     DELIVERY_FEE: dollars(DELIVERY_FEE),
     DELIVERY_RADIUS_MILES: String(DELIVERY_RADIUS_MILES),
+    LISTED_PICKUP_FEE: dollars(LISTED_PICKUP_FEE),
     MILES_INCLUDED_PER_DAY: String(MILES_INCLUDED_PER_DAY),
     SAME_DAY_SURCHARGE: pct(SAME_DAY_SURCHARGE.percent),
     LONG_DURATION_DISCOUNT: `${pct(LONG_DURATION_DISCOUNT.percent)} from ${LONG_DURATION_DISCOUNT.minDays} days`,

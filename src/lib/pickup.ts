@@ -57,7 +57,15 @@ export type PickupLocation = {
     address?: string
     /** What lands in bookings.pickup_location. See the warning below. */
     bookingLabel: string
+    /** Flat fee for meeting the guest here, in dollars. */
+    fee: number
+    /** The line it gets on the quote and receipt. */
+    feeLabel: string
 }
+
+// Every listed spot costs the same today. One constant so the docs can tag it;
+// a location that ever needs its own price just sets `fee` to something else.
+export const LISTED_PICKUP_FEE = 100
 
 // The rows shown under "Pickup locations". Order here is render order.
 //
@@ -77,6 +85,8 @@ export const PICKUP_LOCATIONS: PickupLocation[] = [
         name: 'Minneapolis–Saint Paul International Airport',
         subtitle: 'Airport',
         bookingLabel: 'MSP - Minneapolis, MN',
+        fee: LISTED_PICKUP_FEE,
+        feeLabel: 'Airport pickup',
     },
     {
         id: 'grand-hotel',
@@ -85,6 +95,8 @@ export const PICKUP_LOCATIONS: PickupLocation[] = [
         subtitle: 'Hotel',
         address: '615 2nd Avenue South, Minneapolis, MN 55402',
         bookingLabel: 'The Grand Hotel Minneapolis, 615 2nd Avenue South, Minneapolis, MN 55402',
+        fee: LISTED_PICKUP_FEE,
+        feeLabel: 'Hotel pickup',
     },
     {
         id: 'msp-light-rail',
@@ -93,6 +105,8 @@ export const PICKUP_LOCATIONS: PickupLocation[] = [
         subtitle: 'Train station',
         address: 'Fort Snelling Unorganized Territory, MN 55111',
         bookingLabel: 'MSP Light Rail Station, Fort Snelling Unorganized Territory, MN 55111',
+        fee: LISTED_PICKUP_FEE,
+        feeLabel: 'Train station pickup',
     },
 ]
 
@@ -102,7 +116,7 @@ export function findPickupLocation(id: string): PickupLocation | undefined {
 
 // ── Delivery ─────────────────────────────────────────────────────────────────
 
-// A custom delivery address is the only option that costs anything
+// Only the home base is free; listed spots carry their own `fee` above.
 
 // Flat rather than per-mile
 export const DELIVERY_FEE = 120
@@ -234,10 +248,8 @@ function resolvePickupParts(selection: PickupSelection): Omit<ResolvedPickup, 't
         return {
             label: location.name,
             bookingLabel: location.bookingLabel,
-            // Listed spots are free: the host is meeting the customer somewhere
-            // they already go, so there's no dedicated trip to charge for.
-            fee: 0,
-            feeLabel: null,
+            fee: location.fee,
+            feeLabel: location.feeLabel,
             error: null,
         }
     }

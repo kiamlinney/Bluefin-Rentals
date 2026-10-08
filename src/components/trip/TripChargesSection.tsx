@@ -34,7 +34,7 @@ export function TripChargesSection({
     bookingId,
     charges,
     voice,
-    canCharge = false,
+    chargeBlockedReason = null,
     hasCard = false,
     suggestedMileage = null,
     taxContext,
@@ -43,8 +43,8 @@ export function TripChargesSection({
     bookingId: string
     charges: ChargeRow[]
     voice: 'guest' | 'host'
-    /** Host only: whether "Charge guest" is offered at all. */
-    canCharge?: boolean
+    /** Host only: why "Charge guest" isn't offered (ownerChargeBlockedReason), or null when it is. */
+    chargeBlockedReason?: string | null
     hasCard?: boolean
     /** Host only: pre-fill for a mileage overage, from calculateOverage. */
     suggestedMileage?: { amount: number; description: string } | null
@@ -63,11 +63,13 @@ export function TripChargesSection({
 
     if (voice === 'guest' && visible.length === 0) return null
 
+    const canCharge = voice === 'host' && !chargeBlockedReason
+
     return (
         <TripSection
             title="Additional charges"
             action={
-                voice === 'host' && canCharge ? (
+                canCharge ? (
                     <button
                         type="button"
                         onClick={() => setNewCharge(true)}
@@ -78,6 +80,10 @@ export function TripChargesSection({
                 ) : undefined
             }
         >
+            {voice === 'host' && chargeBlockedReason && (
+                <p className="text-xs text-muted">{chargeBlockedReason}</p>
+            )}
+
             {visible.length === 0 ? (
                 <p className="text-sm text-muted">Nothing charged since checkout.</p>
             ) : (

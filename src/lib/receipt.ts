@@ -31,6 +31,8 @@ export type ReceiptBooking = {
     total_price: number | string
     refunded_amount: number | string | null
     price_quote: unknown
+    /** The car the trip was priced on, when it has since been swapped. */
+    pricing_car?: Car | null
 }
 
 export type BookingReceipt = {
@@ -140,9 +142,14 @@ export function buildReceipt(booking: ReceiptBooking, car: Car): BookingReceipt 
     // none there's nothing to take a ratio against, so the car's ceiling stands
     // — the documented "most this car's rate will ever be", and the same value
     // distanceFeeForTrip itself falls back to for an empty quote.
+    //
+    // Off the car the trip was *priced* on. A swapped trip keeps the per-mile
+    // rate the guest was quoted (decided 2026-10-06), and the rate is a ratio
+    // against that car's own base price, so the new car's would be wrong twice.
+    const ratedCar = booking.pricing_car ?? car
     const perMileFee = quote
-        ? distanceFeeForTrip(car, quote, Number(car.price_per_day))
-        : maxDistanceFee(car)
+        ? distanceFeeForTrip(ratedCar, quote, Number(ratedCar.price_per_day))
+        : maxDistanceFee(ratedCar)
 
     const totalCharged = toMoney(booking.total_price)
     const refundedAmount = toMoney(booking.refunded_amount)

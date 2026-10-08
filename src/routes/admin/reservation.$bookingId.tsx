@@ -1,5 +1,5 @@
 import {createFileRoute, Link, useRouter} from '@tanstack/react-router'
-import {cancelBooking, getAdditionalDrivers, getBookingById, getCarPriceOverrides, getTripExtras, getTripLockboxCode} from "@/lib/db.ts";
+import {getAdditionalDrivers, getBookingById, getCarPriceOverrides, getTripExtras, getTripLockboxCode} from "@/lib/db.ts";
 import {AdditionalDriversSection} from "@/components/trip/AdditionalDriversSection";
 import {TripExtrasSection} from "@/components/trip/TripExtrasSection";
 import {TripMessages} from "@/components/trip/TripMessages";
@@ -24,12 +24,16 @@ import {hasUnlimitedMileage} from "@/lib/extras.ts";
 import {buildReceipt} from "@/lib/receipt.ts";
 import {money} from "@/lib/email-template.ts";
 import {getTripPayments} from "@/lib/payments";
-import {paidAfterCheckout} from "@/lib/charges";
+import {ownerChargeBlockedReason, paidAfterCheckout} from "@/lib/charges";
 import {taxContextFromQuote} from "@/lib/tax";
 import {TripChargesSection} from "@/components/trip/TripChargesSection";
 import {TripDepositSection} from "@/components/trip/TripDepositSection";
 import {TripExtensionsSection} from "@/components/trip/TripExtensionsSection";
 import {ExtensionRequestModal} from "@/components/admin/ExtensionRequestModal";
+import {SwapVehicleModal} from "@/components/admin/SwapVehicleModal";
+import {CancelTripModal} from "@/components/admin/CancelTripModal";
+import {TRIP_PHASE_LABEL, tripPhase} from "@/lib/booking-status";
+import {TripVehicleSwapSection} from "@/components/trip/TripVehicleSwapSection";
 
 export const Route = createFileRoute('/admin/reservation/$bookingId')({
     loader: async ({ params }) => {
@@ -37,7 +41,8 @@ export const Route = createFileRoute('/admin/reservation/$bookingId')({
         // Sequential rather than a Promise.all: the car id only exists once the
         // booking has come back. Needed because the mileage rate is derived from
         // the trip's average daily price, which is override-dependent.
-        const priceOverrides = await getCarPriceOverrides({ data: String(booking.cars.id) })
+        // The car the trip was priced on, which after a swap isn't the current one.
+        const priceOverrides = await getCarPriceOverrides({ data: String((booking.pricing_car ?? booking.cars).id) })
         const drivers = await getAdditionalDrivers({ data: params.bookingId })
         const lockboxCode = await getTripLockboxCode({ data: params.bookingId })
         const extras = await getTripExtras({ data: params.bookingId })
@@ -55,7 +60,13 @@ function ReservationDetailsPage() {
     // the same way everywhere.
     const renterName = displayName(profile)
 
-    const isPastTrip = booking.status === 'completed' || booking.status === 'canceled'
+    // Status and clock together (tripPhase), the same as the guest's page: a
+    // trip that has ended reads as ended before the hourly job marks it
+    // completed, and a cancelled one never counts down.
+    const phase = tripPhase(booking)
+    const isCanceled = phase === 'canceled'
+    // A checkout that was abandoned or declined: never a trip at all.
+    const isUnpaid = phase === 'not-paid'
 
     // getBookingById selects trip_media(count), which Supabase returns as a
     // one-element array of aggregates.
@@ -94,6 +105,10 @@ function ReservationDetailsPage() {
     // No pickup fee: it doesn't enter the ratio, and the row stores only the
     // rendered location string so the selection can't be reconstructed anyway
     // (see the known gap in src/lib/checkout-search.ts).
+    //
+    // Against the car the trip was priced on, which after a swap isn't the
+    // current one — same rule buildReceipt follows.
+    const pricingCar = booking.pricing_car ?? car
     const fallbackQuote = receipt.quote
         ? null
         : calculateTripPrice({
@@ -101,7 +116,7 @@ function ReservationDetailsPage() {
             startTime: businessWallClockTime(startDate),
             endDate: businessDateKey(endDate),
             endTime: businessWallClockTime(endDate),
-            basePricePerDay: Number(car.price_per_day),
+            basePricePerDay: Number(pricingCar.price_per_day),
             overrides: buildOverrideMap(priceOverrides),
         })
 
@@ -132,7 +147,7 @@ function ReservationDetailsPage() {
         ? milesIncluded(fallbackQuote.billableDays)
         : receipt.milesIncluded
     const perMileFee = fallbackQuote
-        ? distanceFeeForTrip(car, fallbackQuote, Number(car.price_per_day))
+        ? distanceFeeForTrip(pricingCar, fallbackQuote, Number(pricingCar.price_per_day))
         : receipt.perMileFee
     // An unlimited-mileage trip has no allowance to exceed, so there is nothing
     // to charge however far it was driven. Zeroed here rather than hidden at
@@ -160,34 +175,11 @@ function ReservationDetailsPage() {
     const endsIn = getRelativeTimeString(endDate, now)
 
     const hasStarted = now >= startDate
-    const hasEnded = now >= endDate
 
     const router = useRouter()
 
-    const [initialCancel, setInitialCancel] = useState(false)
-    const [confirmCancel, setConfirmCancel] = useState(false)
-    const [cancelError, setCancelError] = useState<string | null>(null)
-
-    const handleCancel = async () => {
-        setConfirmCancel(true)
-        setCancelError(null)
-        try {
-            await cancelBooking({ data: { bookingId: booking.id } })
-            // invalidate() rather than the full reload this used to do: the
-            // loader refetches and the page re-renders in place, keeping scroll
-            // position. Same change the guest cancel flow made.
-            await router.invalidate()
-            setInitialCancel(false)
-        } catch (err: unknown) {
-            // Shown on the page rather than in an alert(). cancelBooking's
-            // errors are specific — "could not process refund through Stripe,
-            // nothing was changed" is actionable, and a generic alert threw
-            // that away.
-            setCancelError(err instanceof Error ? err.message : 'Could not cancel this trip.')
-        } finally {
-            setConfirmCancel(false)
-        }
-    }
+    const [swapping, setSwapping] = useState(false)
+    const [cancelling, setCancelling] = useState(false)
 
     return (
         <div className="py-8 md:py-16 px-4 md:px-8">
@@ -197,7 +189,11 @@ function ReservationDetailsPage() {
                 <header className="flex flex-col-reverse gap-4 sm:flex-row sm:justify-between sm:items-start border-b border-gray-300 pb-4 mb-8">
                     <div>
                         <h1 className="sm:mb-6 text-3xl sm:text-4xl text-black tracking-tight font-bold">
-                            {isPastTrip ? 'Past trip' : 'Booked trip'}
+                            {isCanceled ? 'Canceled trip'
+                                : phase === 'ended' ? 'Past trip'
+                                : phase === 'awaiting-payment' ? 'Unpaid hold'
+                                : isUnpaid ? 'Abandoned checkout'
+                                : 'Booked trip'}
                         </h1>
                     </div>
                     <div className="flex flex-row-reverse sm:flex-row items-center justify-end gap-3 sm:text-right">
@@ -269,6 +265,8 @@ function ReservationDetailsPage() {
 
                             </div>
                         </section>
+
+                        <TripVehicleSwapSection swaps={booking.vehicle_swaps} voice="host" />
 
                         <section className="space-y-1">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-black">Total Earnings</h3>
@@ -359,7 +357,10 @@ function ReservationDetailsPage() {
                                 bookingId={booking.id}
                                 charges={payments.charges}
                                 voice="host"
-                                canCharge={booking.status === 'confirmed' || booking.status === 'completed'}
+                                // The server's rule: confirmed, completed, or
+                                // cancelled once the guest already had the car,
+                                // and only from pickup on.
+                                chargeBlockedReason={ownerChargeBlockedReason(booking, now)}
                                 hasCard={payments.hasCard}
                                 // The one pre-filled amount: the overage at the per-mile
                                 // rate the guest was shown when booking. The owner still
@@ -448,14 +449,66 @@ function ReservationDetailsPage() {
                     <div className="lg:sticky lg:top-6 space-y-6">
 
                         {/* Countdown Banner */}
+                        {/* Status comes before the clock. This card used to
+                            branch on the time alone, so a trip cancelled before
+                            its start date still counted down to pickup and
+                            still offered Cancel Trip. */}
                         <div className="border border-gray-200 rounded-xl p-5 bg-white shadow-sm space-y-4">
-                            {hasEnded ? (
-                                <a
-                                    href="#additional-charges"
-                                    className="block text-center w-full py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
-                                >
-                                    Charge for incidentals
-                                </a>
+                            {isCanceled ? (
+                                <div className="space-y-3">
+                                    <span className="inline-block text-xs font-bold px-3 py-1 rounded-full bg-red-100 text-red-800">
+                                        CANCELED
+                                    </span>
+                                    <p className="text-sm text-gray-700 leading-relaxed">
+                                        {booking.canceled_by === 'admin'
+                                            ? 'You canceled this trip'
+                                            : booking.canceled_by === 'system'
+                                                ? `${firstName(profile)} paid after their checkout hold had lapsed, and the dates had been booked by then, so the payment was refunded automatically`
+                                                : `${firstName(profile)} canceled this trip`}
+                                        {booking.canceled_at && (
+                                            <> on <span className="font-semibold">{formatBusinessDateTime(new Date(booking.canceled_at))}</span></>
+                                        )}.
+                                    </p>
+                                    <p className="text-sm text-gray-500">
+                                        {earnings.checkoutRefunded > 0
+                                            ? `${money(earnings.checkoutRefunded)} of the ${money(booking.total_price)} trip was refunded.`
+                                            : 'Nothing was refunded for the trip.'}
+                                    </p>
+                                    {booking.cancellation_reason && (
+                                        <figure className="border-l-2 border-gray-300 pl-3">
+                                            <blockquote className="text-sm text-gray-700 whitespace-pre-line">
+                                                {booking.cancellation_reason}
+                                            </blockquote>
+                                            <figcaption className="text-xs text-gray-500 mt-1">
+                                                {booking.canceled_by === 'admin'
+                                                    ? 'Your reason'
+                                                    : booking.canceled_by === 'system'
+                                                        ? 'What was taken'
+                                                        : `${firstName(profile)}'s reason`}
+                                            </figcaption>
+                                        </figure>
+                                    )}
+                                </div>
+                            ) : isUnpaid ? (
+                                <p className="text-sm text-gray-700 leading-relaxed">
+                                    This checkout was never paid for, so it isn't a trip and doesn't hold the car.
+                                </p>
+                            ) : phase === 'ended' ? (
+                                <div className="flex flex-col gap-y-3">
+                                    <span className="inline-block w-fit text-xs font-bold px-3 py-1 rounded-full bg-blue-100 text-blue-800">
+                                        {TRIP_PHASE_LABEL.ended.toUpperCase()}
+                                    </span>
+                                    <p className="text-sm text-gray-700 leading-relaxed">
+                                        This trip ended{' '}
+                                        <span className="font-semibold">{formatBusinessDateTime(endDate)}</span>.
+                                    </p>
+                                    <a
+                                        href="#additional-charges"
+                                        className="block text-center w-full py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
+                                    >
+                                        Charge for incidentals
+                                    </a>
+                                </div>
                             ) : hasStarted ? (
                                 <p className="text-sm text-gray-700 leading-relaxed">
                                     This trip ends in <span className="font-semibold">{endsIn}.</span>
@@ -465,78 +518,46 @@ function ReservationDetailsPage() {
                                     <p className="text-sm text-gray-700 leading-relaxed">
                                         This trip starts in <span className="font-semibold">{startsIn}.</span>
                                     </p>
-                                    <button className="w-full py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer">
-                                        Swap vehicle
-                                    </button>
-                                    <div className="flex flex-col items-end">
-                                        {!initialCancel ? (
-                                            <button
-                                                onClick={() => setInitialCancel(true)}
-                                                className="w-full py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
-                                            >
-                                                Cancel Trip
-                                            </button>
-                                        ) : (
-                                            <div className="flex flex-col items-end gap-2 w-full">
-                                                {/* Two genuinely different actions behind one
-                                                    button, so the copy has to say which one is
-                                                    about to happen.
-
-                                                    A confirmed trip: a host cancellation always
-                                                    refunds in full. The guest's rate and free
-                                                    window govern what *they* get back when *they*
-                                                    cancel, and neither applies when the decision
-                                                    is ours — worth spelling out, since a
-                                                    non-refundable policy is shown right above.
-
-                                                    A pending hold: never charged, so there is
-                                                    nothing to refund and nobody is emailed. It
-                                                    is marked expired rather than canceled and
-                                                    drops off the guest's trip list. Saying
-                                                    "refund in full" here would promise money
-                                                    that was never taken. */}
-                                                <span className="text-xs text-gray-700 text-right">
-                                                    {booking.status === 'pending' ? (
-                                                        <>
-                                                            Discard this unpaid hold? Nothing was charged,
-                                                            so nothing is refunded and the guest is not
-                                                            emailed. The dates go back on sale.
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            Cancel and refund the guest{' '}
-                                                            <strong>{money(booking.total_price)}</strong> in full?
-                                                            This ignores the {bookingRateLabel(booking.booking_rate).toLowerCase()} policy,
-                                                            and emails both of you. Paid extensions and extras are
-                                                            refunded in full too and any deposit hold is released;
-                                                            your own charges (damage, tolls…) are not refunded.
-                                                        </>
-                                                    )}
-                                                </span>
-                                                {cancelError && (
-                                                    <span className="text-xs text-red-700 text-right">{cancelError}</span>
-                                                )}
-                                                <div className="flex items-center gap-3">
-                                                    <button
-                                                        onClick={handleCancel}
-                                                        disabled={confirmCancel}
-                                                        className="text-s text-black bg-red-700/80 px-3 py-1 rounded-md hover:bg-red-500 border border-black disabled:opacity-50 cursor-pointer"
-                                                    >
-                                                        {confirmCancel
-                                                            ? '...'
-                                                            : booking.status === 'pending' ? 'Discard' : 'Yes'}
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setInitialCancel(false)}
-                                                        className="text-xs text-black hover:text-gray-700 cursor-pointer"
-                                                    >
-                                                        Back
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-
+                                    {/* Confirmed only: a pending hold isn't a trip
+                                        yet, and the server refuses it too. */}
+                                    {booking.status === 'confirmed' && (
+                                        <button
+                                            onClick={() => setSwapping(true)}
+                                            className="w-full py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
+                                        >
+                                            Swap vehicle
+                                        </button>
+                                    )}
+                                    {swapping && (
+                                        <SwapVehicleModal
+                                            bookingId={booking.id}
+                                            currentCar={car}
+                                            guestName={firstName(profile)}
+                                            onClose={() => setSwapping(false)}
+                                            onSwapped={() => router.invalidate()}
+                                        />
+                                    )}
+                                    {/* Confirmed trips and pending holds only —
+                                        the server refuses anything else. The
+                                        dialog explains which of the two it is. */}
+                                    {(booking.status === 'confirmed' || booking.status === 'pending') && (
+                                        <button
+                                            onClick={() => setCancelling(true)}
+                                            className="w-full py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-red-700 hover:bg-red-50 transition-colors cursor-pointer"
+                                        >
+                                            {booking.status === 'pending' ? 'Discard hold' : 'Cancel trip'}
+                                        </button>
+                                    )}
+                                    {cancelling && (
+                                        <CancelTripModal
+                                            bookingId={booking.id}
+                                            isHold={booking.status === 'pending'}
+                                            guestName={firstName(profile)}
+                                            rateLabel={bookingRateLabel(booking.booking_rate)}
+                                            onClose={() => setCancelling(false)}
+                                            onCanceled={() => router.invalidate()}
+                                        />
+                                    )}
                                 </div>
                             )}
 

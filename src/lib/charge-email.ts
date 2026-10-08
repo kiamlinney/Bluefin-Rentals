@@ -471,6 +471,63 @@ export async function sendExtensionEmail(
     }
 }
 
+// ── A payment that arrived after its hold lapsed, for dates since taken ─────
+
+/**
+ * Tells the guest their late payment was refunded because the car was booked by
+ * someone else meanwhile, and tells the owners. Claimed on
+ * bookings.cancel_notified_at, like a cancellation, so it goes out once however
+ * many confirmation paths see the payment. Never throws.
+ */
+export async function sendLatePaymentRefundedEmails(
+    admin: AdminClient,
+    bookingId: string,
+    refunded: number,
+): Promise<void> {
+    let claimed = false
+    try {
+        const { data: won } = await admin
+            .from('bookings')
+            .update({ cancel_notified_at: new Date().toISOString() })
+            .eq('id', bookingId)
+            .is('cancel_notified_at', null)
+            .select('id')
+            .maybeSingle()
+        if (!won) return
+        claimed = true
+
+        const booking = await loadBooking(admin, bookingId)
+        if (!booking) return
+        const who = booking.profiles?.full_name ?? 'A guest'
+
+        await sendAdminAlert(admin, {
+            subject: `Late payment refunded: ${carName(booking.cars)}`,
+            lines: [
+                `${who} paid ${money(refunded)} for a checkout whose 1-hour hold had already lapsed, and by then the car was booked for those dates. The payment was refunded in full automatically and the booking is marked cancelled.`,
+                'Nothing else to do, unless you want to offer them another car or dates.',
+            ],
+            bookingId,
+        })
+        await send(booking.profiles?.email, 'Your payment has been refunded — Bluefin', render({
+            heading: 'Sorry — those dates were taken',
+            intro: [
+                `Hi ${firstName(booking.profiles?.full_name ?? null)}, while your checkout was open, someone else booked the ${carName(booking.cars)} for these dates, so we couldn't confirm your trip.`,
+                `We've refunded your payment of ${money(refunded)} in full. Refunds usually appear within 5–10 business days.`,
+                "We'd still love to have you. Reply to this email, or pick other dates or another car on our site.",
+            ],
+            rows: tripRows(booking),
+            action: { href: `${SITE_URL}/fleet`, text: 'See available cars' },
+            footerNote: 'Questions? Just reply to this address.',
+        }))
+    } catch (err: any) {
+        console.error(`[email] late payment refund failed for ${bookingId}:`, err?.message || err)
+        if (claimed) {
+            await admin.from('bookings').update({ cancel_notified_at: null }).eq('id', bookingId)
+                .then(undefined, () => undefined)
+        }
+    }
+}
+
 // ── Owners ───────────────────────────────────────────────────────────────────
 
 /** A plain alert to the owners. Never throws. */

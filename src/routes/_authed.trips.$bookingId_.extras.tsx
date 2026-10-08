@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { ArrowLeft, Check } from 'lucide-react'
 import { getTripExtras, requestTripExtras } from '@/lib/db'
 import { getTripForGuest } from '@/lib/db'
+import { SIGNED_OUT } from '@/lib/signed-out'
 import { buildReceipt } from '@/lib/receipt'
 import { checkoutOnlyExtraIds, resolveExtras } from '@/lib/extras'
 import { carMainImageUrl } from '@/lib/car-images'
@@ -29,7 +30,8 @@ import { TripLocation } from '@/components/trip/TripLocation'
 // the easy-looking option and would make a later cancellation refund money that
 // was never taken.
 export const Route = createFileRoute('/_authed/trips/$bookingId_/extras')({
-    loader: async ({ params }) => {
+    loader: async ({ params, context }) => {
+        if (!context.isLoggedIn) return SIGNED_OUT
         const [trip, extras] = await Promise.all([
             getTripForGuest({ data: params.bookingId }),
             getTripExtras({ data: params.bookingId }),

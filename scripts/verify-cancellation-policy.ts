@@ -16,9 +16,15 @@ import {
     effectiveFreeCancellationDeadline,
     laterChargeRefund,
     laterChargesRefundTotal,
+    cancelDecisionFor,
+    ledgerActionOnCancel,
+    type CancelDecision,
     type LaterCharge,
+    type LedgerAction,
     type RefundInput,
 } from '../src/lib/cancellation-policy.ts'
+import type { ChargeKind, ChargeStatus } from '../src/lib/charges.ts'
+import { Constants } from '../src/lib/database.types.ts'
 import type { TripQuote } from '../src/lib/pricing.ts'
 import type { BookingRate } from '../src/lib/booking-rate.ts'
 
@@ -245,6 +251,64 @@ console.log('\nLater charges')
     pass(laterChargeRefund({ kind: 'partial' }, { ...extension, tax: 11, captured: 121 }) === 110,
         'partial keeps the premium and the tax on it: 121 - (10 x 1.1) = 110')
     pass(laterChargesRefundTotal({ kind: 'full' }, [extension, extra]) === 135, 'totals add up')
+}
+
+// ── Which bookings can be cancelled (cancelDecisionFor) ─────────────────────
+// Every status a booking can hold. A cancelled trip being cancellable again is
+// what let a second click revive a refunded trip to `confirmed` (2026-10-06).
+console.log('\nCancellable statuses')
+{
+    // Keyed by the generated enum, so a new booking status fails here until
+    // someone decides whether it can be cancelled.
+    const expected: Record<(typeof Constants.public.Enums.booking_status)[number], CancelDecision> = {
+        confirmed: 'cancel-trip',
+        pending: 'discard-hold',
+        canceled: 'already-done',
+        expired: 'already-done',
+        failed: 'already-done',
+        completed: 'refuse',
+    }
+    for (const status of Constants.public.Enums.booking_status) {
+        const want = expected[status]
+        const got = cancelDecisionFor(status)
+        pass(got === want, `${status} -> ${want}`, got === want ? '' : `got ${got}`)
+    }
+}
+
+// ── What a cancellation does to each ledger row (ledgerActionOnCancel) ──────
+// Every kind × status. The rows that matter most: nothing unfinished may be
+// left payable (it could land on the card after the trip is off), a deposit on
+// the card is released, owners' charges are never touched.
+console.log('\nLedger rows on cancellation')
+{
+    const kinds: ChargeKind[] = ['deposit', 'extension', 'extra', 'adjustment']
+    const statuses: ChargeStatus[] = ['requires_payment', 'processing', 'authorized', 'succeeded', 'failed', 'canceled']
+    const want = (kind: ChargeKind, status: ChargeStatus): LedgerAction => {
+        if (kind === 'adjustment') return 'leave'
+        if (status === 'failed' || status === 'canceled') return 'leave'
+        if (kind === 'deposit') {
+            if (status === 'authorized') return 'release-hold'
+            if (status === 'succeeded') return 'leave' // captured: the owners kept it on purpose
+            return 'abandon'
+        }
+        return status === 'succeeded' ? 'refund' : 'abandon'
+    }
+    let wrong = 0
+    for (const kind of kinds) {
+        for (const status of statuses) {
+            const got = ledgerActionOnCancel({ kind, status })
+            const expect = want(kind, status)
+            if (got !== expect) {
+                wrong++
+                pass(false, `${kind} ${status} -> ${expect}`, `got ${got}`)
+            }
+        }
+    }
+    pass(wrong === 0, `all ${kinds.length * statuses.length} kind x status combinations`)
+    pass(ledgerActionOnCancel({ kind: 'deposit', status: 'requires_payment' }) === 'abandon',
+        'deposit waiting on 3D Secure is cancelled, not left payable')
+    pass(ledgerActionOnCancel({ kind: 'adjustment', status: 'requires_payment' }) === 'leave',
+        "owners' unpaid charge is left alone (refunded or waived by hand)")
 }
 
 const failed = results.filter(r => !r).length

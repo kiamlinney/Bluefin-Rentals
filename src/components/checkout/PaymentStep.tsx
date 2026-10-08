@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {Link, useNavigate} from '@tanstack/react-router'
 import { PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
-import { confirmBooking } from '@/lib/db'
+import { checkCheckoutStillBookable, confirmBooking } from '@/lib/db'
 import { BUSINESS } from '@/lib/business'
 import { DEPOSIT_PLACE_BEFORE_HOURS, formatDepositAmount } from '@/lib/deposit'
 // TEMPORARY pre-launch stop — delete with src/lib/bookings-paused.ts.
@@ -49,6 +49,17 @@ export function PaymentStep({
             return
         }
 
+        // A checkout holds the car for an hour. If this page sat open past
+        // that and someone else booked the dates meanwhile, stop here, before
+        // the card is charged, rather than charging and refunding.
+        try {
+            await checkCheckoutStillBookable({ data: bookingId })
+        } catch (e: unknown) {
+            setError(e instanceof Error ? e.message : 'These dates are no longer available.')
+            setProcessing(false)
+            return
+        }
+
         // stripe.confirmPayment() actually charges the card using the
         // PaymentIntent identified by the clientSecret that was passed to
         // the <Elements> provider above.
@@ -81,12 +92,23 @@ export function PaymentStep({
                 // from Stripe directly to confirm it's genuinely succeeded before
                 // updating the booking row to 'confirmed'. This prevents a malicious
                 // user from calling confirmBooking with a fake paymentIntentId.
-                await confirmBooking({
+                const confirmed = await confirmBooking({
                     data: {
                         bookingId,
                         paymentIntentId: paymentIntent.id,
                     }
                 })
+                // Paid in the seconds after the check above, for dates
+                // someone else had just booked: the payment was refunded.
+                if (confirmed.status === 'refunded-conflict') {
+                    setError(
+                        'Sorry, someone else booked this car for these dates just before your payment went ' +
+                        "through. We've refunded you in full and emailed you the details. Please choose other " +
+                        'dates or another car.',
+                    )
+                    setProcessing(false)
+                    return
+                }
                 void navigate({
                     to: '/trips/$bookingId',
                     params: { bookingId },

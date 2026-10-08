@@ -7,6 +7,7 @@ import {
     formatDepositAmount,
 } from '@/lib/deposit'
 import { EXTENSION_REQUEST_CUTOFF_MINUTES } from '@/lib/extension'
+import { PENDING_HOLD_MS } from '@/lib/availability'
 import { MILES_INCLUDED_PER_DAY } from '@/lib/distance'
 import { CHARGE_CATEGORIES } from '@/lib/charges'
 import { MN_RENTAL_MOTOR_VEHICLE_TAX, SHORT_TERM_MAX_DAYS } from '@/lib/tax'
@@ -48,6 +49,8 @@ const categoryList = new Intl.ListFormat('en', { style: 'long', type: 'conjuncti
 
 function TermsOfService() {
     const deposit = formatDepositAmount()
+    const holdHours = PENDING_HOLD_MS / 3_600_000
+    const holdLength = holdHours === 1 ? 'one hour' : `${holdHours} hours`
 
     return (
         <article className="max-w-2xl">
@@ -67,6 +70,11 @@ function TermsOfService() {
                     When you book, you pay the trip total shown at checkout, by credit or debit card
                     (including Apple Pay and Google Pay). Payments are processed by Stripe; {BUSINESS.name}
                     never sees or stores your full card number.
+                </p>
+                <p>
+                    While you check out, the car is held for you for {holdLength}. If you pay after that and
+                    someone else has booked the car for any of your dates in the meantime, we can't confirm
+                    your trip: we refund your payment in full straight away and email you to let you know.
                 </p>
             </Section>
 
@@ -150,7 +158,28 @@ function TermsOfService() {
                 </p>
             </Section>
 
-            <Section title="7. Cancellations and refunds">
+            <Section title="7. If we change your car">
+                <p>
+                    Occasionally the car you booked can't make your trip, for example because it needs a
+                    repair. Before your trip starts, we may move your booking to another car from our fleet
+                    that is available for your whole trip. If we do, we'll email you the new car and the
+                    reason.
+                </p>
+                <p>
+                    Your dates, pickup and price stay the same. We won't charge you more or refund the
+                    difference if the new car's daily price is different. Mileage beyond your allowance is
+                    still charged at the per-mile rate shown when you booked. If the new car's lockbox code
+                    has been released to you, the email includes it. Otherwise it follows as described in
+                    section 3.
+                </p>
+                <p>
+                    If the new car doesn't work for you, contact us. Cancelling follows our usual{' '}
+                    <Link to="/policies/cancellation" className="underline text-pine-500">cancellation policy</Link>.
+                    We don't change your car once your trip has started.
+                </p>
+            </Section>
+
+            <Section title="8. Cancellations and refunds">
                 <p>
                     Cancelling and refunds are covered by our{' '}
                     <Link to="/policies/cancellation" className="underline text-pine-500">cancellation policy</Link>,
@@ -158,7 +187,7 @@ function TermsOfService() {
                 </p>
             </Section>
 
-            <Section title="8. Taxes">
+            <Section title="9. Taxes">
                 <p>
                     Prices on the car page are before tax. Tax is shown at checkout and on your receipt:
                     sales tax (Minnesota's plus the local sales taxes where you pick the car up, shown as
@@ -169,7 +198,7 @@ function TermsOfService() {
                 </p>
             </Section>
 
-            <Section title="9. Questions and disputes">
+            <Section title="10. Questions and disputes">
                 <p>
                     If you have a question about any charge, contact us at {CONTACT_EMAIL} first — we'll
                     explain it and put right anything that's wrong.

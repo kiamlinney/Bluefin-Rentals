@@ -2,9 +2,9 @@
 //
 // Every answer below is derived from a rule that actually exists in the code
 // (pricing.ts, availability.ts, pickup.ts). 
-import { DELIVERY_FEE, DELIVERY_RADIUS_MILES } from './pickup'
+import { DELIVERY_FEE, DELIVERY_RADIUS_MILES, LISTED_PICKUP_FEE } from './pickup'
 import { MIN_LEAD_TIME_HOURS } from './availability'
-import { BUSINESS } from './business'
+import { BUSINESS, DAILY_HOURS } from './business'
 import { DEPOSIT_PLACE_BEFORE_HOURS, DEPOSIT_RELEASE_AFTER_HOURS, formatDepositAmount } from './deposit'
 
 export type FaqItem = { question: string; answer: string }
@@ -18,16 +18,15 @@ export const FAQS: FaqItem[] = [
     },
     {
         question: 'What are your pickup and return hours?',
-        answer:
-            'We open at 10:00 AM every day. We close at 11:30 PM Monday, Tuesday, Saturday, and Sunday; 10:30 PM on Thursday; and 9:30 PM on Wednesday and Friday.',
+        answer: `${DAILY_HOURS}, every day. Pickups and returns can be booked on the hour or half hour in that window.`,
     },
     {
         question: 'Where do I pick up the car?',
-        answer: `Our home base is in ${BUSINESS.city}, ${BUSINESS.region} ${BUSINESS.postalCode}. The exact pickup address is sent once your booking is confirmed.`,
+        answer: `Picking up from our home base in ${BUSINESS.city}, ${BUSINESS.region} ${BUSINESS.postalCode} is free; the exact address is sent once your booking is confirmed. We can also meet you at MSP airport, the MSP light rail station or the Grand Hotel Minneapolis for a flat ${money(LISTED_PICKUP_FEE)}.`,
     },
     {
         question: 'Do you deliver the car to me?',
-        answer: `Yes. We deliver anywhere within ${DELIVERY_RADIUS_MILES} miles of our Saint Paul home base for a flat ${money(DELIVERY_FEE)} fee, which covers both drop-off and collection. Enter your address at checkout and we'll confirm whether it's in range. Picking up from our home base, the airport, and a few other locations is always free.`,
+        answer: `Yes. We deliver anywhere within ${DELIVERY_RADIUS_MILES} miles of our Saint Paul home base for a flat ${money(DELIVERY_FEE)} fee, which covers both drop-off and collection. Choose "Enter delivery address" under the pickup location on the car's page and we'll confirm whether it's in range.`,
     },
     {
         question: 'Do you offer discounts for longer trips?',

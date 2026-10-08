@@ -20,6 +20,7 @@ function historyLine(booking: any): string {
 
     // canceled_by distinguishes the two, and they read very differently to the
     // person who didn't do it.
+    if (booking.canceled_by === 'system') return `Dates taken before payment; refunded${when}`
     return booking.canceled_by === 'admin'
         ? `Bluefin canceled${when}`
         : `You canceled${when}`

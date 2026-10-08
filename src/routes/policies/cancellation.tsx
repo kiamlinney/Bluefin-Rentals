@@ -119,8 +119,8 @@ function CancellationPolicy() {
                 </ul>
                 <p>
                     The average day is calculated from your trip price — what the days themselves
-                    cost after any discounts, not counting delivery or extras. Any delivery fee is
-                    refunded in full, since the car was never delivered, and{' '}
+                    cost after any discounts, not counting pickup, delivery or extras. Any pickup or
+                    delivery fee is refunded in full, since we never met you with the car, and{' '}
                     <span className="font-semibold">any extras you added are refunded in full</span>
                     {' '}for the same reason: {extrasList} are provided during a trip, so a trip
                     that doesn't happen was never provided them. The premium paid for the

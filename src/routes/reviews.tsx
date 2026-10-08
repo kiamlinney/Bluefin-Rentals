@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { getReviewableTrips, getReviews } from '@/lib/db'
 import { getUser } from '@/lib/auth'
 import { summarizeRatings } from '@/lib/reviews'
+import { HAS_TESTIMONIALS } from '@/lib/testimonials'
 import { absoluteUrl } from '@/lib/site'
 import { seoMeta } from '@/lib/business'
 import { RatingSummary } from '@/components/reviews/RatingSummary'
@@ -48,7 +49,14 @@ function ReviewsPage() {
             <p className="mt-3 text-lg text-muted max-w-prose">
                 Includes some reviews from Turo.
             </p>
-
+            {HAS_TESTIMONIALS && (
+                <p className="mt-3 text-lg text-muted max-w-prose">
+                    Want the longer story?{' '}
+                    <Link to="/testimonials" className="font-semibold text-ink underline underline-offset-4">
+                        Testimonials from our regulars →
+                    </Link>
+                </p>
+            )}
 
             <div className="mt-10 grid gap-10 lg:grid-cols-[360px_1fr] lg:gap-16">
                 <aside className="lg:sticky lg:top-24 lg:self-start">

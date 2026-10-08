@@ -72,11 +72,14 @@ export function TripDepositSection({
 
     const hold = deposit.charge
     const amount = formatDepositAmount(hold?.amount)
-    const cardText = card
-        ? card.brand === 'link' ? 'your Link wallet' : `your ${card.brand} card ending ${card.last4}`
-        : 'your card on file'
-    const releaseAt = formatBusinessDateTime(depositReleaseAt(new Date(tripEnd)))
     const isHost = voice === 'host'
+    const whose = isHost ? "the guest's" : 'your'
+    const cardText = card
+        ? card.brand === 'link'
+            ? `${whose} Link wallet`
+            : `${whose} ${card.brand.charAt(0).toUpperCase()}${card.brand.slice(1)} card ending ${card.last4}`
+        : `${whose} card on file`
+    const releaseAt = formatBusinessDateTime(depositReleaseAt(new Date(tripEnd)))
 
     const run = async (fn: () => Promise<unknown>, done?: string) => {
         setWorking(true)
@@ -115,7 +118,7 @@ export function TripDepositSection({
                 <p className="text-sm text-muted max-w-md">
                     A {amount} refundable hold will be placed on {cardText} about {DEPOSIT_PLACE_BEFORE_HOURS} hours
                     before pickup ({formatBusinessDateTime(depositPlaceAt(new Date(tripStart)))}).
-                    It isn't a charge, and it's released {DEPOSIT_RELEASE_AFTER_HOURS} hours after you return the car.
+                    It isn't a charge, and it's released {DEPOSIT_RELEASE_AFTER_HOURS} hours after {isHost ? 'the guest returns' : 'you return'} the car.
                     {!isHost && ' Your lockbox code is sent once the hold is placed.'}
                 </p>
             )}

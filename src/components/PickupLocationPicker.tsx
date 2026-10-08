@@ -27,6 +27,7 @@ import {
     DELIVERY_RADIUS_MILES,
     HOME_BASE,
     PICKUP_LOCATIONS,
+    findPickupLocation,
     isWithinDeliveryRadius,
     milesFromHomeBase,
     resolvePickup,
@@ -141,7 +142,7 @@ function DeliveryPanel({
     value: PickupSelection
     onChange: (next: PickupSelection) => void
     /** Commit and collapse the whole picker. Separate from onChange because,
-     *  unlike the free options, this panel changes the value many times before
+     *  unlike the fixed locations, this panel changes the value many times before
      *  the customer is finished with it. */
     onDone: () => void
     onBack: () => void
@@ -360,7 +361,7 @@ function DeliveryPanel({
                 <p className="text-xs text-red-600">
                     {rejected.label} is {rejected.distanceMiles} miles away. Delivery is only
                     available within {DELIVERY_RADIUS_MILES} miles of {HOME_BASE.label} — please
-                    choose a closer address or pick one of the free pickup locations.
+                    choose a closer address or pick one of the pickup locations.
                 </p>
             )}
 
@@ -378,7 +379,7 @@ function DeliveryPanel({
 
             {/* Only reachable once a suggestion has been accepted, which is what
                 makes it the confirmation step: the customer has seen the distance,
-                seen the fee, and had the chance to append a unit number. Free
+                seen the fee, and had the chance to append a unit number. Fixed
                 locations need no equivalent because there is nothing left to say
                 about them after the click. */}
             {canConfirm && verified && (
@@ -447,7 +448,7 @@ export function PickupLocationPicker({
         }
     }, [isOpen, showAirportInfo, close])
 
-    // Choosing a free option collapses the whole panel: the decision is complete
+    // Choosing a fixed location collapses the whole panel: the decision is complete
     // the moment it's clicked, and leaving it open would make the customer hunt
     // for a way to dismiss something they've already finished with. Delivery is
     // the exception — it needs an address next — so it opens a sub-panel instead.
@@ -480,9 +481,9 @@ export function PickupLocationPicker({
                         {/*    </p>*/}
                         {/*)}*/}
 
-                        {resolved.fee > 0 && (
+                        {resolved.fee > 0 && resolved.feeLabel && (
                             <p className="text-xs text-muted mt-1 font-medium">
-                                ${resolved.fee} delivery fee
+                                ${resolved.fee} {resolved.feeLabel.toLowerCase()} fee
                             </p>
                         )}
 
@@ -536,7 +537,7 @@ export function PickupLocationPicker({
                             the database) because it's the same for every car and
                             changes about as often as the terms of service. */}
                         <p className="text-xs text-muted pr-5 leading-relaxed">
-                            Airport pickups are free. We'll meet you at the arrivals curb and
+                            Airport pickups are ${findPickupLocation('msp')?.fee}. We'll meet you at the arrivals curb and
                             text you the exact door number the day before your trip. If your
                             flight is delayed, message us and we'll adjust the meeting time at
                             no charge.
@@ -554,7 +555,7 @@ export function PickupLocationPicker({
                             <DeliveryPanel
                                 value={value}
                                 // Deliberately NOT closing on change, unlike the
-                                // free options above. A delivery address is edited
+                                // fixed locations above. A delivery address is edited
                                 // in several steps — type, pick, refine — and each
                                 // one lifts the current value so the price above
                                 // stays live; collapsing on the first of them
@@ -570,6 +571,7 @@ export function PickupLocationPicker({
                                     <OptionRow
                                         icon={CarFront}
                                         title={HOME_BASE.label}
+                                        subtitle="Free"
                                         selected={value.kind === 'home'}
                                         onSelect={() => selectAndClose({ kind: 'home' })}
                                     />
@@ -589,7 +591,7 @@ export function PickupLocationPicker({
                                                 key={location.id}
                                                 icon={KIND_ICONS[location.kind]}
                                                 title={location.name}
-                                                subtitle={location.subtitle}
+                                                subtitle={`${location.subtitle} · $${location.fee}`}
                                                 detail={location.address}
                                                 selected={
                                                     value.kind === 'listed' && value.id === location.id
@@ -617,7 +619,7 @@ export function PickupLocationPicker({
                                         // of committing: an address has to be
                                         // resolved before this selection means
                                         // anything, so it can't be chosen in one
-                                        // click the way the free options can.
+                                        // click the way the fixed locations can.
                                         onSelect={() => setIsDeliveryOpen(true)}
                                     />
                                 </div>

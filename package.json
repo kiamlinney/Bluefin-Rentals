@@ -10,6 +10,8 @@
     "dev": "vite dev",
     "build": "vite build",
     "start": "srvx serve --prod --entry dist/server/server.js --static ../client",
+    "test": "tsc --noEmit -p tests/tsconfig.json && vitest run",
+    "test:watch": "vitest",
     "gen:types": "supabase gen types typescript --linked --schema public > /tmp/db.types.ts && mv /tmp/db.types.ts src/lib/database.types.ts"
   },
   "dependencies": {
@@ -47,6 +49,7 @@
     "tailwindcss": "^4.2.2",
     "typescript": "^5.7.2",
     "vite": "^7.3.1",
-    "vite-tsconfig-paths": "^6.1.1"
+    "vite-tsconfig-paths": "^6.1.1",
+    "vitest": "^3.2.7"
   }
 }

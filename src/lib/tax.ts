@@ -201,7 +201,9 @@ export type Taxability = { taxable: boolean; confirmed: boolean; reason: string 
 
 export const TAXABILITY: Record<string, Taxability> = {
     trip: { taxable: true, confirmed: true, reason: 'The rental of the vehicle itself — the thing the rental taxes are on.' },
-    delivery: { taxable: true, confirmed: false, reason: 'Minnesota generally includes delivery charges in the taxable sales price of a taxable item.' },
+    // Every pickup fee, not just delivery: the airport, hotel and train station
+    // fees are taxed under this key too (pricing.ts passes quote.pickupFee here).
+    delivery: { taxable: true, confirmed: false, reason: 'Minnesota generally includes delivery charges in the taxable sales price of a taxable item. Pickup-location fees are treated the same way.' },
     'extra:prepaid-refuel': { taxable: true, confirmed: false, reason: 'Treated as part of the rental charge. Motor fuel itself is exempt from sales tax, so this may not be.' },
     'extra:unlimited-mileage': { taxable: true, confirmed: false, reason: 'A mileage term of the rental, so part of the rental price.' },
     'extra:child-seat': { taxable: true, confirmed: false, reason: 'Equipment rented with the vehicle.' },

@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { BUSINESS, OPENING_HOURS, to12Hour } from "@/lib/business.ts";
 import { POLICY_PAGES } from "@/lib/policies.ts";
+import { HAS_TESTIMONIALS } from "@/lib/testimonials.ts";
 
 // Every public page links to every other one from here, which is how crawlers
 // reach pages the navbar doesn't list (FAQ) and how visitors find the hours.
@@ -28,6 +29,9 @@ const Footer = () => {
                     <ul className="space-y-2 text-sm text-muted">
                         <li><Link to="/fleet" className="hover:text-ink">Our fleet</Link></li>
                         <li><Link to="/reviews" className="hover:text-ink">Reviews</Link></li>
+                        {HAS_TESTIMONIALS && (
+                            <li><Link to="/testimonials" className="hover:text-ink">Testimonials</Link></li>
+                        )}
                         <li><Link to="/faq" className="hover:text-ink">FAQ</Link></li>
                         <li><Link to="/about" className="hover:text-ink">About us</Link></li>
                         <li><Link to="/contact" className="hover:text-ink">Contact</Link></li>
@@ -40,7 +44,7 @@ const Footer = () => {
                         {OPENING_HOURS.map(({ days, opens, closes }) => (
                             <li key={days.join()}>
                                 <span className="block text-ink">{summarise(days)}</span>
-                                <span>
+                                <span className="tabular-nums">
                                     {to12Hour(opens)} – {to12Hour(closes)}
                                 </span>
                             </li>
@@ -68,8 +72,9 @@ const Footer = () => {
     );
 };
 
-/** ["Monday","Tuesday","Saturday","Sunday"] -> "Mon, Tue, Sat, Sun" */
+/** All seven -> "Every day"; ["Monday","Tuesday","Sunday"] -> "Mon, Tue, Sun" */
 function summarise(days: readonly string[]): string {
+    if (days.length === 7) return "Every day";
     return days.map((d) => d.slice(0, 3)).join(", ");
 }
 

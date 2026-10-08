@@ -59,3 +59,44 @@ move together.
 | 22c | Long rentals | Trips booked for more than 28 days: sales tax only, no rental tax. Extensions don't change a trip's classification. | **Placeholder** (tax-todo 5) |
 | 22d | Tax report | Sales count in the month paid; refunds reduce the month of the sale. | **Placeholder** (tax-todo 7) |
 | 22e | Tax shown as two lines (2026-09-29) | Guests see "Sales tax" (state + local, one combined rate) and the rental vehicle tax, not one line per local tax. Stored and reported per rate, as the return needs. Amounts unchanged. Re-checked against Revenue Notice #06-08 (2025): the 9.2% rental tax is charged to the renter, on the same base as sales tax. | Decided |
+
+## 2026-10-06: Vehicle swaps
+
+An owner can move a confirmed trip onto another car before it starts, from the reservation page
+(**Swap vehicle**). Only cars free for the whole trip are offered, judged the same way checkout
+judges availability (other trips, Turo trips, blocked dates, the 3-hour turnaround). The owner
+writes a reason, which is emailed to the guest. → `src/lib/vehicle-swap.server.ts#performVehicleSwap`
+
+| # | Topic | Decision | Status |
+|---|---|---|---|
+| 36 | Swap price | The price doesn't change. There's no charge and no refund, whichever car costs more. The checkout receipt is untouched. | Decided |
+| 37 | Swap mileage rate | Overage is still billed at the per-mile rate the guest was quoted, i.e. the original car's. → `src/lib/receipt.ts#buildReceipt` | Decided |
+| 38 | Swap and cancellation | No special cancellation right. The normal policy applies; the email tells the guest to reply or call if the new car doesn't work, and an owner can still cancel as host (full refund). | Decided |
+| 39 | Swap emails | Only the guest is emailed (the new car, the reason, and the new car's lockbox code if the deposit hold is already in place). The swap and its reason are listed on both trip pages. | Decided |
+| 40 | Swap timing | Only before the trip starts, and only for confirmed trips (not unpaid holds). | Decided |
+
+## 2026-10-07: Pickup fees and prepaid refuel
+
+| # | Topic | Decision | Status |
+|---|---|---|---|
+| 41 | Pickup fees | Pickup at the home base is free. MSP airport, the MSP light rail station and the Grand Hotel Minneapolis are a flat <!-- const:LISTED_PICKUP_FEE -->$100<!-- /const --> each (they were free). Delivery stays <!-- const:DELIVERY_FEE -->$120<!-- /const -->. → `src/lib/pickup.ts#PICKUP_LOCATIONS` | Decided |
+| 42 | Pickup fee refunds and tax | A pickup-location fee is treated exactly like the delivery fee: refunded in full on any refund-bearing cancellation, not charged again on an extension, and taxed (placeholder, tax-todo 4). | Decided |
+| 43 | Prepaid refuel | <!-- const:EXTRA_PREPAID_REFUEL -->$70/trip<!-- /const --> (was $45). Bookings already made keep the price on their receipt. | Decided |
+| 43a | Owner charges open at pickup | **Charge guest** only works once the trip has started. Before that a trip can't have caused a cost (terms, section 6). The saved card could technically be charged any time after checkout, and the deposit hold plays no part in it, so this rule is the only thing stopping it. Sits on top of which statuses can be charged at all. → `src/lib/charges.ts#ownerChargeBlockedReason` | Decided |
+
+## 2026-10-07: Cancellation and status fixes
+
+Found while fixing a cancelled trip that still showed "starts in" and a Cancel button. Full
+list: [pre-launch-audit.md](pre-launch-audit.md).
+
+| # | Topic | Decision | Status |
+|---|---|---|---|
+| 44 | Owner's cancellation reason | When we cancel, we can give a reason, and it is emailed to the guest under "Why we cancelled". A guest's reason still goes only to us. The owners' email now says the trip was cancelled from the reservation page instead of saying the guest cancelled. → `src/lib/cancellation-email.ts#notifyBookingCanceled` | **Proposed** |
+| 45 | What can be cancelled | Only a confirmed trip or an unpaid hold. A trip already cancelled or expired is left as it is (a second click does nothing), and a completed trip can't be cancelled: refund it by hand from its charges. → `src/lib/cancellation-policy.ts#cancelDecisionFor` | **Proposed** |
+| 46 | Deposit on a cancelled trip | A deposit hold still waiting on the guest's bank is cancelled with the trip. A hold that lands on the card after the trip was cancelled is released at once, with no "hold placed" email. → `src/lib/cancellation-policy.ts#ledgerActionOnCancel` | **Proposed** |
+| 47 | Late extension approvals | An extension request can't be approved once the trip is no longer confirmed (it was completed by the hourly job, or cancelled), because the money would be taken without the end time moving. Decline it, and charge for any extra time separately. → `src/lib/payments.server.ts#decideExtension` | **Proposed** |
+| 48 | Late payments for dates since taken | A checkout holds the car for <!-- const:PENDING_HOLD -->1 hour<!-- /const -->. If the guest pays after that and someone else has booked any of the dates meanwhile, the payment is stopped before charging when possible; if it gets through, it is refunded in full automatically, the booking is marked cancelled ("Dates taken, refunded"), and the guest and we are both emailed. Stated in the terms, section 1. → `src/lib/payments.server.ts#confirmPaidCheckout`, `src/lib/db.ts#checkCheckoutStillBookable` | Decided (Liam: "do both fixes for A") |
+| 49 | Owner charges after a cancellation | We can bill a trip that was cancelled after it had started (the guest had the car), but not one cancelled before pickup, an unpaid hold or an abandoned checkout. → `src/lib/booking-status.ts#ownerChargeAllowed` | **Proposed** |
+| 50 | Finishing interrupted cancellations | If a cancellation stops partway (the server goes down after the trip is marked cancelled), the payments sweep completes it within about 15 minutes: the refund the guest was quoted, the later charges, the emails. We're emailed once if its refund keeps failing. → `src/lib/payments.server.ts#completeCancellation` | **Proposed** |
+| 51 | Extension request at the trip's end | The hourly job leaves a trip open for up to 48 hours after its end while an extension request is unanswered, so it can still be approved. → `supabase/migrations/20261007120000_prelaunch_hardening.sql` | **Proposed** |
+| 52 | An owner's own booking | An owner who books a trip for themselves and cancels it gets the guest's terms, not the full "we cancelled" refund. Only cancelling someone else's booking counts as the business cancelling. Found in the 2026-10-08 rehearsal, where an owner's non-refundable test booking was refunded in full. → `src/lib/booking-status.ts#cancelsAsBusiness` | **Proposed** |

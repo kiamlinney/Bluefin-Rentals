@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TestimonialsRouteImport } from './routes/testimonials'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as ReviewsRouteImport } from './routes/reviews'
@@ -49,6 +50,11 @@ import { Route as AuthedTripsBookingIdPhotosRouteImport } from './routes/_authed
 import { Route as AuthedTripsBookingIdExtrasRouteImport } from './routes/_authed.trips.$bookingId_.extras'
 import { Route as AuthedTripsBookingIdPayChargeIdRouteImport } from './routes/_authed.trips.$bookingId_.pay.$chargeId'
 
+const TestimonialsRoute = TestimonialsRouteImport.update({
+  id: '/testimonials',
+  path: '/testimonials',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
   path: '/sitemap.xml',
@@ -264,6 +270,7 @@ export interface FileRoutesByFullPath {
   '/reviews': typeof ReviewsRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/testimonials': typeof TestimonialsRoute
   '/profile': typeof AuthedProfileRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
@@ -303,6 +310,7 @@ export interface FileRoutesByTo {
   '/reviews': typeof ReviewsRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/testimonials': typeof TestimonialsRoute
   '/profile': typeof AuthedProfileRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
@@ -345,6 +353,7 @@ export interface FileRoutesById {
   '/reviews': typeof ReviewsRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/testimonials': typeof TestimonialsRoute
   '/_authed/profile': typeof AuthedProfileRoute
   '/admin/calendar': typeof AdminCalendarRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
@@ -387,6 +396,7 @@ export interface FileRouteTypes {
     | '/reviews'
     | '/robots.txt'
     | '/sitemap.xml'
+    | '/testimonials'
     | '/profile'
     | '/admin/calendar'
     | '/api/stripe-webhook'
@@ -426,6 +436,7 @@ export interface FileRouteTypes {
     | '/reviews'
     | '/robots.txt'
     | '/sitemap.xml'
+    | '/testimonials'
     | '/profile'
     | '/admin/calendar'
     | '/api/stripe-webhook'
@@ -467,6 +478,7 @@ export interface FileRouteTypes {
     | '/reviews'
     | '/robots.txt'
     | '/sitemap.xml'
+    | '/testimonials'
     | '/_authed/profile'
     | '/admin/calendar'
     | '/api/stripe-webhook'
@@ -509,6 +521,7 @@ export interface RootRouteChildren {
   ReviewsRoute: typeof ReviewsRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  TestimonialsRoute: typeof TestimonialsRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
   FleetCarSlugRoute: typeof FleetCarSlugRoute
   FleetIndexRoute: typeof FleetIndexRoute
@@ -518,6 +531,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/testimonials': {
+      id: '/testimonials'
+      path: '/testimonials'
+      fullPath: '/testimonials'
+      preLoaderRoute: typeof TestimonialsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sitemap.xml': {
       id: '/sitemap.xml'
       path: '/sitemap.xml'
@@ -877,6 +897,7 @@ const rootRouteChildren: RootRouteChildren = {
   ReviewsRoute: ReviewsRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  TestimonialsRoute: TestimonialsRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
   FleetCarSlugRoute: FleetCarSlugRoute,
   FleetIndexRoute: FleetIndexRoute,

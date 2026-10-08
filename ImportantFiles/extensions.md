@@ -21,6 +21,10 @@ Engine: `src/lib/payments.server.ts#startExtension`.
   Approve / Decline / Decide later (once per request, per browser; it also stays in the
   Extensions section). → `src/components/admin/ExtensionRequestModal.tsx#ExtensionRequestModal`
   → `src/lib/extension.ts#extensionMode`, `src/lib/payments.server.ts#decideExtension`
+- **Approve only works while the trip is still confirmed.** The hourly job closes a trip at
+  its end time even with a request open, and approving after that would take the money
+  without moving the end. So it's refused; decline the request and charge for any extra
+  time under Additional charges. *(Proposed 2026-10-07, decisions-log 47.)*
 - **Refused** if any of the added time is taken (another trip, the 3-hour turnaround
   buffer, a Turo trip, a blocked date, or another extension in progress).
   → `src/lib/availability.server.ts#assertCarIsAvailable`
@@ -50,7 +54,7 @@ payments sweep after that hour.
   carries the <!-- const:REFUNDABLE_SURCHARGE -->10%<!-- /const --> refundable premium,
   because it's refundable on the same terms.
 - **Proposed:** per-day extras on the trip (unlimited mileage) extend with it. Per-trip
-  extras and the delivery fee are not charged again. No same-day surcharge.
+  extras and the pickup or delivery fee are not charged again. No same-day surcharge.
 - Tax is added on top, the same way as the trip ([tax.md](tax.md)).
 - Each added billable day brings the usual <!-- const:MILES_INCLUDED_PER_DAY -->200<!-- /const -->-mile
   allowance. → `src/lib/receipt.ts#buildReceipt`

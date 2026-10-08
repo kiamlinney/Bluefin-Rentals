@@ -13,6 +13,33 @@
 // shown below the original.
 
 import type { TaxLine } from './tax.ts'
+import { formatBusinessDateTime } from './dates.ts'
+import { ownerChargeAllowed } from './booking-status.ts'
+
+/**
+ * Why an owner can't charge this trip's card yet, or null if they can.
+ *
+ * Owner charges are for costs a trip causes (terms, section 6), so on top of
+ * ownerChargeAllowed's status rule they only open at pickup. The saved card
+ * could technically be charged any time after checkout, and the deposit hold
+ * has nothing to do with it, so this is what stops a charge before the trip.
+ * Read by the reservation page (to explain the missing button) and by
+ * createAdjustmentCharge (which refuses), so the rule has one definition.
+ */
+export function ownerChargeBlockedReason(
+    booking: { status: string; start_time: string; canceled_at: string | null },
+    now: Date = new Date(),
+): string | null {
+    if (!ownerChargeAllowed(booking.status, booking.start_time, booking.canceled_at)) {
+        return booking.status === 'canceled'
+            ? 'This trip was cancelled before it started, so it can’t be charged.'
+            : 'Only a confirmed or completed trip can be charged.'
+    }
+    if (new Date(booking.start_time) > now) {
+        return `Charges open at pickup (${formatBusinessDateTime(booking.start_time)}).`
+    }
+    return null
+}
 
 export type ChargeKind = 'extension' | 'extra' | 'deposit' | 'adjustment'
 

@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import { getProfile } from '@/lib/db.ts'
+import { SIGNED_OUT } from '@/lib/signed-out'
 import { DriverInfoStep } from '@/components/checkout/DriverInfoStep.tsx'
 
 // The trailing underscore on profile_ opts this route out of nesting under
@@ -15,7 +16,10 @@ import { DriverInfoStep } from '@/components/checkout/DriverInfoStep.tsx'
 export const Route = createFileRoute('/_authed/profile_/edit')({
     // getProfile is self-only by construction — there is no id to pass — which
     // is exactly the authorization this page wants.
-    loader: async () => ({ profile: await getProfile() }),
+    loader: async ({ context }) => {
+        if (!context.isLoggedIn) return SIGNED_OUT
+        return { profile: await getProfile() }
+    },
     component: EditProfilePage,
 })
 

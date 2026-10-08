@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import CarCard from "@/components/CarCard.tsx";
 import { getFeaturedCars } from "@/lib/db.ts";
 import { absoluteUrl } from '@/lib/site'
-import { businessJsonLd, seoMeta } from '@/lib/business'
+import { businessJsonLd, DAILY_HOURS, seoMeta } from '@/lib/business'
+import { DELIVERY_FEE, DELIVERY_RADIUS_MILES, LISTED_PICKUP_FEE } from '@/lib/pickup'
 import { cn } from '@/lib/utils'
 
 export const Route = createFileRoute('/')({
@@ -269,7 +270,7 @@ function LocalContent() {
                 <p>
                     Booking takes a few minutes online. Pick your dates, verify your driver's
                     license, and pay. Trips can start as soon as three hours from now, any day
-                    between 10:00 AM and 10:30 PM.
+                    from {DAILY_HOURS}.
                 </p>
             </div>
 
@@ -277,9 +278,10 @@ function LocalContent() {
                 <div className="rounded-2xl border border-line bg-surface p-6">
                     <h3 className="text-lg font-semibold mb-2">Pick up locally, or we deliver</h3>
                     <p className="text-muted text-sm leading-relaxed">
-                        Collect from our Saint Paul home base, MSP airport, the Grand Hotel
-                        Minneapolis, or the MSP light rail station at no extra cost. Prefer the car
-                        brought to you? We deliver within 10 miles of Saint Paul for a flat $120.
+                        Collect from our Saint Paul home base for free, or from MSP airport, the
+                        Grand Hotel Minneapolis or the MSP light rail station for a flat ${LISTED_PICKUP_FEE}.
+                        Prefer the car brought to you? We deliver within {DELIVERY_RADIUS_MILES} miles
+                        of Saint Paul for a flat ${DELIVERY_FEE}.
                     </p>
                 </div>
                 <div className="rounded-2xl border border-line bg-surface p-6">
@@ -292,7 +294,7 @@ function LocalContent() {
                 <div className="rounded-2xl border border-line bg-surface p-6">
                     <h3 className="text-lg font-semibold mb-2">Straightforward pricing</h3>
                     <p className="text-muted text-sm leading-relaxed">
-                        The daily rate and any delivery fee are shown before you pay, and the full
+                        The daily rate and any pickup or delivery fee are shown before you pay, and the full
                         breakdown detailing each day appears before and at checkout.
                     </p>
                 </div>

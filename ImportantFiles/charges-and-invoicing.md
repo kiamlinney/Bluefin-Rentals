@@ -17,10 +17,21 @@ confirm it. **Nothing on the site records miles driven yet**: it's entered by ha
 Supabase until an odometer form exists, so without it there's no pre-fill.
 → `src/lib/distance.ts#calculateOverage`
 
+**A swapped trip keeps its quoted per-mile rate** (decided 2026-10-06). The rate is worked
+out from the car the trip was *priced* on (the first swap's original car), not the car it's
+on now. A swap never charges or refunds anything.
+→ `src/lib/receipt.ts#buildReceipt`, `src/lib/vehicle-swap.server.ts#loadVehicleSwaps`
+
 Each charge's tax is shown before you confirm, computed the same way the server charges
 it ([tax.md](tax.md)).
 
 ## How to charge a guest
+
+**Only once the trip has started** (decided 2026-10-07). Before pickup the button is replaced
+by "Charges open at pickup", and the server refuses a direct call. The trip must also be
+confirmed or completed, or cancelled after it had started.
+→ `src/lib/charges.ts#ownerChargeBlockedReason`. The deposit hold isn't needed to charge: the
+card was saved at checkout, and the hold is a separate guarantee for damage.
 
 Reservation page → **Additional charges** → **Charge guest**: choose what it's for, write
 the description (**the guest sees it on their receipt**), enter the amount, review, charge.
@@ -52,7 +63,7 @@ Decided 2026-09-25: **held at request, charged on approval, released on decline.
 `src/lib/payments.server.ts#holdExtraRequest`
 - Unlimited mileage is **checkout-only**: it changes how the trip is billed, so it can't
   be added after booking.
-- Current catalogue: prepaid refuel <!-- const:EXTRA_PREPAID_REFUEL -->$45/trip<!-- /const -->,
+- Current catalogue: prepaid refuel <!-- const:EXTRA_PREPAID_REFUEL -->$70/trip<!-- /const -->,
   unlimited mileage <!-- const:EXTRA_UNLIMITED_MILEAGE -->$80/day<!-- /const -->,
   child seat <!-- const:EXTRA_CHILD_SEAT -->$25/trip<!-- /const -->.
 - Requests made before holds existed (sandbox only) are still "collect at pickup".
@@ -92,5 +103,5 @@ photos and messages are the evidence. Nothing on the site responds automatically
 
 ## Customers are told
 
-`/policies/terms` sections 2, 5 and 6; the checkout consent line; the extras page ("held
+`/policies/terms` sections 2, 5, 6 and 7 (a changed car keeps its price and per-mile rate); the checkout consent line; the extras page ("held
 on your card now"); the pay page; the receipt and pay-link emails.

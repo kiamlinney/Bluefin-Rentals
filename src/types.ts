@@ -1,4 +1,5 @@
 import type { Database } from 'src/lib/database.types.ts'
+import type { VehicleSwap } from 'src/lib/vehicle-swap.ts'
 
 export type Car = Database['public']['Tables']['cars']['Row']
 export type Booking = Database['public']['Tables']['bookings']['Row']
@@ -57,6 +58,11 @@ export type BookingWithDetails = Booking & {
         'id' | 'full_name' | 'email' | 'phone' | 'num_trips' | 'created_at' | 'identity_verified'
     >
     trip_media: { count: number }[]
+    // Added by withVehicleSwaps (src/lib/vehicle-swap.server.ts), not the
+    // select: the swap history, and the car the trip was priced on (null when
+    // it was never swapped).
+    vehicle_swaps: VehicleSwap[]
+    pricing_car: Car | null
 }
 
 // getUserProfile:

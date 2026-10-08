@@ -1,6 +1,7 @@
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { getUserProfile } from '@/lib/db.ts'
 import { getUserWithProfile } from '@/lib/auth.ts'
+import { SIGNED_OUT } from '@/lib/signed-out'
 import { UserProfile } from '@/components/UserProfile.tsx'
 import { useIdentityReturn } from '@/lib/identity.ts'
 import type { UserProfileView } from '@/types.ts'
@@ -10,7 +11,8 @@ import type { UserProfileView } from '@/types.ts'
 // actions. getUserProfile only ever gets this viewer's own id here, and rejects
 // anything else for a non-admin caller anyway.
 export const Route = createFileRoute('/_authed/profile')({
-    loader: async () => {
+    loader: async ({ context }) => {
+        if (!context.isLoggedIn) return SIGNED_OUT
         const viewer = await getUserWithProfile()
         // _authed has already established there is a session; getUserWithProfile
         // only returns null when there isn't one.

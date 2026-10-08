@@ -107,6 +107,17 @@ Card holds saved through Link don't get extended authorization; they renew more 
 
 Cancelling a trip releases any hold. → `src/lib/payments.server.ts#settleLedgerOnCancellation`
 
+- A hold **still waiting on the guest's bank** (3D Secure) is cancelled too, so it can't be
+  completed afterwards. No email: no hold was ever on the card.
+- A hold that **lands after** the trip was cancelled (placed at the same moment, or the
+  guest finished their bank's check late) is released straight away, without the "hold
+  placed" email. → `src/lib/booking-status.ts#depositHoldBelongs`
+- An abandoned attempt that Stripe says went through after all is recorded as the trip's
+  hold, never closed as failed, and no second hold is placed on top of it.
+  → `src/lib/payments.server.ts#abandonCharge`
+
+*(Proposed 2026-10-07, decisions-log 46.)*
+
 ## Customers are told
 
 `/policies/terms` section 3; checkout consent line; FAQ "Is a security deposit

@@ -308,6 +308,44 @@ export type Database = {
           },
         ]
       }
+      booking_vehicle_swaps: {
+        Row: {
+          booking_id: string
+          created_at: string
+          from_car_id: number
+          id: string
+          reason: string
+          swapped_by: string
+          to_car_id: number
+        }
+        Insert: {
+          booking_id: string
+          created_at?: string
+          from_car_id: number
+          id?: string
+          reason: string
+          swapped_by: string
+          to_car_id: number
+        }
+        Update: {
+          booking_id?: string
+          created_at?: string
+          from_car_id?: number
+          id?: string
+          reason?: string
+          swapped_by?: string
+          to_car_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_vehicle_swaps_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bookings: {
         Row: {
           admin_notified_at: string | null

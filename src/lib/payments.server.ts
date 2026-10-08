@@ -25,6 +25,7 @@ import { notifyAdminBookingConfirmed } from './booking-email'
 import { notifyGuestBookingConfirmed } from './welcome-email'
 import {
     CHARGE_SELECT,
+    ownerChargeBlockedReason,
     toChargeRow,
     type ChargeInitiator,
     type ChargeKind,
@@ -55,10 +56,19 @@ import { buildOverrideMap, wallClockToUtcIso } from './pricing.ts'
 import { BUSINESS_CLOSE_MINUTES, BUSINESS_OPEN_MINUTES, SLOT_MINUTES } from './availability.ts'
 import { businessDateKey, businessWallClockTime, formatBusinessDateTime, formatDayRange } from './dates.ts'
 import { DEFAULT_BOOKING_RATE, type BookingRate } from './booking-rate.ts'
-import { laterChargeRefund, type LaterCharge, type RefundOutcome } from './cancellation-policy.ts'
-import { assertCarIsAvailable, PENDING_HOLD_MS } from './availability.server'
+import {
+    laterChargeRefund,
+    ledgerActionOnCancel,
+    refundForCancellation,
+    type LaterCharge,
+    type RefundOutcome,
+} from './cancellation-policy.ts'
+import { checkoutPaymentEffect, depositHoldBelongs, holdHasLapsed, ownerChargeAllowed } from './booking-status.ts'
+import { assertCarIsAvailable, findCarConflict, PENDING_HOLD_MS } from './availability.server'
+import { notifyBookingCanceled } from './cancellation-email'
 import {
     sendAdminAlert,
+    sendLatePaymentRefundedEmails,
     sendChargeReceiptEmail,
     sendChargeRefundedEmails,
     sendDepositCapturedEmail,
@@ -232,6 +242,140 @@ export async function onBookingConfirmed(admin: AdminClient, bookingId: string):
 
     await notifyAdminBookingConfirmed(admin, bookingId)
     await notifyGuestBookingConfirmed(admin, bookingId)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Confirming a paid checkout
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type CheckoutConfirmation =
+    /** Moved to confirmed just now. */
+    | 'confirmed'
+    /** Was already confirmed; the follow-ups were re-run (each claims itself). */
+    | 'already-confirmed'
+    /** Cancelled, completed, or already refunded: left exactly as it was. */
+    | 'left'
+    /** Paid after its hold lapsed, for dates someone else had booked since:
+     * refunded in full, marked cancelled, both sides emailed. */
+    | 'refunded-conflict'
+    /** No booking has this PaymentIntent (yet). */
+    | 'not-found'
+
+const CONFIRM_SELECT =
+    'id, status, car_id, user_id, start_time, end_time, created_at, refund_id, total_price, stripe_payment_intent_id'
+
+/**
+ * What every confirmation path does once Stripe says a checkout's payment
+ * succeeded: the webhook (both events), confirmBooking, and the trip page's
+ * revival in getTripForGuest. They each had their own copy of this before, and
+ * one (confirmBooking) had no status check at all.
+ *
+ * The decision is checkoutPaymentEffect. The one new step is for a payment that
+ * arrives after the checkout's 1-hour hold had lapsed: other guests could book
+ * those dates from that moment, so they're checked again, and if they've been
+ * taken the payment is refunded instead of confirming a second trip for the
+ * same car. A payment inside the hold needs no check: every other booking
+ * respected it.
+ */
+export async function confirmPaidCheckout(
+    admin: AdminClient,
+    paymentIntentId: string,
+    now: Date = new Date(),
+): Promise<{ result: CheckoutConfirmation; bookingId: string | null }> {
+    const { data: row, error } = await admin
+        .from('bookings')
+        .select(CONFIRM_SELECT)
+        .eq('stripe_payment_intent_id', paymentIntentId)
+        .maybeSingle()
+    if (error) throw new Error(error.message)
+    if (!row) return { result: 'not-found', bookingId: null }
+
+    const effect = checkoutPaymentEffect(row.status, { refunded: Boolean(row.refund_id) })
+    if (effect === 'leave') return { result: 'left', bookingId: row.id }
+
+    if (effect === 'confirm') {
+        if (holdHasLapsed(row.status, row.created_at, now, PENDING_HOLD_MS)) {
+            const conflict = await findCarConflict(row.car_id, row.start_time, row.end_time, {
+                excludeBookingId: row.id,
+                viewerId: row.user_id,
+            })
+            if (conflict) {
+                await refundLatePayment(admin, row, conflict, now)
+                return { result: 'refunded-conflict', bookingId: row.id }
+            }
+        }
+
+        const { data: moved, error: moveErr } = await admin
+            .from('bookings')
+            .update({ status: 'confirmed' })
+            .eq('id', row.id)
+            .eq('status', row.status)
+            .select('id')
+            .maybeSingle()
+        if (moveErr) throw new Error(moveErr.message)
+        if (!moved) {
+            // Another path moved it first. Only "it's confirmed now" carries on.
+            const { data: fresh } = await admin.from('bookings').select('status').eq('id', row.id).maybeSingle()
+            if (fresh?.status !== 'confirmed') return { result: 'left', bookingId: row.id }
+        }
+        console.log(`Booking ${row.id} confirmed for PaymentIntent ${paymentIntentId}`)
+    }
+
+    // Everything that follows a confirmation: the saved card, the deposit hold,
+    // both emails. Run on every delivery; each step claims itself.
+    await onBookingConfirmed(admin, row.id)
+    return { result: effect === 'confirm' ? 'confirmed' : 'already-confirmed', bookingId: row.id }
+}
+
+/**
+ * Refunds a late payment whose dates were taken, marks the booking cancelled by
+ * `system`, and emails both sides. Keyed so every confirmation path that sees the
+ * same payment gets the same refund. Never throws once the refund exists: a
+ * failure to record it is reported to the owners, because throwing would make
+ * the webhook retry a refund that already happened.
+ */
+async function refundLatePayment(
+    admin: AdminClient,
+    row: { id: string; status: string; total_price: number | string; stripe_payment_intent_id: string | null },
+    conflict: string,
+    now: Date,
+): Promise<void> {
+    if (!row.stripe_payment_intent_id) return
+    const refund = await getStripe().refunds.create(
+        { payment_intent: row.stripe_payment_intent_id, metadata: { bookingId: row.id, reason: 'late-payment-dates-taken' } },
+        { idempotencyKey: `late_refund_${row.id}` },
+    )
+    const amount = roundMoney(Number(row.total_price))
+    const { data: recorded, error } = await admin
+        .from('bookings')
+        .update({
+            status: 'canceled',
+            canceled_at: now.toISOString(),
+            canceled_by: 'system',
+            cancellation_reason: `Paid after the checkout hold had lapsed, and the dates were no longer free: ${conflict}`.slice(0, 500),
+            refund_id: refund.id,
+            refunded_amount: amount,
+        })
+        .eq('id', row.id)
+        .eq('status', row.status)
+        .select('id')
+        .maybeSingle()
+    if (error || !recorded) {
+        await sendAdminAlert(admin, {
+            subject: 'A late payment was refunded but not recorded',
+            lines: [
+                `The payment was refunded (${refund.id}, ${money(amount)}) because the dates had been taken, but the booking row couldn't be updated: ${error?.message ?? 'its status had changed'}.`,
+                'Mark the booking cancelled by hand, and check the guest was told.',
+            ],
+            bookingId: row.id,
+        })
+        return
+    }
+    await sendLatePaymentRefundedEmails(admin, row.id, amount)
+}
+
+function money(n: number): string {
+    return `$${n.toFixed(2)}`
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -663,7 +807,7 @@ function taxContextFor(booking: { price_quote: unknown }): TaxContext {
 async function loadBillingContext(admin: AdminClient, bookingId: string) {
     const { data: booking, error } = await admin
         .from('bookings')
-        .select('id, car_id, user_id, status, start_time, end_time, booking_rate, payment_method_id, deposit_waived_at, price_quote, cars(price_per_day)')
+        .select('id, car_id, user_id, status, start_time, end_time, canceled_at, booking_rate, payment_method_id, deposit_waived_at, price_quote, cars(price_per_day)')
         .eq('id', bookingId)
         .single()
     if (error || !booking) throw new Error('Booking not found')
@@ -691,6 +835,15 @@ export async function createAdjustmentCharge(
 ): Promise<ChargeAttempt> {
     if (!(input.amount > 0)) throw new Error('Enter an amount above $0.')
     const { booking, customerId, paymentMethodId } = await loadBillingContext(admin, input.bookingId)
+    // Confirmed, completed, or cancelled after it had started (the guest had the
+    // car). The page offered the button on the same rule; this is the check a
+    // direct call can't skip.
+    if (!ownerChargeAllowed(booking.status, booking.start_time, booking.canceled_at)) {
+        throw new Error(`This trip is ${booking.status}${booking.status === 'canceled' ? ' and never started' : ''}, so it can't be charged.`)
+    }
+    // And not before pickup: until then the trip can't have caused a cost.
+    const blocked = ownerChargeBlockedReason(booking)
+    if (blocked) throw new Error(blocked)
     if (!customerId || !paymentMethodId) {
         throw new Error('This guest has no saved card on this trip. Send them a payment link instead.')
     }
@@ -776,7 +929,10 @@ export async function ensureDepositHold(
     for (const row of rows.filter(r => r.status === 'requires_payment' || r.status === 'processing')) {
         const stale = now.getTime() - new Date(row.created_at).getTime() > PENDING_HOLD_MS
         if (!stale && !options.force) return { state: 'in-flight', chargeId: row.id }
-        await abandonCharge(admin, row, 'Authentication was not completed')
+        // It may turn out to have gone through after all, and then the trip
+        // has its hold. Carrying on would place a second one.
+        const after = await abandonCharge(admin, row, 'Authentication was not completed')
+        if (after === 'authorized' || after === 'succeeded') return { state: 'held', chargeId: row.id }
     }
 
     if (!customerId || !paymentMethodId) return { state: 'no-card' }
@@ -838,22 +994,50 @@ async function placeDepositHold(
     return { state: 'declined', message: attempt.error ?? attempt.charge.failure_message, chargeId: charge.id }
 }
 
-/** Cancels an intent nobody will finish and closes its row as failed. */
-async function abandonCharge(admin: AdminClient, charge: ChargeRow, reason: string): Promise<void> {
-    if (charge.stripe_payment_intent_id) {
-        await getStripe().paymentIntents.cancel(charge.stripe_payment_intent_id).catch(() => undefined)
+/**
+ * Cancels an intent nobody will finish and closes its row as failed.
+ *
+ * If Stripe won't cancel it, the guest finished it after all (authenticated at
+ * the last moment, or it was still processing). Closing the row anyway was the
+ * old behaviour, and a closed row never moves again — so a hold or payment that
+ * really happened went unrecorded. Record what Stripe says instead.
+ */
+async function abandonCharge(admin: AdminClient, charge: ChargeRow, reason: string): Promise<ChargeStatus> {
+    const intentId = charge.stripe_payment_intent_id
+    if (intentId) {
+        const stripe = getStripe()
+        const cancelled = await stripe.paymentIntents.cancel(intentId).then(() => true, () => false)
+        if (!cancelled) {
+            const intent = await stripe.paymentIntents.retrieve(intentId, { expand: ['latest_charge'] })
+            if (intent.status !== 'canceled') {
+                const synced = await syncChargeFromIntent(admin, intent)
+                return synced?.status ?? charge.status
+            }
+        }
     }
     await admin
         .from('booking_charges')
         .update({ status: 'failed', failure_message: reason, settled_at: new Date().toISOString() })
         .eq('id', charge.id)
         .in('status', ['requires_payment', 'processing'])
+    return 'failed'
 }
 
 async function applyDepositEffects(admin: AdminClient, charge: ChargeRow): Promise<void> {
     const renewal = Boolean(charge.renews_charge_id)
 
     if (charge.status === 'authorized') {
+        // A hold that landed after its trip stopped being one: the sweep or the
+        // trip page started placing it just as the trip was cancelled, or the
+        // guest finished their bank's check afterwards. Let it go straight
+        // away, silently — "your $1,500 hold is placed" for a cancelled trip is
+        // the email this exists to prevent.
+        const { data: booking } = await admin.from('bookings').select('status').eq('id', charge.booking_id).maybeSingle()
+        if (booking && !depositHoldBelongs(booking.status)) {
+            await releaseDepositHold(admin, charge, { notifyGuest: false })
+            return
+        }
+
         // The replacement is in place, so the hold it replaces can go. Silent:
         // the guest is told about the renewal, not about the mechanics.
         if (charge.renews_charge_id) {
@@ -898,9 +1082,15 @@ export async function releaseDepositHold(
     try {
         await getStripe().paymentIntents.cancel(charge.stripe_payment_intent_id)
     } catch (err: any) {
-        // Put it back: a hold we couldn't release is still a hold.
-        await admin.from('booking_charges').update({ status: 'authorized', settled_at: null }).eq('id', charge.id)
-        throw new Error(`Could not release the hold: ${err?.message ?? 'Stripe error'}`)
+        // Already gone (released from the Stripe dashboard, or expired) is a
+        // release. Restoring the row for that left the sweep retrying, and
+        // failing, every 15 minutes for good.
+        const intent = await getStripe().paymentIntents.retrieve(charge.stripe_payment_intent_id).catch(() => null)
+        if (intent?.status !== 'canceled') {
+            // Put it back: a hold we couldn't release is still a hold.
+            await admin.from('booking_charges').update({ status: 'authorized', settled_at: null }).eq('id', charge.id)
+            throw new Error(`Could not release the hold: ${err?.message ?? 'Stripe error'}`)
+        }
     }
 
     if (options.notifyGuest) await sendDepositReleasedEmail(admin, toChargeRow(claimed))
@@ -1260,6 +1450,14 @@ export async function decideExtension(
     const charge = extension.charge_id ? await loadCharge(admin, extension.charge_id) : null
 
     if (approve) {
+        // confirmExtension only moves the end of a confirmed trip. Approving on
+        // one that has since been completed (the hourly job closes a trip at its
+        // end even with a request open) or cancelled would capture the guest's
+        // money and then fail to apply it.
+        const { data: booking } = await admin.from('bookings').select('status').eq('id', extension.booking_id).single()
+        if (booking?.status !== 'confirmed') {
+            throw new Error(`This trip is ${booking?.status ?? 'gone'}, so the extension can't be applied. Decline it, and charge for any extra time separately.`)
+        }
         await admin.from('booking_extensions').update({ decided_by: decidedBy, decided_at: new Date().toISOString() }).eq('id', extension.id)
         if (charge && charge.status === 'authorized' && charge.stripe_payment_intent_id) {
             const intent = await getStripe().paymentIntents.capture(
@@ -1437,10 +1635,144 @@ export async function laterChargesFor(admin: AdminClient, bookingId: string): Pr
     }))
 }
 
+/** The checkout refund failed; nothing about the money has changed. */
+export class CheckoutRefundError extends Error {}
+
+/**
+ * Everything a cancelled trip is owed once its row says `canceled`: the
+ * checkout refund the policy gives, the later charges settled, both emails.
+ *
+ * cancelBooking calls it straight after claiming the row, and the payments
+ * sweep calls it for any cancellation that didn't finish (the server died
+ * halfway, or the email didn't send) — so a crash between "marked cancelled"
+ * and "refunded" can no longer leave a guest unpaid. Safe to repeat:
+ *
+ * - the outcome is recomputed as of `canceled_at`, so a rerun reaches the same
+ *   figure the guest was quoted;
+ * - the checkout refund counts what Stripe has already refunded on the payment
+ *   and only refunds the rest (and is keyed `refund_<bookingId>`);
+ * - the ledger settlement and the emails each claim their own work.
+ *
+ * Throws CheckoutRefundError only when the checkout refund fails, before any
+ * money has moved. Nothing after that throws.
+ */
+export async function completeCancellation(
+    admin: AdminClient,
+    bookingId: string,
+): Promise<{ outcome: RefundOutcome; laterRefund: number } | null> {
+    const { data: b, error } = await admin
+        .from('bookings')
+        .select('id, status, stripe_payment_intent_id, booking_rate, created_at, start_time, end_time, total_price, ' +
+            'price_quote, canceled_at, canceled_by, refund_id, refunded_amount')
+        .eq('id', bookingId)
+        .maybeSingle()
+    if (error) throw new Error(error.message)
+    const booking = b as any
+    if (!booking || booking.status !== 'canceled') return null
+
+    // A late payment refunded because its dates were taken: settled already,
+    // only its emails can still be owed.
+    if (booking.canceled_by === 'system') {
+        await sendLatePaymentRefundedEmails(admin, bookingId, Number(booking.refunded_amount) || 0)
+        return null
+    }
+
+    const bookedEnd = await originalEndTime(admin, bookingId, booking.end_time)
+    const outcome = refundForCancellation({
+        rate: (booking.booking_rate ?? DEFAULT_BOOKING_RATE) as BookingRate,
+        bookedAt: new Date(booking.created_at),
+        tripStart: new Date(booking.start_time),
+        tripEnd: new Date(bookedEnd),
+        quote: storedQuote(booking),
+        totalPaid: Number(booking.total_price),
+        byAdmin: booking.canceled_by === 'admin',
+        now: booking.canceled_at ? new Date(booking.canceled_at) : new Date(),
+    })
+
+    if (booking.stripe_payment_intent_id) {
+        const stripe = getStripe()
+        let intent: Stripe.PaymentIntent
+        try {
+            intent = await stripe.paymentIntents.retrieve(booking.stripe_payment_intent_id, { expand: ['latest_charge'] })
+        } catch (err: any) {
+            throw new CheckoutRefundError(err?.message ?? 'Could not read the payment')
+        }
+
+        // Never paid: a checkout cancelled before its payment went through.
+        // There is no trip to tell anyone about. Marked notified so the sweep
+        // stops looking at it.
+        if (intent.status !== 'succeeded') {
+            await admin.from('bookings').update({ cancel_notified_at: new Date().toISOString() })
+                .eq('id', bookingId).is('cancel_notified_at', null)
+            return null
+        }
+
+        if (outcome.kind !== 'none' && !booking.refund_id) {
+            const latest = intent.latest_charge as Stripe.Charge | null
+            const already = fromCents(latest?.amount_refunded ?? 0)
+            const owed = roundMoney(outcome.refundAmount - already)
+            let refundId: string | null = null
+            if (owed > 0) {
+                try {
+                    const refund = await stripe.refunds.create(
+                        { payment_intent: booking.stripe_payment_intent_id, amount: toCents(owed) },
+                        // Keyed on the booking, so a retry returns the same refund.
+                        { idempotencyKey: `refund_${bookingId}` },
+                    )
+                    refundId = refund.id
+                } catch (err: any) {
+                    console.error('[cancel] Stripe refund failed:', err?.message)
+                    throw new CheckoutRefundError(err?.message ?? 'Stripe refused the refund')
+                }
+            }
+            // From here nothing throws: the money has moved.
+            const { error: recordErr } = await admin
+                .from('bookings')
+                .update({ refund_id: refundId, refunded_amount: roundMoney(already + Math.max(owed, 0)) })
+                .eq('id', bookingId)
+            if (recordErr) console.error('[cancel] could not record the refund:', recordErr.message)
+        }
+    }
+
+    // Extensions and later extras refunded by laterChargeRefund, holds
+    // released, owners' charges left alone. Never throws.
+    const laterRefund = await settleLedgerOnCancellation(admin, bookingId, outcome)
+    await notifyBookingCanceled(admin, bookingId, outcome, laterRefund)
+    return { outcome, laterRefund }
+}
+
+/**
+ * Cancels a charge that never finished — a hold, or a payment still waiting on
+ * the guest's bank — and closes its row, but only once Stripe says the intent
+ * really is cancelled.
+ *
+ * This used to swallow the cancel's error and close the row regardless. An
+ * intent Stripe won't cancel (one still processing, say) can then go on to
+ * succeed, and the webhook ignores it because a closed row never moves again:
+ * money on the guest's card with no record of it. Throwing instead lands in
+ * the caller's owner alert.
+ */
+async function abandonUnfinishedCharge(admin: AdminClient, charge: ChargeRow, from: ChargeStatus[]): Promise<void> {
+    const intentId = charge.stripe_payment_intent_id
+    if (intentId) {
+        const stripe = getStripe()
+        const gone = await stripe.paymentIntents.cancel(intentId).then(
+            () => true,
+            // Already cancelled is fine; anything else isn't.
+            async () => (await stripe.paymentIntents.retrieve(intentId)).status === 'canceled',
+        )
+        if (!gone) {
+            throw new Error(`Stripe would not cancel its payment ${intentId} (it may still be processing). Check it in Stripe, and refund or release it by hand.`)
+        }
+    }
+    await admin.from('booking_charges').update({ status: 'canceled', settled_at: new Date().toISOString() })
+        .eq('id', charge.id).in('status', from)
+}
+
 /**
  * Everything a cancelled trip's ledger needs, after the checkout charge has been
  * refunded (ImportantFiles/cancellation-and-refunds.md):
- *   - deposit holds released;
+ *   - deposit holds released, and unfinished hold attempts cancelled;
  *   - holds for unanswered extras and extension requests released, and
  *     unfinished extension payments abandoned;
  *   - paid extensions and later extras refunded by laterChargeRefund;
@@ -1463,22 +1795,30 @@ export async function settleLedgerOnCancellation(
 
         for (const charge of charges) {
             try {
-                if (charge.kind === 'deposit' && charge.status === 'authorized') {
-                    await releaseDepositHold(admin, charge, { notifyGuest: true })
-                } else if ((charge.kind === 'extra' || charge.kind === 'extension')
-                    && (charge.status === 'authorized' || charge.status === 'requires_payment' || charge.status === 'processing')) {
-                    if (charge.stripe_payment_intent_id) {
-                        await getStripe().paymentIntents.cancel(charge.stripe_payment_intent_id).catch(() => undefined)
+                // The decision per row is ledgerActionOnCancel, which the verify
+                // script checks for every kind × status.
+                switch (ledgerActionOnCancel(charge)) {
+                    case 'release-hold':
+                        await releaseDepositHold(admin, charge, { notifyGuest: true })
+                        break
+                    case 'abandon':
+                        // Includes a deposit hold still waiting on the guest's
+                        // bank (3D Secure). Left alone, the guest could finish it
+                        // after the trip was called off: a deposit held against a
+                        // cancelled trip, and a "hold placed" email to match.
+                        await abandonUnfinishedCharge(admin, charge, ['authorized', 'requires_payment', 'processing'])
+                        break
+                    case 'refund': {
+                        const input = later.find(l => l.id === charge.id)
+                        const amount = input ? laterChargeRefund(outcome, input) : 0
+                        if (amount > 0) {
+                            await refundCharge(admin, charge, amount, 'Trip cancelled')
+                            refunded = roundMoney(refunded + amount)
+                        }
+                        break
                     }
-                    await admin.from('booking_charges').update({ status: 'canceled', settled_at: new Date().toISOString() })
-                        .eq('id', charge.id).in('status', ['authorized', 'requires_payment', 'processing'])
-                } else if (charge.status === 'succeeded' && (charge.kind === 'extra' || charge.kind === 'extension')) {
-                    const input = later.find(l => l.id === charge.id)
-                    const amount = input ? laterChargeRefund(outcome, input) : 0
-                    if (amount > 0) {
-                        await refundCharge(admin, charge, amount, 'Trip cancelled')
-                        refunded = roundMoney(refunded + amount)
-                    }
+                    case 'leave':
+                        break
                 }
             } catch (err: any) {
                 problems.push(`${charge.description}: ${err?.message ?? err}`)
@@ -1514,11 +1854,14 @@ export type SweepResult = {
     holdsRenewed: number
     holdsReleased: number
     extensionsExpired: number
+    cancellationsFinished: number
     errors: string[]
 }
 
 export async function runPaymentsSweep(admin: AdminClient, now: Date = new Date()): Promise<SweepResult> {
-    const result: SweepResult = { holdsAttempted: 0, holdsRenewed: 0, holdsReleased: 0, extensionsExpired: 0, errors: [] }
+    const result: SweepResult = {
+        holdsAttempted: 0, holdsRenewed: 0, holdsReleased: 0, extensionsExpired: 0, cancellationsFinished: 0, errors: [],
+    }
     const note = (what: string, err: any) => result.errors.push(`${what}: ${err?.message ?? String(err)}`)
 
     // 1 & 2. Place (or retry) holds for trips starting within the window.
@@ -1627,6 +1970,43 @@ export async function runPaymentsSweep(admin: AdminClient, now: Date = new Date(
             } catch (err) { note(`extension ${extension.id}`, err) }
         }
     } catch (err) { note('expiring extensions', err) }
+
+    // 6. Cancellations that didn't finish. The emails are the last step of a
+    //    cancellation, so a cancelled trip with none sent stopped somewhere: the
+    //    server died between marking it and refunding, or Gmail failed.
+    //    completeCancellation is safe to repeat. Left alone for the first 10
+    //    minutes so it never races a cancellation still in progress; given up on
+    //    after a week (anything older predates this step).
+    try {
+        const { data: unfinished } = await admin
+            .from('bookings')
+            .select('id')
+            .eq('status', 'canceled')
+            .is('cancel_notified_at', null)
+            .gte('canceled_at', new Date(now.getTime() - 7 * 24 * MS_PER_HOUR).toISOString())
+            .lt('canceled_at', new Date(now.getTime() - 10 * 60 * 1000).toISOString())
+        for (const row of unfinished ?? []) {
+            try {
+                await completeCancellation(admin, row.id)
+                result.cancellationsFinished++
+            } catch (err) {
+                note(`cancellation ${row.id}`, err)
+                // Told once, on the first retries, rather than every 15 minutes
+                // for a week.
+                const { data: c } = await admin.from('bookings').select('canceled_at').eq('id', row.id).maybeSingle()
+                const age = c?.canceled_at ? now.getTime() - new Date(c.canceled_at).getTime() : 0
+                if (age < 25 * 60 * 1000) await sendAdminAlert(admin, {
+                    subject: 'A cancelled trip could not be refunded',
+                    lines: [
+                        'This trip is marked cancelled, but its refund failed when it was retried automatically. The guest has not been refunded yet.',
+                        `Stripe said: ${(err as any)?.message ?? err}`,
+                        'It is retried every 15 minutes for a week without another email. Refund by hand in Stripe if it keeps failing.',
+                    ],
+                    bookingId: row.id,
+                })
+            }
+        }
+    } catch (err) { note('finishing cancellations', err) }
 
     return result
 }

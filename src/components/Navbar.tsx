@@ -1,4 +1,4 @@
-import { Link, useLocation, useRouter } from "@tanstack/react-router";
+import { Link, useLocation, useMatches, useRouter } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { logoutUser } from "@/lib/auth.ts";
@@ -27,10 +27,15 @@ const Navbar = ({ user }: { user: any | null }) => {
     // it.
     // Every other page gets the solid navbar from the start.
     //
-    // The initial value is derived from the pathname rather than the DOM so the
+    // The initial value is derived from the route rather than the DOM so the
     // server renders the right variant — otherwise the homepage would flash a
     // solid bar over the video until hydration.
-    const hasHero = pathname === "/";
+    //
+    // It reads the *rendered* route, not useLocation(): the location changes
+    // as soon as a navigation starts, but the new page only replaces the old
+    // one once its loader finishes, so the bar used to switch while the old
+    // page was still on screen.
+    const hasHero = useMatches({ select: (matches) => matches.at(-1)?.pathname === "/" });
     // Derived rather than stored, so the navbar goes transparent in the same
     // render the URL changes. An open hamburger panel also forces it solid:
     // the panel has a solid background, and a see-through bar with white text
@@ -143,6 +148,11 @@ const Navbar = ({ user }: { user: any | null }) => {
     return (
         <nav
             ref={navRef}
+            // Remounted when moving between a hero page and any other, so the
+            // colour change is instant like the page swap beneath it. A new
+            // element has nothing to transition from; transition-colors still
+            // fades the bar when scrolling past the hero.
+            key={hasHero ? "hero" : "page"}
             // px-6 on phones lines the logo up with the page content below,
             // which also uses px-6. px-8 from md.
             className={cn(

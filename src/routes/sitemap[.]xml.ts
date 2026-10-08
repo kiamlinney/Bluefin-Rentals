@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { absoluteUrl, ALLOW_INDEXING } from '@/lib/site'
 import { carSlug } from '@/lib/slug'
 import { POLICY_PAGES } from '@/lib/policies'
+import { HAS_TESTIMONIALS } from '@/lib/testimonials'
 
 // This page is like the table of contents, its job is discovery
 
@@ -12,6 +13,8 @@ const STATIC_PAGES: SitemapEntry[] = [
     { path: '/', changefreq: 'weekly', priority: '1.0' },
     { path: '/fleet', changefreq: 'daily', priority: '0.9' },
     { path: '/reviews', changefreq: 'weekly', priority: '0.7' },
+    // A 404 until the first testimonial is added.
+    ...(HAS_TESTIMONIALS ? [{ path: '/testimonials', changefreq: 'monthly', priority: '0.5' }] : []),
     { path: '/faq', changefreq: 'monthly', priority: '0.6' },
     { path: '/about', changefreq: 'monthly', priority: '0.5' },
     { path: '/contact', changefreq: 'monthly', priority: '0.5' },

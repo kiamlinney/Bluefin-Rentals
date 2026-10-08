@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { ArrowLeft, Printer } from 'lucide-react'
 import { getTripForGuest } from '@/lib/db.ts'
+import { SIGNED_OUT } from '@/lib/signed-out'
 import { buildReceipt } from '@/lib/receipt.ts'
 import { TripReceipt } from '@/components/trip/TripReceipt.tsx'
 import { AdditionalReceipts } from '@/components/trip/AdditionalReceipts.tsx'
@@ -23,7 +24,8 @@ import type { BookingWithDetails } from '@/types.ts'
 // verified payment state plus the card it was paid with. Reading `status` off
 // the row would print "Trip total" over an abandoned checkout.
 export const Route = createFileRoute('/_authed/trips/$bookingId_/receipt')({
-    loader: async ({ params }) => {
+    loader: async ({ params, context }) => {
+        if (!context.isLoggedIn) return SIGNED_OUT
         const [trip, payments] = await Promise.all([
             getTripForGuest({ data: params.bookingId }),
             getTripPayments({ data: params.bookingId }),

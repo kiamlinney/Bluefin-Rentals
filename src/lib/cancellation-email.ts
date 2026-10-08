@@ -61,6 +61,9 @@ function hostTripRefundLine(outcome: RefundOutcome, who: string, totalPaid: numb
     const kept = money(totalPaid)
     switch (outcome.kind) {
         case 'full':
+            if (outcome.reason === 'admin-initiated') {
+                return `Because we cancelled, ${who} has been refunded the full ${money(outcome.refundAmount)} whatever their rate, and you won't receive a payment for this trip.`
+            }
             return `${who} cancelled within the free cancellation window, so the full ${money(outcome.refundAmount)} has been refunded and you won't receive a payment for this trip.`
         case 'partial':
             return `${who} cancelled outside the free cancellation window. ${money(outcome.refundAmount)} has been refunded and you keep ${money(outcome.cancellationFee + outcome.retainedPremium)}.`
@@ -133,12 +136,13 @@ function settlementNote(outcome: RefundOutcome, laterRefund = 0): string {
 // ── Host email ───────────────────────────────────────────────────────────────
 
 /**
- * The bordered quote box holding the guest's reason.
+ * The bordered quote box holding the reason — the guest's when they cancelled,
+ * ours when we did.
  *
- * Escaped, obviously — this is the one string in the email that a customer
+ * Escaped, obviously — this is the one string in the email that somebody
  * typed. Newlines become <br> so a multi-line reason doesn't collapse.
  */
-function reasonBox(reason: string | null): string {
+function reasonBox(reason: string | null, caption: string): string {
     if (!reason?.trim()) return ''
     const html = escapeHtml(reason.trim()).replace(/\r?\n/g, '<br>')
     return `
@@ -148,8 +152,17 @@ function reasonBox(reason: string | null): string {
                 ${html}
             </td></tr>
         </table>
-        <div style="font:400 12px/1.4 Helvetica,Arial,sans-serif;color:${MUTED};margin:6px 0 0;text-align:center">Reason given by the guest</div>
+        <div style="font:400 12px/1.4 Helvetica,Arial,sans-serif;color:${MUTED};margin:6px 0 0;text-align:center">${escapeHtml(caption)}</div>
     </td></tr>`
+}
+
+/**
+ * Whether we called the trip off rather than the guest. Both emails read
+ * differently for it: the owners' copy used to say the guest cancelled, and the
+ * reason was captioned as the guest's even when we typed it.
+ */
+function canceledByUs(booking: CancellationEmailRow): boolean {
+    return booking.canceled_by === 'admin'
 }
 
 // Exported so the markup can be rendered and inspected without sending — the
@@ -170,20 +183,23 @@ export function buildHostHtml(booking: CancellationEmailRow, outcome: RefundOutc
         `${guest?.num_trips ?? 0} ${guest?.num_trips === 1 ? 'trip' : 'trips'} with Bluefin`,
     ].filter(Boolean).join('<br>')
 
-    const headline = booking.canceled_by === 'admin'
+    const byUs = canceledByUs(booking)
+    const headline = byUs
         ? `${who}'s trip was cancelled`
         : `${who} has cancelled their trip`
 
     const bodyRows = `
     <tr><td align="center" style="padding:28px 24px 0;text-align:center">
         <h1 style="margin:0 0 16px;font:700 24px/1.3 Helvetica,Arial,sans-serif;color:${INK};text-align:center">${escapeHtml(headline)}</h1>
-        ${paragraph(`${escapeHtml(who)} has cancelled this trip with your ${escapeHtml(carName(car))}.`)}
+        ${paragraph(byUs
+            ? `${escapeHtml(who)}'s trip with your ${escapeHtml(carName(car))} was cancelled from the reservation page.`
+            : `${escapeHtml(who)} has cancelled this trip with your ${escapeHtml(carName(car))}.`)}
         ${paragraph(escapeHtml(hostRefundLine(outcome, who, booking.total_price, laterRefund)))}
         ${outcome.estimated
             ? paragraph(`<span style="color:${MUTED};font-size:13px">This booking predates itemised pricing, so the refund was calculated from the trip total.</span>`)
             : ''}
     </td></tr>
-${reasonBox(booking.cancellation_reason)}
+${reasonBox(booking.cancellation_reason, byUs ? 'Your reason, sent to the guest' : 'Reason given by the guest')}
 ${carCard({
         captionLabel: 'Cancelled trip',
         car,
@@ -211,12 +227,16 @@ function buildHostText(booking: CancellationEmailRow, outcome: RefundOutcome, la
     const who = firstName(booking.profiles?.full_name ?? null)
     const guest = booking.profiles
 
+    const byUs = canceledByUs(booking)
+
     return [
-        `${who} has cancelled their trip with your ${carName(booking.cars)}.`,
+        byUs
+            ? `${who}'s trip with your ${carName(booking.cars)} was cancelled from the reservation page.`
+            : `${who} has cancelled their trip with your ${carName(booking.cars)}.`,
         '',
         hostRefundLine(outcome, who, booking.total_price, laterRefund),
         ...(booking.cancellation_reason?.trim()
-            ? ['', 'Reason given by the guest:', `  ${booking.cancellation_reason.trim()}`]
+            ? ['', byUs ? 'Your reason, sent to the guest:' : 'Reason given by the guest:', `  ${booking.cancellation_reason.trim()}`]
             : []),
         '',
         `Trip start:  ${longDateTime(booking.start_time)}`,
@@ -276,6 +296,7 @@ export function buildGuestHtml(booking: CancellationEmailRow, outcome: RefundOut
         ${paragraph(guestRefundLine(outcome, laterRefund))}
         ${note ? paragraph(`<span style="color:${MUTED};font-size:13px">${escapeHtml(note)}</span>`) : ''}
     </td></tr>
+${canceledByUs(booking) ? reasonBox(booking.cancellation_reason, 'Why we cancelled') : ''}
 ${breakdown}
 ${carCard({
         captionLabel: 'Cancelled trip',
@@ -306,6 +327,9 @@ function buildGuestText(booking: CancellationEmailRow, outcome: RefundOutcome, l
         '',
         guestRefundLine(outcome, laterRefund).replace(/<[^>]+>/g, ''),
         ...(note ? ['', note] : []),
+        ...(canceledByUs(booking) && booking.cancellation_reason?.trim()
+            ? ['', 'Why we cancelled:', `  ${booking.cancellation_reason.trim()}`]
+            : []),
         '',
         `Trip start:  ${longDateTime(booking.start_time)}`,
         `Trip end:    ${longDateTime(booking.end_time)}`,
@@ -366,7 +390,9 @@ export async function notifyBookingCanceled(
 
         await sendEmail({
             to: ADMIN_RECIPIENT,
-            subject: `Bluefin - ${who} has cancelled their trip with your ${carName(row.cars)}`,
+            subject: canceledByUs(row)
+                ? `Bluefin - ${who}'s trip with your ${carName(row.cars)} was cancelled`
+                : `Bluefin - ${who} has cancelled their trip with your ${carName(row.cars)}`,
             html: buildHostHtml(row, outcome, laterRefund),
             text: buildHostText(row, outcome, laterRefund),
         })

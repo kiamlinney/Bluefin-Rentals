@@ -14,6 +14,12 @@ Test locally **before** deploying anything. Untested code never goes to the live
 > **Status (2026-09-29): Tests 1–12 all passed.** Fixes made during the rehearsal were
 > re-tested in place. Next: **1c**, then step 2. Re-run any test whose area you change
 > before deploying again.
+>
+> **2026-10-07: Tests 13–20 added, not yet run.** They cover the fixes in
+> [pre-launch-audit.md](pre-launch-audit.md). Before them: run
+> `supabase/migrations/20261007120000_prelaunch_hardening.sql` in the SQL editor (the new code
+> needs it), and `npm test` (must pass). Re-run Tests 1, 2, 4, 8 and 10 alongside them: the
+> fixes touched confirmation, deposit placement, extension approval and cancellation.
 
 ### 1a. Set up (at the start of each testing session)
 
@@ -131,7 +137,22 @@ Keep this booking; Test 3 uses it.
 - After step 4: the hold is placed immediately and the lockbox code is back.
 
 #### Test 5: Charging a guest after checkout, and the pay link
-Use any confirmed trip whose card on file is `4242…`.
+Use a confirmed trip whose card on file is `4242…` and which **hasn't started yet**.
+
+**Part 0: no charges before pickup** (added 2026-10-07).
+1. Open its admin reservation page → **Additional charges**.
+
+**Expect:** no **Charge guest** button, and the line "Charges open at pickup (…). Until the
+trip starts it can't have caused any costs." The deposit section says "the guest's Visa card
+ending 4242" and "after the guest returns the car", not "your".
+
+Now move the trip's start into the past so it can be charged, in the Supabase SQL editor:
+```sql
+update public.bookings
+set start_time = now() - interval '1 hour'
+where id = 'YOUR_BOOKING_ID';
+```
+Reload the page: the **Charge guest** button is there.
 
 **Part A: a charge that goes through.**
 1. Admin reservation page → **Additional charges** → **Charge guest**.
@@ -194,7 +215,7 @@ the dialog offers "Pay with a different card".)
 
 #### Test 8: An extension request in the trip's last hour
 Extensions asked for within 60 minutes of a trip's end become a request you approve. Any time
-of day works; just pick a **new return** between 10:00 AM and 10:30 PM (returns must be in
+of day works; just pick a **new return** between 10:00 AM and 11:00 PM (returns must be in
 business hours).
 
 **Do:**
@@ -275,12 +296,224 @@ paid for this trip**.
 a home-base pickup, **above** the Trip total, and the Trip total equals the amount Stripe
 charges. A fuel or cleaning charge on the receipt shows the same two lines.
 
+#### Tests 13–20: cancelling, late payments, and the search (added 2026-10-07)
+Tests 1–12 walk the normal path. These cover what happens when a trip is cancelled while
+other things are going on, a payment that arrives late, and the `/fleet` search, which is
+where the 2026-10-06/07 bugs were (see [pre-launch-audit.md](pre-launch-audit.md)). Before
+starting, run the automated tests; they must all pass:
+```
+npm test
+```
+They exercise the same situations against a fake Stripe in under a second, including the
+ones that are hard to set up by hand (a crash halfway through a cancellation, a refund Stripe
+refuses, two tabs racing). These rehearsals check the real Stripe and the real pages.
+
+#### Test 13: You cancel a trip that has everything on it
+**Do:**
+1. Signed in as a **non-admin test guest** (not your own admin account: since 2026-10-08 an
+   owner cancelling their *own* booking gets guest terms), book a trip starting **between 3
+   and 24 hours** from now with `4242…`, at the **non-refundable** rate. It gets a deposit hold.
+2. Extend it by a full day (Test 6). Request a **child seat** and **prepaid refuel** (Test 9),
+   approve the child seat, and **leave the refuel unanswered**.
+3. Admin reservation page → **Cancel trip**. Type a reason, e.g. "Test: the car needs a repair".
+
+**Expect:**
+- The dialog quotes the **whole** amount (trip + extension + child seat), split into Trip and
+  Extensions and extras, and says the non-refundable policy doesn't apply because we
+  cancelled. The red button reads "Cancel and refund $X" with that same figure.
+- After cancelling, in Stripe: refunds on the checkout, the extension and the child seat; the
+  deposit hold and the refuel hold are both **canceled**.
+- The page now says "Canceled trip", with a CANCELED badge, "You canceled this trip on …",
+  the refund and your reason. No countdown, no Swap or Cancel buttons.
+- Emails: the guest's says "We're sorry — we had to cancel this trip", shows your reason under
+  "Why we cancelled", and gives the total. Yours says the trip **was cancelled from the
+  reservation page** (not that the guest cancelled) and captions the reason "Your reason, sent
+  to the guest". The deposit "hold released" email also goes to the guest.
+- The guest's Extras section no longer shows the refuel as requested.
+
+#### Test 14: Cancelling while the deposit is waiting on the guest's bank
+**Do:**
+1. Book a trip starting **more than 24 hours** out with `4242…`, then move it to start in 12
+   hours (the SQL in Test 3). Don't run the sweep.
+2. Guest trip page → Security deposit → **Update card** → `4000 0027 6000 3184`. Click
+   **Complete** for the card itself. When the second pop-up asks to authenticate the **hold**,
+   **close the whole browser tab** without touching the pop-up. Don't click Complete, Fail
+   or the pop-up's X: Stripe treats closing the pop-up exactly like Fail (the hold is marked
+   declined, which is Test 4, not this test). Then reopen the trip page in a new tab.
+3. In Supabase, check the trip's `booking_charges`: one `deposit` row in `requires_payment`.
+4. Cancel the trip from the guest trip page.
+
+**Expect:** the deposit row is now `canceled`; in Stripe its payment is **canceled** (not
+incomplete); **no** "hold placed" or "hold released" email. Before this fix the incomplete hold
+stayed payable on a cancelled trip.
+
+#### Test 15: Cancelling twice
+**Do:**
+0. **Sign up** a new non-admin test guest, with an email you can read. (This failed with
+   "Database error saving new user" until `20261008120000_fix_signup.sql`.) Expect the account
+   to be created and signed in, and its row in `profiles` to have `is_admin` false.
+1. As that **non-admin test guest**, book a trip more than a day out with `4242…`. Signed in as
+   yourself, open its admin reservation page in **two tabs**.
+2. Tab 1: **Cancel trip** → confirm.
+3. Tab 2 (still showing the old page): **Cancel trip**.
+
+**Expect:** tab 2's dialog says **"This trip has changed"** and offers Reload trip, instead
+of quoting a refund. Stripe shows **one** refund; one pair of cancellation emails. The trip
+stays cancelled. (Before 2026-10-06 a second cancel re-ran the refund and could put the trip
+back to confirmed.)
+
+#### Test 16: Approving an extension on a trip that has already ended
+**Do:**
+1. Set up a last-hour extension request exactly as in Test 8, steps 1–2.
+2. Close the trip as the hourly job would, in the SQL editor. The status trigger refuses any
+   status change that doesn't come from the server ("status is server-managed"), so this
+   switches triggers off for this one transaction, exactly as the job does:
+   ```sql
+   begin;
+   set local session_replication_role = 'replica';
+   update public.bookings set status = 'completed' where id = 'BOOKING_ID';
+   commit;
+   ```
+3. Admin reservation page → approve the request.
+4. Then **Decline** it.
+
+**Expect:** step 3 refuses with "This trip is completed, so the extension can't be
+applied…", and Stripe still shows the hold **uncaptured** (no money taken). Step 4 releases
+the hold. Put the trip back afterwards if you want to reuse it, the same way:
+```sql
+begin;
+set local session_replication_role = 'replica';
+update public.bookings set status = 'confirmed' where id = 'BOOKING_ID';
+commit;
+```
+
+#### Test 17: Discarding an unpaid hold
+**Do:**
+1. Start a checkout and stop on the payment step without paying.
+2. Find the new `pending` row in Supabase → `bookings`, open
+   `localhost:5173/admin/reservation/BOOKING_ID` (admin lists show confirmed trips only) →
+   **Discard hold**.
+
+**Expect:** the dialog says nothing has been charged and nobody is emailed. Afterwards the row
+is `expired`, its PaymentIntent is **canceled** in Stripe, no emails go out, and the dates are
+bookable again.
+
+#### Test 18: Every page in every state
+**What this checks:** a trip moves through states (booked, under way, ended, completed,
+cancelled…). For each state, the pages should say which state it's in and show **only the
+buttons that make sense**. The bug that started all this was a cancelled trip still showing
+"starts in…" and a Cancel button. Nothing is paid or cancelled in this test; you only **look**.
+Don't click any Cancel / Discard / Extend buttons through to the end.
+
+**Three places to look**, for each step:
+- **Admin page:** signed in as yourself, `localhost:5173/admin/reservation/BOOKING_ID`. Look at
+  the card at the top right.
+- **Guest page:** signed in as **the guest who booked it** (private window),
+  `localhost:5173/trips/BOOKING_ID`. Look at the card at the top right and the buttons under it.
+- **Trips list:** same guest, `localhost:5173/trips`. Which section the trip is under.
+
+The SQL below only changes **times**, which the database allows. (Changing a **status** needs
+the `replica` wrapper from Test 16.)
+
+**Step 1: a booked trip that hasn't started.** Use any `confirmed` booking starting in the
+future (the second guest's booking from Test 19 works).
+- Admin: "This trip starts in …", **Swap vehicle**, **Cancel trip**.
+- Guest: "Your trip starts in …", **Extend trip**, **Request extras**, **Cancel trip**.
+- Trips list: under **Upcoming**.
+
+**Step 2: the same trip, under way.** Make it look like it started yesterday:
+```sql
+update public.bookings set start_time = now() - interval '1 day' where id = 'BOOKING_ID';
+```
+- Admin: "This trip ends in …". **No** Swap vehicle, **no** Cancel trip.
+- Guest: "Your trip ends in …", **Extend trip** and **Cancel trip** (open the cancel dialog:
+  it should say you **won't be refunded**; then close it). **No** Request extras.
+
+**Step 3: the same trip, ended but not yet closed by the hourly job.**
+```sql
+update public.bookings set start_time = now() - interval '3 days', end_time = now() - interval '1 hour'
+where id = 'BOOKING_ID';
+```
+- Admin: a **Charge for incidentals** button, no countdown, no Cancel.
+- Guest: title "Past trip", **no** Extend, **no** Cancel.
+(Do this step promptly: at the top of the hour the job will close the trip, which is step 4.)
+
+**Step 4: the same trip, completed.** Either wait for the top of the hour, or:
+```sql
+begin;
+set local session_replication_role = 'replica';
+update public.bookings set status = 'completed' where id = 'BOOKING_ID';
+commit;
+```
+- Admin: heading "Past trip", **Charge for incidentals**, no Cancel, no Swap.
+- Guest: "Past trip", no Extend, no Cancel.
+- Trips list: under **History**, "Trip completed".
+
+**Step 5: a cancelled trip that hadn't started.** Use the Test 15 booking (the one you
+cancelled as the owner, booked by your non-admin test guest).
+- Admin: heading "Canceled trip", a red **CANCELED** badge, "You canceled this trip on …", how
+  much was refunded, and your reason if you typed one. **No** countdown, Swap, or Cancel.
+- Guest: "This trip was canceled." **No** Extend, Request extras or Cancel.
+- Trips list: under **History**, "Bluefin canceled on …".
+
+**Step 6: the same cancelled trip, with its dates now in the past.**
+```sql
+update public.bookings set start_time = now() - interval '3 days', end_time = now() - interval '1 day'
+where id = 'BOOKING_ID';
+```
+- Admin: the same cancelled card as step 5 (not "Charge for incidentals" in that card).
+  Because it now looks cancelled *after* pickup, the **Additional charges** section further
+  down should offer **Charge guest** (owners may bill a trip the guest already had).
+
+**Step 7: an unpaid hold.** As the test guest, start a checkout and stop on the payment
+step. Find the new `pending` row in `bookings` for its id.
+- Admin: "This trip starts in …" and a red **Discard hold** button. **No** Swap vehicle.
+- Trips list: under **Pending checkouts**.
+
+**Step 8: an abandoned checkout.** Use the Test 17 booking (the hold you discarded); it's
+`expired`.
+- Admin: "This checkout was never paid for…", and **no** buttons.
+- Trips list: **not listed** at all.
+
+**Pass** if every step shows what's listed. If anything shows an extra button or the wrong
+wording, note the step and what you saw.
+
+#### Test 19: Paying after the checkout hold has lapsed
+**Do:**
+1. As your usual test guest, start a checkout for a car and dates, and stop on the payment
+   step. Leave this tab open.
+2. Make the hold look an hour old, in the SQL editor (the newest `pending` row is this one):
+   ```sql
+   update public.bookings set created_at = now() - interval '2 hours'
+   where id = 'BOOKING_ID';
+   ```
+3. In a **private window**, sign in as a **different** account and book the **same car,
+   same dates**, paying with `4242…`. It goes through: the first hold has lapsed.
+4. Back in the first tab, enter `4242…` and press pay.
+
+**Expect:** the first tab says "Sorry, while this page was open someone else booked this
+car… You haven't been charged." Stripe shows that payment **canceled** (never charged); its
+row is `expired`. The second guest's trip is untouched.
+
+(The backstop, a payment that slips through in the seconds after this check, is refunded
+automatically and both sides are emailed. It can't be staged by hand; the automated tests
+cover it.)
+
+#### Test 20: The /fleet date search
+**Do:** signed out, search `/fleet` for dates that overlap a confirmed trip, a Turo trip or
+a blocked date of one car (the admin calendar shows them).
+
+**Expect:** that car is **not** listed; cars free on those dates are. Before 2026-10-07 every
+car was listed for every customer, whatever was booked.
+
 ### 1c. When you're done
 
 - [ ] Stop the listener (Ctrl+C). Nothing to change back in `.env`.
 - [ ] **Turn the live endpoint back on:** Stripe (sandbox) → Event destinations →
   `rentbluefin.com` → **Enable**.
 - [ ] Only now: commit and deploy.
+- [ ] **After the 2026-10-07 deploy:** run
+  `supabase/migrations/20261007130000_drop_get_available_cars.sql`, then `npm run gen:types`.
 
 ---
 

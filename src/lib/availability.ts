@@ -44,11 +44,25 @@ import { businessDateKey, businessWallClockTime } from './dates.ts'
 // Clearance required between two trips, and between now and a trip's start.
 // Separate constants because they answer different questions and could
 // plausibly diverge, even though both are 3 today.
+// How long a `pending` booking holds the car while its owner is at the payment
+// step. After this the row is abandoned: it stops blocking, and the hourly sweep
+// marks it `expired`. A payment that arrives after it, for dates someone else
+// has booked meanwhile, is refunded (confirmPaidCheckout).
+//
+// Read by every place that has to agree on what "held" means — assertCarIsAvailable
+// (the enforcement point), getBookedDates (what the calendar greys out), the
+// payments sweep, and the terms page (section 1). One constant because it
+// drifting apart is precisely how a customer ends up picking a date the calendar
+// showed as open and being refused at checkout.
+export const PENDING_HOLD_MS = 60 * 60 * 1000
+
 export const TURNAROUND_HOURS = 3
 export const MIN_LEAD_TIME_HOURS = 3
 
+// Our opening hours, and the first and last pickup/return slot. business.ts
+// builds the published hours (footer, FAQ, structured data) from these.
 export const BUSINESS_OPEN_MINUTES = 600 // 10:00 AM
-export const BUSINESS_CLOSE_MINUTES = 1350 // 10:30 PM
+export const BUSINESS_CLOSE_MINUTES = 1380 // 11:00 PM
 export const SLOT_MINUTES = 30
 
 const MINUTES_PER_DAY = 1440
@@ -283,6 +297,28 @@ export function tripDateKeys(startKey: string, endKey: string): string[] {
     const length = daysBetween(startKey, endKey)
     if (!Number.isFinite(length) || length < 0 || length > MAX_SPAN_DAYS) return []
     return Array.from({ length: length + 1 }, (_, i) => addDays(startKey, i))
+}
+
+// Whether a trip could run from *some* time on startKey to *some* time on endKey:
+// the date-only question /fleet's search asks. Built on the calendar's own floors
+// and map, so a car /fleet lists for those dates is one the car page will let you
+// book on them. It replaced the get_available_cars SQL function, which ran under
+// the visitor's RLS, could see nobody else's bookings, blocks or Turo trips, and
+// so listed every car as free for any dates.
+export function dateRangeIsBookable(
+    startKey: string,
+    endKey: string,
+    map: AvailabilityMap,
+    now: Date = new Date(),
+): boolean {
+    if (endKey < startKey) return false
+    const earliest = earliestStartMinutesFor(startKey, map, now)
+    const latest = latestEndMinutesFor(endKey, map)
+    if (earliest === null || latest === null) return false
+    if (startKey === endKey && earliest >= latest) return false
+    return tripDateKeys(startKey, endKey)
+        .slice(1, -1)
+        .every(key => isFullyFree(dayWindow(map, key)))
 }
 
 // Structured rather than a string so the widget owns the wording and this module

@@ -3,7 +3,7 @@ import {
     Outlet,
     HeadContent,
     Scripts,
-    useLocation
+    useMatches
 } from '@tanstack/react-router'
 import Navbar from "../components/Navbar.tsx";
 import Footer from "../components/Footer.tsx";
@@ -73,7 +73,10 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 
 function RootComponent() {
     const { user } = Route.useLoaderData();
-    const { pathname } = useLocation();
+    // The rendered route's path, not useLocation(): the location changes as
+    // soon as a navigation starts, before the new page has loaded, so the
+    // navbar would vanish from the old page early.
+    const pathname = useMatches({ select: (matches) => matches.at(-1)?.pathname ?? "" });
     // Routes that supply their own chrome and must not get the site Navbar on
     // top of it. /admin has the sidebar shell; /checkout has its own header
     const isBareShell =

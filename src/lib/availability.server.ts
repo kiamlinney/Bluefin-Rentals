@@ -18,16 +18,10 @@ import { businessDateKey, formatBusinessDateTime } from './dates'
 
 const MS_PER_HOUR = 60 * 60 * 1000
 
-// How long a `pending` booking holds the car while its owner is at the payment
-// step. After this the row is abandoned: it stops blocking, and the hourly sweep
-// marks it `expired`.
-//
-// Read by every place that has to agree on what "held" means — assertCarIsAvailable
-// (the enforcement point), getBookedDates (what the calendar greys out) and the
-// payments sweep, which lets go of extension payments nobody finished. One
-// constant because it drifting apart is precisely how a customer ends up picking
-// a date the calendar showed as open and being refused at checkout.
-export const PENDING_HOLD_MS = 60 * 60 * 1000
+// The hold length lives in the pure availability.ts, so the terms page can state
+// it. Re-exported here for the server code that has always imported it from here.
+import { PENDING_HOLD_MS } from './availability'
+export { PENDING_HOLD_MS }
 
 /**
  * The added time of every extension that currently holds a car:
@@ -92,6 +86,22 @@ export async function assertCarIsAvailable(
     endTime: string,
     options: { excludeBookingId?: string; viewerId?: string } = {},
 ) {
+    const conflict = await findCarConflict(carId, startTime, endTime, options)
+    if (conflict) throw new Error(conflict)
+}
+
+/**
+ * The same check as assertCarIsAvailable, returning the conflict as a message
+ * (null when the car is free) instead of throwing it. It still throws when the
+ * database can't be read, so a caller acting on a conflict (refunding a late
+ * payment, say) can never mistake an outage for "the dates are taken".
+ */
+export async function findCarConflict(
+    carId: number,
+    startTime: string,
+    endTime: string,
+    options: { excludeBookingId?: string; viewerId?: string } = {},
+): Promise<string | null> {
     const supabaseAdmin = getServiceRoleClient()
 
     const bufferMs = TURNAROUND_HOURS * MS_PER_HOUR
@@ -116,9 +126,7 @@ export async function assertCarIsAvailable(
 
     const { data: conflictingBookings, error: bErr } = await bookingQuery
     if (bErr) throw new Error(bErr.message)
-    if (conflictingBookings?.length) {
-        throw new Error(conflictMessage(conflictingBookings, startTime, endTime))
-    }
+    if (conflictingBookings?.length) return conflictMessage(conflictingBookings, startTime, endTime)
 
     // Another trip's extension that is being paid for or awaiting an owner. It
     // holds its added time exactly like a booking does, buffer included.
@@ -127,9 +135,7 @@ export async function assertCarIsAvailable(
         windowEnd,
         excludeBookingId: options.excludeBookingId,
     })
-    if (extensionHolds.length) {
-        throw new Error(conflictMessage(extensionHolds, startTime, endTime))
-    }
+    if (extensionHolds.length) return conflictMessage(extensionHolds, startTime, endTime)
 
     // Blocked dates are date-only and unbuffered: a block means the car is
     // spoken for those whole days, and the day after it ends is bookable from
@@ -145,7 +151,7 @@ export async function assertCarIsAvailable(
         .lte('start_date', endDate)
         .gte('end_date', startDate)
     if (blErr) throw new Error(blErr.message)
-    if (conflictingBlocks?.length) throw new Error('This car is not available for the selected dates')
+    if (conflictingBlocks?.length) return 'This car is not available for the selected dates'
 
     // Turo trips are real trips, so they get the same buffer as site bookings.
     const { data: conflictingTuro, error: tErr } = await supabaseAdmin
@@ -155,9 +161,8 @@ export async function assertCarIsAvailable(
         .lt('start_time', windowEnd)
         .gt('end_time', windowStart)
     if (tErr) throw new Error(tErr.message)
-    if (conflictingTuro?.length) {
-        throw new Error(conflictMessage(conflictingTuro, startTime, endTime))
-    }
+    if (conflictingTuro?.length) return conflictMessage(conflictingTuro, startTime, endTime)
+    return null
 }
 
 // Turns a conflicting row into something the customer can act on. A trip that

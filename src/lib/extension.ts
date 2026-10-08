@@ -65,7 +65,7 @@ export function extensionMode(currentEnd: Date, now: Date = new Date()): Extensi
 //     the refundable premium, because it's refundable on the same terms.
 //     [Proposed, awaiting review.]
 //   - Per-day extras on the trip (unlimited mileage) extend with it. Per-trip
-//     extras and the delivery fee are not charged again. No same-day surcharge:
+//     extras and the pickup or delivery fee are not charged again. No same-day surcharge:
 //     that's a premium on booking at short notice, and this isn't a booking.
 //     [Proposed, awaiting review.]
 

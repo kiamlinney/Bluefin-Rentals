@@ -34,8 +34,12 @@ import { TripChargesSection } from '@/components/trip/TripChargesSection'
 import { TripDepositSection } from '@/components/trip/TripDepositSection'
 import { TripExtensionsSection } from '@/components/trip/TripExtensionsSection'
 import { ExtendTripDialog } from '@/components/trip/ExtendTripDialog'
+import { TripVehicleSwapSection } from '@/components/trip/TripVehicleSwapSection'
 import { getTripPayments } from '@/lib/payments'
 import { paidAfterCheckout } from '@/lib/charges'
+import { TRIP_PHASE_LABEL, tripPhase, type TripPhase } from '@/lib/booking-status'
+import { BUSINESS } from '@/lib/business'
+import { SIGNED_OUT } from '@/lib/signed-out'
 
 // The guest's permanent page for one trip. This replaced /booking-confirmed,
 // which was a one-shot receipt with no authorization of its own and no idea
@@ -53,7 +57,9 @@ export const Route = createFileRoute('/_authed/trips/$bookingId')({
     validateSearch: z.object({
         booked: z.literal('1').optional(),
     }),
-    loader: async ({ params }) => {
+    loader: async ({ params, context }) => {
+        // Every guest email links here, often opened while signed out.
+        if (!context.isLoggedIn) return SIGNED_OUT
         const [trip, review, drivers, extras, payments] = await Promise.all([
             getTripForGuest({ data: params.bookingId }),
             getBookingReview({ data: params.bookingId }),
@@ -66,13 +72,16 @@ export const Route = createFileRoute('/_authed/trips/$bookingId')({
     component: TripPage,
 })
 
-const STATUS_BADGE: Record<string, string> = {
-    confirmed: 'bg-pine-500/80 text-pine-950',
+// Keyed by phase, not status: a trip that has ended reads "Completed" from the
+// moment it ends, not an hour later when the job updates its status.
+const PHASE_BADGE: Record<TripPhase, string> = {
+    upcoming: 'bg-pine-500/80 text-pine-950',
+    'in-progress': 'bg-pine-500/80 text-pine-950',
     canceled: 'bg-red-900/30 text-red-800',
-    completed: 'bg-blue-900/30 text-blue-800',
-    pending: 'bg-amber-300/60 text-ink',
+    ended: 'bg-blue-900/30 text-blue-800',
+    'awaiting-payment': 'bg-amber-300/60 text-ink',
     // Reachable directly by URL even though the trips list hides these.
-    expired: 'bg-cream-200 text-muted',
+    'not-paid': 'bg-cream-200 text-muted',
 }
 
 function TripPage() {
@@ -97,6 +106,7 @@ function TripPage() {
 
     const isPaid = paymentState === 'confirmed' || paymentState === 'completed'
     const isCanceled = booking.status === 'canceled'
+    const phase = tripPhase(booking, now)
 
     const receipt = buildReceipt(booking, car)
     const unlimitedMiles = hasUnlimitedMileage(receipt.quote)
@@ -129,7 +139,7 @@ function TripPage() {
         tripStart: startDate,
     })
 
-    const title = isCanceled ? 'Cancelled trip' : hasEnded ? 'Past trip' : 'Booked trip'
+    const title = phase === 'canceled' ? 'Cancelled trip' : phase === 'ended' ? 'Past trip' : 'Booked trip'
 
     return (
         // py-24 is navbar clearance on desktop; a phone doesn't need 6rem of it
@@ -190,6 +200,8 @@ function TripPage() {
                         >
                             <TripLocation pickupLocation={booking.pickup_location} struck={isCanceled} />
                         </TripSection>
+
+                        <TripVehicleSwapSection swaps={booking.vehicle_swaps} voice="guest" />
 
                         <TripSection title="Total miles included">
                             <p className="text-lg text-ink">
@@ -349,15 +361,22 @@ function TripPage() {
 
                         <div className="bg-surface border border-line rounded-2xl p-5 sm:p-6 space-y-4">
                             <span
-                                className={`inline-block text-xs font-bold px-3 py-1 rounded-full ${
-                                    STATUS_BADGE[booking.status] ?? 'bg-subtle text-muted'
-                                }`}
+                                className={`inline-block text-xs font-bold px-3 py-1 rounded-full ${PHASE_BADGE[phase]}`}
                             >
-                                {booking.status.toUpperCase()}
+                                {TRIP_PHASE_LABEL[phase].toUpperCase()}
                             </span>
 
                             {isCanceled ? (
-                                <p className="text-ink">This trip was canceled.</p>
+                                booking.canceled_by === 'system' ? (
+                                    // A payment that arrived after the checkout's
+                                    // hold lapsed, for dates booked meanwhile.
+                                    <p className="text-ink">
+                                        Someone else booked this car for these dates while your checkout was open,
+                                        so we couldn't confirm this trip. We've refunded your payment in full.
+                                    </p>
+                                ) : (
+                                    <p className="text-ink">This trip was canceled.</p>
+                                )
                             ) : isPaid && !hasEnded ? (
                                 <>
                                     <p className="text-ink">
@@ -376,6 +395,26 @@ function TripPage() {
                                             ? 'Take photos of the car before you hand it back — they’re your record of how you returned it.'
                                             : 'Bring your driver’s license. Take a few photos of the car when you pick it up, so its condition at handover is on record.'}
                                     </p>
+                                </>
+                            ) : phase === 'ended' ? (
+                                // Used to fall through to nothing: just a badge.
+                                <>
+                                    <p className="text-ink">
+                                        Your trip ended{' '}
+                                        <span className="font-bold">{formatBusinessDateTime(endDate)}</span>.
+                                        Thanks for driving with {BUSINESS.name}.
+                                    </p>
+                                    <p className="text-sm text-muted">
+                                        Your receipt is below, along with anything charged or refunded since
+                                        you booked.
+                                    </p>
+                                    <Link
+                                        to="/trips/$bookingId/receipt"
+                                        params={{ bookingId: booking.id }}
+                                        className="block w-full text-center px-4 py-2.5 rounded-xl border border-line text-ink text-sm font-bold hover:bg-subtle transition-colors"
+                                    >
+                                        View receipt
+                                    </Link>
                                 </>
                             ) : null}
 

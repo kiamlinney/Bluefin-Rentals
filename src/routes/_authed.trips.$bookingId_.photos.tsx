@@ -3,6 +3,7 @@ import { useRef, useState } from 'react'
 import { ArrowLeft, Camera, ImagePlus } from 'lucide-react'
 import { getBookingById, getTripMedia } from '@/lib/db.ts'
 import { getUserWithProfile } from '@/lib/auth.ts'
+import { SIGNED_OUT } from '@/lib/signed-out'
 import { TripMediaGrid } from '@/components/trip/TripMediaGrid.tsx'
 import { TripMediaLightbox } from '@/components/trip/TripMediaLightbox.tsx'
 import { formatBusinessDate } from '@/lib/dates.ts'
@@ -24,7 +25,8 @@ import {
 // booking and nobody else, so the only thing that varies here is the wording and
 // where the back link points.
 export const Route = createFileRoute('/_authed/trips/$bookingId_/photos')({
-    loader: async ({ params }) => {
+    loader: async ({ params, context }) => {
+        if (!context.isLoggedIn) return SIGNED_OUT
         const [booking, media, viewer] = await Promise.all([
             getBookingById({ data: params.bookingId }),
             getTripMedia({ data: params.bookingId }),

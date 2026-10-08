@@ -3,6 +3,7 @@ import {BookingWithRelations} from "@/types.ts";
 import {formatBusinessDate, formatBusinessTime} from "@/lib/dates.ts";
 import {carMainImageUrl} from "@/lib/car-images.ts";
 import {money} from "@/lib/email-template.ts";
+import {tripPhase} from "@/lib/booking-status";
 
 export function TripCard({ booking }: { booking: BookingWithRelations }) {
     const car = booking.cars
@@ -23,7 +24,11 @@ export function TripCard({ booking }: { booking: BookingWithRelations }) {
     let badgeText = ''
     let badgeClass = ''
 
-    const isCanceled = booking.status === 'canceled'
+    // Status and clock together (tripPhase): a trip past its end reads as
+    // ended before the hourly job marks it completed. It used to say
+    // "Ending at 3:43 pm" at 4:45 pm.
+    const phase = tripPhase(booking, now)
+    const isCanceled = phase === 'canceled'
     const isCompleted = booking.status === 'completed'
 
     if (isCompleted) {
@@ -36,7 +41,12 @@ export function TripCard({ booking }: { booking: BookingWithRelations }) {
 
         badgeClass = '!text-sm line-through'
 
-    } else { // Upcoming trip, status of 'confirmed'
+    } else if (phase === 'ended') {
+        badgeText = `Ended at ${formatTime(endTime)}`
+
+        badgeClass = 'bg-gray-700/20'
+
+    } else { // Upcoming or under way
         badgeText = isActive
             ? `Ending at ${formatTime(endTime)}`
             : `Starting at ${formatTime(startTime)}`
@@ -45,6 +55,13 @@ export function TripCard({ booking }: { booking: BookingWithRelations }) {
             ? 'bg-red-100 text-red-700'
             : 'bg-green-600/30 text-green-700'
     }
+
+    // Who called it off. This always named the guest, even when we cancelled.
+    const canceledByText = booking.canceled_by === 'admin'
+        ? 'Canceled by Bluefin'
+        : booking.canceled_by === 'system'
+            ? 'Refunded: dates taken before payment'
+            : null
 
 
 
@@ -80,7 +97,7 @@ export function TripCard({ booking }: { booking: BookingWithRelations }) {
                 <div className="flex items-center gap-2 mt-1">
                     {isCanceled ? (
                         <span className="text-sm text-gray-500">
-                            Canceled by {renterName} #{shortBookingId}
+                            {canceledByText ?? `Canceled by ${renterName}`} #{shortBookingId}
                         </span>
                     ) : (
                         <div className="flex items-center gap-1">

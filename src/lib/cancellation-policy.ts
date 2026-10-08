@@ -42,6 +42,7 @@
 import type { BookingRate } from './booking-rate.ts'
 import { freeCancellationDeadline } from './booking-rate.ts'
 import type { TripQuote } from './pricing.ts'
+import type { ChargeKind, ChargeStatus } from './charges.ts'
 
 const MS_PER_HOUR = 60 * 60 * 1000
 const MS_PER_DAY = 24 * MS_PER_HOUR
@@ -386,6 +387,62 @@ export function laterChargeRefund(outcome: Pick<RefundOutcome, 'kind'>, charge: 
 
 export function laterChargesRefundTotal(outcome: Pick<RefundOutcome, 'kind'>, charges: LaterCharge[]): number {
     return roundMoney(charges.reduce((sum, charge) => sum + laterChargeRefund(outcome, charge), 0))
+}
+
+// ── Which bookings can be cancelled, and what happens to each charge ─────────
+//
+// The two decisions cancelBooking and settleLedgerOnCancellation act on, kept
+// here so scripts/verify-cancellation-policy.ts can check every status against
+// them. Both bugs found on 2026-10-06 were a status nobody had thought about.
+
+/**
+ * What cancelling a booking in this status means.
+ *
+ * Only a paid trip or an unpaid hold is cancellable. Before this existed,
+ * cancelBooking claimed whatever status it read, so cancelling a trip that was
+ * already cancelled re-ran its refund, and when Stripe refused that refund the
+ * row was put back to `confirmed`: a refunded trip back on the calendar.
+ */
+export type CancelDecision =
+    | 'cancel-trip'   // confirmed: refund by the policy, settle later charges, email both sides
+    | 'discard-hold'  // pending: never charged; mark expired, no refund, no email
+    | 'already-done'  // canceled, expired, failed: the trip already isn't happening
+    | 'refuse'        // completed: it happened; refunding it now is not a cancellation
+
+export function cancelDecisionFor(status: string): CancelDecision {
+    switch (status) {
+        case 'confirmed': return 'cancel-trip'
+        case 'pending': return 'discard-hold'
+        case 'completed': return 'refuse'
+        default: return 'already-done'
+    }
+}
+
+/**
+ * What a cancellation does to one row of the trip's ledger.
+ *
+ * - `release-hold` a deposit on the card is let go (and the guest told).
+ * - `abandon`      anything unfinished — a hold or payment still waiting on the
+ *                  guest's bank, an unanswered request's hold — is cancelled, so
+ *                  nothing can land on the card after the trip is off.
+ * - `refund`       a paid extension or later extra, by laterChargeRefund.
+ * - `leave`        owners' charges (refunded by hand if at all), a captured
+ *                  deposit, and anything already settled.
+ */
+export type LedgerAction = 'release-hold' | 'abandon' | 'refund' | 'leave'
+
+export function ledgerActionOnCancel(charge: { kind: ChargeKind; status: ChargeStatus }): LedgerAction {
+    if (charge.kind === 'adjustment') return 'leave'
+    const unfinished = charge.status === 'requires_payment' || charge.status === 'processing'
+
+    if (charge.kind === 'deposit') {
+        if (charge.status === 'authorized') return 'release-hold'
+        return unfinished ? 'abandon' : 'leave'
+    }
+    // extension or extra
+    if (charge.status === 'authorized' || unfinished) return 'abandon'
+    if (charge.status === 'succeeded') return 'refund'
+    return 'leave'
 }
 
 /** One line of guest-facing explanation. Shared by the dialog and both emails. */

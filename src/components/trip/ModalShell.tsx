@@ -25,12 +25,15 @@ export function ModalShell({
     onClose,
     children,
     footer,
+    wide = false,
 }: {
     title: string
     busy?: boolean
     onClose: () => void
     children: ReactNode
     footer?: ReactNode
+    /** For a dialog that lists things side by side with a photo, like the vehicle swap. */
+    wide?: boolean
 }) {
     const overlayRef = useRef<HTMLDivElement>(null)
     const openerRef = useRef<Element | null>(null)
@@ -83,7 +86,7 @@ export function ModalShell({
                 role="dialog"
                 aria-modal="true"
                 aria-label={title}
-                className="bg-surface border border-line rounded-2xl w-full max-w-md max-h-[90vh] flex flex-col shadow-xl"
+                className={`bg-surface border border-line rounded-2xl w-full ${wide ? 'max-w-xl' : 'max-w-md'} max-h-[90vh] flex flex-col shadow-xl`}
             >
                 <div className="flex items-start justify-between gap-4 p-5 border-b border-line">
                     <h2 className="text-lg font-bold text-ink">{title}</h2>

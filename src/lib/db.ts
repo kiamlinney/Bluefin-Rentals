@@ -13,9 +13,10 @@ import {
 } from './pricing'
 import { runTuroSync, TURO_SYNC_MAX_LOOKBACK_DAYS } from './turo-sync.server'
 import { assertBookingAccess, getServiceRoleClient, requireAdmin, requireUser } from './access.server'
-import { assertCarIsAvailable, extensionHoldRows, PENDING_HOLD_MS } from './availability.server'
+import { assertCarIsAvailable, extensionHoldRows, findCarConflict, PENDING_HOLD_MS } from './availability.server'
+import { cancelsAsBusiness, holdHasLapsed } from './booking-status.ts'
 import { DEFAULT_BOOKING_RATE, type BookingRate } from './booking-rate.ts'
-import { laterChargesRefundTotal, refundForCancellation } from './cancellation-policy.ts'
+import { cancelDecisionFor, laterChargesRefundTotal, refundForCancellation } from './cancellation-policy.ts'
 // Pure module — safe to import here without dragging anything into the browser
 // bundle. It owns the one narrowing of a stored price_quote.
 import { storedQuote } from './receipt'
@@ -38,22 +39,23 @@ import { geocodeAddresses } from './geocode'
 import {
     MIN_LEAD_TIME_HOURS,
     buildAvailabilityMap,
+    dateRangeIsBookable,
     startableDayCount,
     toOccupiedSpans,
     type UnavailabilityRow,
 } from './availability'
 import { BOOKING_EMAIL_SELECT, sendBookingConfirmedEmail } from './booking-email'
-import { notifyBookingCanceled } from './cancellation-email'
 import { WELCOME_EMAIL_SELECT, sendWelcomeEmail } from './welcome-email'
 import { guestLockboxCode, lockboxCodeForCar } from './lockbox.server'
+import { findSwapCandidates, performVehicleSwap, withVehicleSwaps } from './vehicle-swap.server'
 import {
+    completeCancellation,
+    confirmPaidCheckout,
     getOrCreateCustomer,
     holdExtraRequest,
     laterChargesFor,
-    onBookingConfirmed,
     originalEndTime,
     settleExtraDecision,
-    settleLedgerOnCancellation,
 } from './payments.server'
 // TEMPORARY pre-launch stop — delete with src/lib/bookings-paused.ts.
 import { BOOKINGS_PAUSED, BOOKINGS_PAUSED_MESSAGE } from './bookings-paused'
@@ -1006,6 +1008,56 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         }
     })
 
+/**
+ * Asked by the payment step immediately before it sends the card to Stripe.
+ *
+ * A checkout holds the car for an hour. A guest who leaves the tab open longer
+ * and then pays could be paying for dates somebody else booked in the meantime.
+ * The webhook catches that and refunds them (confirmPaidCheckout), but it's far
+ * better never to take the money: so once the hold has lapsed, the dates are
+ * checked again here, and if they've gone the intent is cancelled and the guest
+ * is told before anything is charged.
+ *
+ * This narrows the window to the seconds between this check and the payment;
+ * the webhook's refund is what covers those seconds.
+ */
+export const checkCheckoutStillBookable = createServerFn({ method: 'POST' })
+    .inputValidator((bookingId: string) => bookingId)
+    .handler(async ({ data: bookingId }) => {
+        const { supabaseAdmin } = await assertBookingAccess(bookingId)
+        const { data: row, error } = await supabaseAdmin
+            .from('bookings')
+            .select('id, status, car_id, user_id, start_time, end_time, created_at, stripe_payment_intent_id')
+            .eq('id', bookingId)
+            .single()
+        if (error || !row) throw new Error('Booking not found')
+
+        // Paid already (a double click): nothing to check, the page carries on.
+        if (row.status === 'confirmed') return { ok: true as const }
+        if (row.status !== 'pending' && row.status !== 'expired') {
+            throw new Error('This checkout is no longer active. Please start your booking again.')
+        }
+        if (!holdHasLapsed(row.status, row.created_at, new Date(), PENDING_HOLD_MS)) return { ok: true as const }
+
+        const conflict = await findCarConflict(row.car_id, row.start_time, row.end_time, {
+            excludeBookingId: row.id,
+            viewerId: row.user_id,
+        })
+        if (!conflict) return { ok: true as const }
+
+        // Gone. Make sure this checkout can't be paid from any other tab either.
+        if (row.stripe_payment_intent_id) {
+            await stripe.paymentIntents.cancel(row.stripe_payment_intent_id).catch(() => undefined)
+        }
+        if (row.status === 'pending') {
+            await supabaseAdmin.from('bookings').update({ status: 'expired' }).eq('id', row.id).eq('status', 'pending')
+        }
+        throw new Error(
+            'Sorry, while this page was open someone else booked this car for some of these dates. ' +
+            "You haven't been charged. Please choose other dates or another car.",
+        )
+    })
+
 export const confirmBooking = createServerFn({ method: 'POST' })
     .inputValidator((input: {
         bookingId: string
@@ -1023,23 +1075,21 @@ export const confirmBooking = createServerFn({ method: 'POST' })
             throw new Error('Payment not completed')
         }
 
-        const { data: booking, error } = await supabaseAdmin
-            .from('bookings')
-            .update({ status: 'confirmed' })
-            .eq('id', data.bookingId)
-            .eq('stripe_payment_intent_id', data.paymentIntentId)
-            .select()
-            .single()
+        // The webhook's own confirmation (confirmPaidCheckout), not a copy of
+        // it. This used to update whatever row matched, and it is callable
+        // directly: a guest could cancel inside the free window, take the full
+        // refund, then call this with their (succeeded) intent and flip the trip
+        // back to confirmed — deposit hold, welcome email and lockbox code
+        // included, refund kept.
+        const { result, bookingId } = await confirmPaidCheckout(supabaseAdmin, data.paymentIntentId)
 
-        if (error) throw new Error(error.message)
+        // The intent id arrives from the browser, so it must be this booking's.
+        if (bookingId !== data.bookingId) throw new Error('Payment does not belong to this booking')
+        if (result === 'left') throw new Error('This booking can no longer be confirmed.')
 
-        // One of the four confirmation paths, so it runs everything that follows
-        // a confirmation: saving the card, the deposit hold if the trip is
-        // within a day, and both emails. Every step claims itself, so whichever
-        // path gets here first does the work and the others no-op. Never throws.
-        await onBookingConfirmed(supabaseAdmin, data.bookingId)
-
-        return booking
+        // 'refunded-conflict': paid after the hold lapsed, for dates booked by
+        // someone else meanwhile. Refunded already; the page says so.
+        return { status: result }
     })
 
 // Re-sends the admin booking email for an existing booking, ignoring
@@ -1125,16 +1175,30 @@ export const cancelBooking = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         // Admin, or the renter on this booking. Without this, knowing a booking
         // UUID was enough to cancel the trip and refund the charge.
-        const { isAdmin, supabaseAdmin } = await assertBookingAccess(data.bookingId)
+        const { isAdmin: callerIsAdmin, user, supabaseAdmin } = await assertBookingAccess(data.bookingId)
 
         const { data: existing, error: readErr } = await supabaseAdmin
             .from('bookings')
-            .select('status, stripe_payment_intent_id, booking_rate, created_at, start_time, end_time, total_price, price_quote')
+            .select('status, user_id, stripe_payment_intent_id, booking_rate, created_at, start_time, end_time, total_price, price_quote')
             .eq('id', data.bookingId)
             .single()
 
         if (readErr) throw new Error(readErr.message)
         if (!existing) throw new Error('Booking not found')
+
+        // An owner cancelling their own booking is the guest on it.
+        const isAdmin = cancelsAsBusiness(callerIsAdmin, user.id, existing.user_id)
+
+        // Only a live trip or a live hold can be cancelled. The claim below is
+        // pinned to whatever status was read, so without this it happily
+        // claimed a row that was already `canceled` and ran the refund again:
+        // after the idempotency key's 24 hours Stripe refuses a second refund,
+        // and the failure path below "restores" the row to `confirmed` —
+        // reviving a cancelled, refunded trip onto the calendar. A `completed`
+        // trip would have been refunded in full on an owner's click.
+        const decision = cancelDecisionFor(existing.status)
+        if (decision === 'refuse') throw new Error('This trip has already been completed, so it can no longer be cancelled.')
+        if (decision === 'already-done') return { success: true, alreadyCanceled: true, outcome: null }
 
         // A `pending` row is a soft hold that was never charged. Everything the
         // confirmed path does — score the dates against the policy, quote a
@@ -1142,30 +1206,7 @@ export const cancelBooking = createServerFn({ method: 'POST' })
         // changed hands, and none of it did here. Treating the two the same is
         // what sent a host-and-guest cancellation email for a checkout somebody
         // simply walked away from.
-        const isPending = existing.status === 'pending'
-
-        // The trip the checkout charge paid for ends where it did at booking —
-        // an extension moved end_time, and is refunded on its own below.
-        const bookedEnd = isPending ? existing.end_time : await originalEndTime(supabaseAdmin, data.bookingId, existing.end_time)
-
-        // Decided before the claim so the refund is computed against the state
-        // the caller actually saw, and so an un-cancellable status fails without
-        // having written anything. Skipped entirely for a hold: there is no
-        // amount to refund, and refundForCancellation would still happily quote
-        // a figure off total_price.
-        const outcome = isPending ? null : refundForCancellation({
-            rate: (existing.booking_rate ?? DEFAULT_BOOKING_RATE) as BookingRate,
-            bookedAt: new Date(existing.created_at),
-            tripStart: new Date(existing.start_time),
-            tripEnd: new Date(bookedEnd),
-            // Through storedQuote rather than a bare cast: it rejects a
-            // malformed snapshot and fills in fields added after the row was
-            // written. A cast asserts a shape the database never promised, and
-            // this value decides how much money goes back.
-            quote: storedQuote(existing),
-            totalPaid: Number(existing.total_price),
-            byAdmin: isAdmin,
-        })
+        const isPending = decision === 'discard-hold'
 
         // Claim the transition. Conditional on the status still being one we can
         // cancel, so two concurrent calls — a double-clicked button, a retried
@@ -1199,7 +1240,7 @@ export const cancelBooking = createServerFn({ method: 'POST' })
             .maybeSingle()
 
         if (claimErr) throw new Error(claimErr.message)
-        // Lost the race, or the booking was already canceled/completed. Not an
+        // Lost the race to another cancel, the webhook or the sweep. Not an
         // error: the caller's intent — this trip should not happen — already holds.
         if (!claimed) return { success: true, alreadyCanceled: true, outcome: null }
 
@@ -1241,52 +1282,22 @@ export const cancelBooking = createServerFn({ method: 'POST' })
             return { success: true, alreadyCanceled: false, outcome: null }
         }
 
-        // Unreachable: `outcome` is only null when `isPending`, and that branch
-        // returned above. TypeScript can't tie the two together, and this is the
-        // function that issues refunds, so it gets an explicit check rather than
-        // a non-null assertion that would hide a real regression here later.
-        if (!outcome) throw new Error('No refund outcome for a charged booking')
-
-        // Only refund against an intent that came from the row. A caller who
-        // could name a payment intent could otherwise refund another booking's
-        // charge. An off-platform booking has no Stripe side to reverse.
-        if (outcome.kind !== 'none' && existing.stripe_payment_intent_id) {
-            try {
-                const refund = await stripe.refunds.create(
-                    {
-                        payment_intent: existing.stripe_payment_intent_id,
-                        // Explicit for partials, and harmless for a full refund:
-                        // Stripe refunds the remaining amount when it matches.
-                        amount: Math.round(outcome.refundAmount * 100),
-                    },
-                    // Keyed on the booking, not the attempt, so a retry after a
-                    // network failure returns the SAME refund rather than making
-                    // a second one.
-                    { idempotencyKey: `refund_${data.bookingId}` },
-                )
-
-                await supabaseAdmin
-                    .from('bookings')
-                    .update({ refund_id: refund.id, refunded_amount: outcome.refundAmount })
-                    .eq('id', data.bookingId)
-            } catch (err: any) {
-                console.error('[cancel] Stripe refund failed:', err?.message)
-                // Put the booking back the way it was. Better a retryable error
-                // than a trip marked canceled that quietly kept the money.
-                await releaseClaim('confirmed')
-                throw new Error('Could not process refund through Stripe. Nothing was changed — please try again.')
-            }
+        // The refund the policy gives (computed as of canceled_at, just written),
+        // the later charges settled, both emails. The same function the payments
+        // sweep runs for a cancellation that didn't finish, so the two can't
+        // differ. It throws only when the checkout refund fails, before any money
+        // has moved — so putting the booking back is always safe here. Better a
+        // retryable error than a trip marked canceled that quietly kept the money.
+        let done: Awaited<ReturnType<typeof completeCancellation>>
+        try {
+            done = await completeCancellation(supabaseAdmin, data.bookingId)
+        } catch (err: any) {
+            console.error('[cancel] could not complete the cancellation:', err?.message)
+            await releaseClaim('confirmed')
+            throw new Error('Could not process refund through Stripe. Nothing was changed — please try again.')
         }
 
-        // Everything charged after checkout follows the trip's outcome:
-        // extensions and later extras refunded by laterChargeRefund, deposit
-        // and request holds released, owners' charges left alone. Never throws —
-        // anything it can't settle is reported to the owners.
-        const laterRefund = await settleLedgerOnCancellation(supabaseAdmin, data.bookingId, outcome)
-
-        await notifyBookingCanceled(supabaseAdmin, data.bookingId, outcome, laterRefund)
-
-        return { success: true, alreadyCanceled: false, outcome, laterRefund }
+        return { success: true, alreadyCanceled: false, outcome: done?.outcome ?? null, laterRefund: done?.laterRefund ?? 0 }
 })
 
 // Read-only companion to cancelBooking: what WOULD happen if this booking were
@@ -1300,15 +1311,19 @@ export const cancelBooking = createServerFn({ method: 'POST' })
 export const previewCancellation = createServerFn({ method: 'GET' })
     .inputValidator((input: { bookingId: string }) => input)
     .handler(async ({ data }) => {
-        const { isAdmin, supabaseAdmin } = await assertBookingAccess(data.bookingId)
+        const { isAdmin: callerIsAdmin, user, supabaseAdmin } = await assertBookingAccess(data.bookingId)
 
         const { data: booking, error } = await supabaseAdmin
             .from('bookings')
-            .select('status, booking_rate, created_at, start_time, end_time, total_price, price_quote')
+            .select('status, user_id, booking_rate, created_at, start_time, end_time, total_price, price_quote')
             .eq('id', data.bookingId)
             .single()
 
         if (error || !booking) throw new Error('Booking not found')
+
+        // Same rule as cancelBooking, or the dialog quotes one refund and the
+        // cancel pays another.
+        const isAdmin = cancelsAsBusiness(callerIsAdmin, user.id, booking.user_id)
 
         const bookedEnd = await originalEndTime(supabaseAdmin, data.bookingId, booking.end_time)
 
@@ -1369,7 +1384,9 @@ export const getBookingById = createServerFn({ method: 'GET' })
             .single()
 
         if (error) throw new Error('Booking not found')
-        return data
+        // The swap history and the car the trip was priced on, which is where
+        // its per-mile rate still comes from after a swap (buildReceipt).
+        return withVehicleSwaps(supabaseAdmin, data)
     })
 
 // What the trip page is allowed to say about the money, as opposed to what the
@@ -1415,13 +1432,16 @@ export const getTripForGuest = createServerFn({ method: 'GET' })
     .handler(async ({ data: bookingId }) => {
         const { supabaseAdmin, isAdmin } = await assertBookingAccess(bookingId)
 
-        const { data: booking, error } = await supabaseAdmin
+        const { data: row, error } = await supabaseAdmin
             .from('bookings')
             .select(`*, cars(*), profiles(${BOOKING_PROFILE_COLUMNS}), trip_media(count)`)
             .eq('id', bookingId)
             .single()
 
-        if (error || !booking) throw new Error('Booking not found')
+        if (error || !row) throw new Error('Booking not found')
+        // Same additions as getBookingById: the swap history and the car the
+        // trip was priced on.
+        const booking = await withVehicleSwaps(supabaseAdmin, row)
 
         const terminal = terminalStateOf(booking.status)
 
@@ -1521,36 +1541,27 @@ export const getTripForGuest = createServerFn({ method: 'GET' })
         //
         // `expired` is included on purpose. It means the hold was reaped as an
         // abandoned checkout — but Stripe is saying the money arrived, and a
-        // paid trip is a real trip whatever housekeeping assumed. This is the
-        // same repair the webhook performs by matching on the PaymentIntent id
-        // alone, and it's why expire_stale_pending_bookings marks rows instead
-        // of deleting them.
-        const revivable = booking.status === 'pending' || booking.status === 'expired'
+        // paid trip is a real trip whatever housekeeping assumed — unless its
+        // dates were booked by someone else after the hold lapsed, in which
+        // case the payment is refunded instead (confirmPaidCheckout, the same
+        // function the webhook uses).
         let currentLockboxCode = lockboxCode
-        if (paymentState === 'confirmed' && revivable) {
-            const { error: updateErr } = await supabaseAdmin
-                .from('bookings')
-                .update({ status: 'confirmed' })
-                .eq('id', bookingId)
-                .in('status', ['pending', 'expired'])
-
-            if (updateErr) {
-                console.error('Could not confirm booking from trip page', bookingId, updateErr.message)
-            } else {
-                booking.status = 'confirmed'
-
-                // This is a confirmation path like any other, so it owes
-                // everything that follows one: the saved card, the deposit hold
-                // and both emails. It was once silently missing the emails — a
-                // booking whose webhook never arrived got confirmed here and
-                // the owners were never told. Every step claims itself, so the
-                // usual path having already run makes this a no-op.
-                await onBookingConfirmed(supabaseAdmin, bookingId)
-
-                // The code was skipped above while this row still read pending.
-                // Fetch it now rather than making the guest reload to see the
-                // message they were just emailed.
-                currentLockboxCode = await codeFor(booking)
+        if (paymentState === 'confirmed' && booking.status !== 'confirmed') {
+            try {
+                const { result } = await confirmPaidCheckout(supabaseAdmin, booking.stripe_payment_intent_id)
+                if (result === 'confirmed') {
+                    booking.status = 'confirmed'
+                    // The code was skipped above while this row still read
+                    // pending. Fetch it now rather than making the guest reload
+                    // to see the message they were just emailed.
+                    currentLockboxCode = await codeFor(booking)
+                } else if (result === 'refunded-conflict') {
+                    booking.status = 'canceled'
+                    booking.canceled_by = 'system'
+                    paymentState = 'canceled'
+                }
+            } catch (err: any) {
+                console.error('Could not confirm booking from trip page', bookingId, err?.message)
             }
         }
 
@@ -2030,18 +2041,41 @@ export const deleteBlockedDate = createServerFn({ method: 'POST' })
         return { deleted: blockId }
     })
 
+// `start`/`end` are business-timezone date keys (YYYY-MM-DD), both inclusive.
 export const getAvailableCars = createServerFn({ method: 'GET' })
     .inputValidator((input: { start?: string; end?: string }) => input)
     .handler(async ({ data }) => {
         const supabase = getSupabaseServerClient()
 
+        const dateKey = /^\d{4}-\d{2}-\d{2}$/
         if (data.start && data.end) {
-            const { data: rows, error } = await supabase.rpc('get_available_cars', {
-                start_ts: data.start,
-                end_ts: data.end,
-            })
+            if (!dateKey.test(data.start) || !dateKey.test(data.end)) throw new Error('Choose valid dates')
+            // Through loadUnavailabilityRows and the calendar's map, the same
+            // way getFeaturedCars does. This used to call the get_available_cars
+            // SQL function as the visitor, whose RLS hides other people's
+            // bookings, admin blocks and Turo trips — so for every customer it
+            // excluded nothing and listed every car as free.
+            const { data: cars, error } = await supabase
+                .from('cars')
+                .select('*')
+                .eq('is_available', true)
+                .order('price_per_day', { ascending: true })
+                .order('make', { ascending: true })
+                .order('model', { ascending: true })
+                .order('year', { ascending: true })
             if (error) throw new Error(error.message)
-            return rows ?? []
+
+            const supabaseAdmin = getServiceRoleClient()
+            const viewerId = (await supabase.auth.getUser()).data.user?.id
+            const now = new Date()
+            const free = await Promise.all(
+                (cars ?? []).map(async car => {
+                    const rows = await loadUnavailabilityRows(supabase, supabaseAdmin, car.id, viewerId)
+                    const map = buildAvailabilityMap(toOccupiedSpans(rows))
+                    return dateRangeIsBookable(data.start!, data.end!, map, now)
+                }),
+            )
+            return (cars ?? []).filter((_, i) => free[i])
         }
 
         const { data: rows, error } = await supabase
@@ -2076,6 +2110,12 @@ export const syncTuroBookings = createServerFn({ method: 'POST' })
 export const inspectTuroEmail = createServerFn({ method: 'GET' })
     .inputValidator((messageId: string) => messageId)
     .handler(async ({ data: messageId }) => {
+        // Admin-only. This had no check at all until 2026-10-07: anyone, signed
+        // in or not, could read any message in the business inbox by id. The
+        // only caller is a commented-out debugging panel on /admin/trips/booked,
+        // but a server function is callable directly whether or not a page uses it.
+        await requireAdmin()
+
         const { GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN } = process.env
         if (!GMAIL_CLIENT_ID || !GMAIL_CLIENT_SECRET || !GMAIL_REFRESH_TOKEN) {
             throw new Error(
@@ -2280,10 +2320,11 @@ export const recordTripMedia = createServerFn({ method: 'POST' })
             // Never trust a client-supplied path: rebuild it from the id so a
             // caller cannot write a row pointing at another booking's folder.
             const expectedPrefix = `bookings/${data.bookingId}/`
-            if (!item.storagePath.startsWith(expectedPrefix)) {
+            // `..` too: "bookings/<this>/../<other>/x.jpg" passes the prefix test.
+            if (!item.storagePath.startsWith(expectedPrefix) || item.storagePath.includes('..')) {
                 throw new Error('Invalid storage path')
             }
-            if (item.thumbPath && !item.thumbPath.startsWith(expectedPrefix)) {
+            if (item.thumbPath && (!item.thumbPath.startsWith(expectedPrefix) || item.thumbPath.includes('..'))) {
                 throw new Error('Invalid thumbnail path')
             }
 
@@ -3079,6 +3120,31 @@ export const decideTripExtra = createServerFn({ method: 'POST' })
         }
 
         return { alreadyDecided: false, status: updated.status }
+    })
+
+/**
+ * The cars a trip could be swapped onto: listed, and free for the whole trip.
+ * Admin-only, checked here — server functions are callable directly. The rules
+ * are in vehicle-swap.server.ts.
+ */
+export const getSwapCandidates = createServerFn({ method: 'GET' })
+    .inputValidator((bookingId: string) => bookingId)
+    .handler(async ({ data: bookingId }) => {
+        await requireAdmin()
+        return findSwapCandidates(getServiceRoleClient(), bookingId)
+    })
+
+/** Moves a trip that hasn't started onto another car and emails the guest why. */
+export const swapBookingVehicle = createServerFn({ method: 'POST' })
+    .inputValidator((input: { bookingId: string; toCarId: number; reason: string }) => input)
+    .handler(async ({ data }) => {
+        const { user } = await requireAdmin()
+        return performVehicleSwap(getServiceRoleClient(), {
+            bookingId: data.bookingId,
+            toCarId: Number(data.toCarId),
+            reason: String(data.reason ?? ''),
+            adminId: user.id,
+        })
     })
 
 /** Every extra currently on a trip, checkout and post-booking alike. */
