@@ -849,36 +849,6 @@ export type Database = {
         Returns: boolean
       }
       expire_stale_pending_bookings: { Args: never; Returns: undefined }
-      get_available_cars: {
-        Args: { end_ts: string; start_ts: string }
-        Returns: {
-          color: string | null
-          created_at: string | null
-          distance_fee: number | null
-          features: Json | null
-          fuel_type: string | null
-          gallery_images: string[] | null
-          id: number
-          image_url: string | null
-          is_available: boolean | null
-          license_plate: string | null
-          make: string
-          model: string
-          mpg: number | null
-          num_seats: number | null
-          price_per_day: number
-          transmission: string | null
-          trim: string | null
-          updated_at: string | null
-          year: number
-        }[]
-        SetofOptions: {
-          from: "*"
-          to: "cars"
-          isOneToOne: false
-          isSetofReturn: true
-        }
-      }
       get_car_unavailability: {
         Args: { car_id_param: number }
         Returns: {
