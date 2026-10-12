@@ -1,8 +1,9 @@
+import type { ReactNode } from "react";
 import {ChevronDown, Search} from "lucide-react";
 
-export function CalendarToolbar() {
+export function CalendarToolbar({ actions }: { actions?: ReactNode }) {
     return (
-        <div className="flex flex-wrap items-center gap-2 md:gap-3 mb-3 md:mb-4">
+        <div className="flex flex-wrap items-start gap-2 md:gap-3 mb-3 md:mb-4">
             {/* Search field - full row on phones, the buttons wrap beneath it */}
             <div className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 w-full sm:w-72">
                 <input
@@ -40,6 +41,8 @@ export function CalendarToolbar() {
                 <ChevronDown size={14}/>
             </button>
 
+            {/* Page actions, pushed to the right edge */}
+            {actions && <div className="sm:ml-auto">{actions}</div>}
         </div>
     )
 }

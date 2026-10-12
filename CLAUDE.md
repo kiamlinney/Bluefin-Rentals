@@ -585,6 +585,13 @@ on its own site as self-serving.
 
 Recurring work runs as **pg_cron jobs inside the linked Supabase project**, calling `security definer` SQL functions — `auto_complete_bookings()` and `expire_stale_pending_bookings()`, both hourly. There is no CI, no cron config in the repo, and no scheduler in the Node server, so **grepping the codebase will not tell you what is scheduled**; query `cron.job`. Both functions wrap their `UPDATE` in `set local session_replication_role = 'replica'` to bypass table triggers. Follow that pattern for new jobs rather than adding an app route or in-process timer.
 
+**SQL for Liam must commit in the same run.** The Supabase SQL editor runs each script on its own
+connection, so a `begin;` left open is rolled back when the run ends, and a `commit;` run separately
+afterwards commits nothing. That's how the first version of `ImportantFiles/delete-test-bookings.sql`
+deleted nothing. Put `commit;` at the end of the script (or `rollback;` for a dry run), and put any
+check `select` after it. The editor also asks whether to enable RLS whenever a script contains
+`create table`, including a temp table; for a temp table the answer doesn't matter.
+
 **Changing a booking's status by hand** (rehearsals, fixing data) is refused even in the SQL
 editor ("status is server-managed and cannot be changed by this role"), because the editor
 isn't the service role. Wrap it the way the jobs do:
@@ -686,11 +693,38 @@ Fuel taxability is the likeliest placeholder to be wrong (fuel is generally sale
 
 ### Turo email sync (`runTuroSync` in `src/lib/turo-sync.server.ts`)
 
-Called by the admin-only `syncTuroBookings` server function (a full 400-day catch-up) and by the cron route (the last 1 day). It lives in its own `.server.ts` file rather than in `db.ts` because `db.ts` is imported by browser pages: the build strips `createServerFn` handler bodies for the client but keeps plain exported functions, so a plain export there drags `googleapis` into the browser bundle and fails `vite build`. Keep new server-only helpers out of `db.ts` for the same reason.
+Called by the cron route (the last `TURO_SYNC_SCHEDULED_LOOKBACK_DAYS`, 1 day) and by the admin-only `syncTuroBookings`, the **"Sync Turo (last 30 days)"** button on `/admin/calendar` (`TURO_SYNC_CATCHUP_LOOKBACK_DAYS`; the cron route's `?days=` is clamped to the same 30). Both pass a **service-role** client: `schedule_overlap_alerts` has no policies, so an admin's own session can't write it. It lives in its own `.server.ts` file rather than in `db.ts` because `db.ts` is imported by browser pages: the build strips `createServerFn` handler bodies for the client but keeps plain exported functions, so a plain export there drags `googleapis` into the browser bundle and fails `vite build`. Keep new server-only helpers out of `db.ts` for the same reason.
 
-It reads Gmail via the `googleapis` OAuth2 client (refresh token in env) to find Turo booking-confirmation emails, regex-parses trip dates/car/renter/reservation ID out of the plain-text MIME body, and writes `turo_bookings`. Matching against `cars` requires year, make **and** model to match the parsed car string. Turo's emails carry no trim or plate, so identical cars can't be told apart. Active cars (`is_available`) win over retired ones, and anything still ambiguous is reported as an error, not guessed. That tiebreak is generic, with no car id in it; it was written because there were then two 2018 Jeep Cherokees (id 5 active, id 6 retired) and trips for the active one were landing on the retired one, leaving the active Jeep bookable while it was out. Car 6 has since been deleted, so nothing exercises the tiebreak today — keep it for the next pair of identical cars. `AddDriverToTripOwner` and `ReservationReminder*` emails are skipped, and Gmail rate limits are retried with backoff. This is a bridge during the Turo migration, not a general-purpose email integration — treat the parsing regexes as fragile/format-specific if Turo changes their email template.
+It reads Gmail via the `googleapis` OAuth2 client (refresh token in env), regex-parses trip dates/car/renter/reservation ID out of the plain-text MIME body (`src/lib/turo-email.ts`, pure, tested against real email text in `tests/turo-email.test.ts`), and writes `turo_bookings`. Matching against `cars` requires year, make **and** model to match the parsed car string. Turo's emails carry no trim or plate, so identical cars can't be told apart. Active cars (`is_available`) win over retired ones, and anything still ambiguous is reported as an error, not guessed. That tiebreak is generic, with no car id in it; it was written because there were then two 2018 Jeep Cherokees (id 5 active, id 6 retired) and trips for the active one were landing on the retired one, leaving the active Jeep bookable while it was out. Car 6 has since been deleted, so nothing exercises the tiebreak today — keep it for the next pair of identical cars. Gmail rate limits are retried with backoff. This is a bridge during the Turo migration, not a general-purpose email integration — treat the parsing regexes as fragile/format-specific if Turo changes their email template.
 
-**One row per Turo trip, not per email.** Turo sends several emails about one trip, told apart by the `Notification-Name` header: `ReservationBookedOwner`, `AutoApprovedTripChangeHost` (renter changed dates), `ReservationReminderLongTerm` (day-before reminder) and `CancelledReservationOwner`. Rows are keyed on `turo_trip_id` (unique, taken from the `Reservation-ID` header) and the email with the newest `email_sent_at` (Gmail `internalDate`) wins, so a changed trip *replaces* its original dates. Reminders are skipped outright; cancellations delete by trip id. Don't go back to inserting per email: the table used to be unique only on `gmail_message_id`, and a changed trip kept blocking the car on its old dates alongside the new ones.
+**The scheduled window is 1 day, so an outage longer than that loses trips until someone presses Sync.** That happened 2026-10-07 → 10-09: the domain was suspended (unverified registrant email at Namecheap), every pg_net call timed out in the TLS handshake, and `cron.job_run_details` still said `succeeded` — that only means the request was queued. Whether a call reached the site is in `net._http_response` (kept ~6 hours). Liam chose a manual 30-day button over widening the 15-minute run.
+
+**What each email does is decided by its `Notification-Name` header (`turoEmailKind`), never by "it has trip dates".** The old rule stored a Turo-initiated cancellation as a booking and applied a renter's change request before it was answered.
+
+| Kind | Notification-Name | Sync does |
+|---|---|---|
+| trip | `ReservationBookedOwner`, `AutoApprovedTripChangeHost`, `ApprovedChangeRequestBookedOwner` | store/replace dates + car |
+| request | `RenterChangedRequestOwner` | **widen** the stored range to cover current + requested, never narrow (`widenForRequest`); the confirmation sets the exact times. A declined request over-blocks until the trip ends, which beats a double booking |
+| cancel | `CancelledReservationOwner`, `TuroCancelledReservationOwner`, `TuroAdminCancelReservationHost`, any name containing "Cancel" | delete by trip id |
+| swap | `VehicleSwapAccepted` | flag for an owner (below) |
+| ignore | `ReservationReminder*`, `AddDriverToTripOwner` | skip |
+| unknown | anything else | error, not stored — unless the subject is "…’s trip with your … is booked!" |
+
+**The confirmation's subject ("You’ve confirmed X’s change request with your Y") and the swap's ("X accepted your vehicle swap request") don't contain "trip with your"**, so `turoGmailQuery` searches three subject phrases. Before 2026-10-12 the confirmation was never fetched. A new Turo template that matters needs its subject in that query, not just a branch in `turoEmailKind`.
+
+**One row per Turo trip, not per email.** Rows are keyed on `turo_trip_id` (unique, from the `Reservation-ID` header, else the body) and the email with the newest `email_sent_at` (Gmail `internalDate`) wins, so a changed trip *replaces* its original dates. Within a run every new email is read first and then **applied in send order**, so a catch-up holding a booking, a request and its confirmation lands them in sequence. Cancellations apply after everything else. Don't go back to inserting per email: the table used to be unique only on `gmail_message_id`, and a changed trip kept blocking the car on its old dates alongside the new ones.
+
+**Vehicle swaps** (`src/lib/turo-swap.ts`, `turo-swap.server.ts`). Turo's acceptance email names the reservation but **not the replacement car**; later emails do, but not reliably (the guest's message sent the same second still named the old car). So:
+- The sync sets `turo_bookings.swap_accepted_at` (claimed conditionally on the value it read, only if newer, only if the trip hasn't ended) and the run that claims it sends an **IMPORTANT** high-priority email (`sendTuroSwapAlert`). A failed send puts the claim back for the next run.
+- Pending = accepted and not `swap_car_confirmed_at` since (`isTuroSwapPending`). Two timestamps so a catch-up re-reading an old acceptance can't re-open a settled swap.
+- The trip **stays on the original car** until settled, so that car stays blocked and the new one doesn't. Settled by an owner in `TuroSwapModal` (`assignTuroTripCar`, admin-only; a clash warns, never blocks — Turo has already put the guest in that car), or by a trip-kind email sent after the swap. An email sent **before** the swap but read after it updates dates and leaves the car alone.
+- The dialog opens from the amber flag on the calendar bar, the trip's card in the calendar side panel, and the banner on the calendar and Booked tab, and **opens by itself** on both pages while a swap is pending (`useTuroSwapPrompt`; closing it without saving stops that until the next visit).
+
+**Overlap alerts** (`src/lib/schedule-overlaps.ts`, `schedule-alerts.server.ts`). Every sync run ends with `alertNewOverlaps`: any two trips (confirmed Bluefin and/or Turo) on the same car whose times strictly overlap and haven't ended get one **URGENT** email, claimed per pair in `schedule_overlap_alerts` (`pair_key`, no FKs; released if the send fails). The turnaround buffer doesn't count. Scanning everything each run is deliberate: it catches an overlap however it arose — a Turo booking on dates Turo didn't know were ours, a swap onto a busy car, a late payment — without touching the payment code. The calendar (red bars + banner) and the Booked tab (red card note + banner) compute the same thing at read time through `useScheduleFlags`, so a flag clears as soon as the overlap does. Bluefin bookings don't block Turo's calendar; that is still done by hand on Turo.
+
+Schema for both: `supabase/migrations/20261012120000_turo_swaps_and_overlap_alerts.sql` (run 2026-10-12, types regenerated).
+
+**Previewing a swap:** the Booked tab has a dev-server-only "Preview a Turo swap" panel (`TuroSwapPreview` → `previewTuroSwap`). It runs the sync's own `flagTuroSwap` on a real upcoming Turo trip, as if Turo had just emailed an acceptance: the IMPORTANT email really goes out, and the banners, calendar flag and auto-opening dialog all appear. Picking the car the trip is already on undoes it. It's gated on `import.meta.env.DEV`, which a production build compiles to `false`, so the panel isn't in the bundle and the server function refuses. Laptop and Railway share one database, so a preview flag shows on the live admin pages too until it's settled.
 
 ### Types
 
@@ -782,7 +816,10 @@ deleting a real booking destroys a financial record (see "Money is a legal recor
 reference `bookings` (`booking_additional_drivers`, `booking_charges`, `booking_extensions`,
 `booking_extras`, `reviews`, `trip_media`) and six reference `cars` (`bookings`,
 `car_blocked_dates`, `car_price_overrides`, `car_secrets`, `reviews`, `turo_bookings`). Car 6 was
-only safe because every one of those counts was zero apart from the two test bookings. Retiring a
+only safe because every one of those counts was zero apart from the two test bookings. To delete
+**test** bookings (every booking before launch is one), use `ImportantFiles/delete-test-bookings.sql`,
+which deletes the child rows in FK order inside a transaction you commit by hand; never run it once a
+real booking exists. Retiring a
 car normally means `is_available = false`, not a delete — and note **`getCarById` doesn't filter
 `is_available`**, so a retired car's page and its trips' pages still render and still need photos.
 

@@ -16,6 +16,12 @@ export type OutboundEmail = {
      * would go back to our own sending address instead of the visitor.
      */
     replyTo?: string
+    /**
+     * Marks the message high-importance (Importance / X-Priority headers), for
+     * owner alerts that need acting on now. Gmail shows it as important; most
+     * other clients show a flag.
+     */
+    priority?: 'high'
 }
 
 // Header values are written straight into the raw message, and a header ends at
@@ -85,6 +91,7 @@ function buildMimeMessage(msg: OutboundEmail, from: string): string {
         `To: ${assertSingleLine(msg.to, 'To')}`,
         ...(msg.replyTo ? [`Reply-To: ${assertSingleLine(msg.replyTo, 'Reply-To')}`] : []),
         `Subject: ${encodeHeader(msg.subject)}`,
+        ...(msg.priority === 'high' ? ['Importance: High', 'X-Priority: 1 (Highest)'] : []),
         'MIME-Version: 1.0',
         // multipart/alternative, text part first: the last part a client can
         // render is the one it shows, so HTML has to come second.

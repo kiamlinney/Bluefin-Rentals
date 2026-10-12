@@ -1,6 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { CalendarGrid } from 'src/components/admin/CalendarGrid.tsx'
 import { CalendarToolbar } from "@/components/admin/CalendarToolbar.tsx";
+import { SyncTuroButton } from "@/components/admin/SyncTuroButton.tsx";
+import { ScheduleOverlapBanner } from "@/components/admin/ScheduleOverlapBanner.tsx";
+import { TuroSwapBanner, useTuroSwapPrompt } from "@/components/admin/TuroSwapModal.tsx";
+import { useScheduleFlags } from "@/components/admin/useScheduleFlags.ts";
 import { getConfirmedBookings, getCars, getPriceOverrides, getBlockedDates, getTuroBookings } from "@/lib/db.ts";
 import { addDays, todayInBusinessTz } from "@/lib/pricing.ts";
 
@@ -29,12 +33,26 @@ export const Route = createFileRoute('/admin/calendar')({
 
 function Calendar() {
     const { cars, bookings, turoBookings, priceOverrides, blockedDates } = Route.useLoaderData()
+    const flags = useScheduleFlags(bookings, turoBookings)
+    const swapPrompt = useTuroSwapPrompt(turoBookings, cars)
+
     return (
         // Full-height column so the grid can take whatever the toolbar leaves and
         // scroll both ways inside itself, keeping its sticky header/car column in view
         <div className="p-3 md:p-6 h-full flex flex-col">
-            <CalendarToolbar />
-            <CalendarGrid cars={cars} bookings={bookings} turoBookings={turoBookings} priceOverrides={priceOverrides} blockedDates={blockedDates} />
+            <CalendarToolbar actions={<SyncTuroButton />} />
+            <TuroSwapBanner pending={flags.pendingSwaps} cars={cars} onOpen={swapPrompt.open} />
+            <ScheduleOverlapBanner overlaps={flags.overlaps} refs={flags.refs} cars={cars} />
+            <CalendarGrid
+                cars={cars}
+                bookings={bookings}
+                turoBookings={turoBookings}
+                priceOverrides={priceOverrides}
+                blockedDates={blockedDates}
+                overlapNotes={flags.overlapNotes}
+                onTuroSwapClick={swapPrompt.open}
+            />
+            {swapPrompt.modal}
         </div>
   )
 }

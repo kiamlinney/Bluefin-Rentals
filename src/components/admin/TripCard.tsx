@@ -1,11 +1,19 @@
 import { Link } from "@tanstack/react-router";
+import { AlertTriangle } from "lucide-react";
 import {BookingWithRelations} from "@/types.ts";
 import {formatBusinessDate, formatBusinessTime} from "@/lib/dates.ts";
 import {carMainImageUrl} from "@/lib/car-images.ts";
 import {money} from "@/lib/email-template.ts";
 import {tripPhase} from "@/lib/booking-status";
 
-export function TripCard({ booking }: { booking: BookingWithRelations }) {
+export function TripCard({
+    booking,
+    overlapNote,
+}: {
+    booking: BookingWithRelations
+    /** What this trip overlaps on the same car (useScheduleFlags), shown in red. */
+    overlapNote?: string
+}) {
     const car = booking.cars
 
     const now = new Date()
@@ -74,8 +82,9 @@ export function TripCard({ booking }: { booking: BookingWithRelations }) {
             to="/admin/reservation/$bookingId"
             params={{ bookingId: booking.id }}
             className={[
-                'flex items-start justify-between bg-white border border-gray-200 rounded-lg px-5 py-4 hover:shadow-sm transition-all text-left',
-                isCanceled ? '!bg-gray-200' : 'hover:border-gray-300'
+                'flex items-start justify-between bg-white border rounded-lg px-5 py-4 hover:shadow-sm transition-all text-left',
+                overlapNote ? 'border-red-400' : 'border-gray-200',
+                isCanceled ? '!bg-gray-200' : overlapNote ? '' : 'hover:border-gray-300'
             ].join(' ')}        >
 
             {/* Left: all the text content */}
@@ -110,6 +119,12 @@ export function TripCard({ booking }: { booking: BookingWithRelations }) {
                         </div>
                     )}
                 </div>
+
+                {overlapNote && (
+                    <p className="mt-2 flex items-start gap-1 text-sm font-semibold text-red-700">
+                        <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {overlapNote}
+                    </p>
+                )}
 
             </div>
 

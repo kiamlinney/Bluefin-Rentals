@@ -728,6 +728,24 @@ export type Database = {
           },
         ]
       }
+      schedule_overlap_alerts: {
+        Row: {
+          car_id: number
+          notified_at: string
+          pair_key: string
+        }
+        Insert: {
+          car_id: number
+          notified_at?: string
+          pair_key: string
+        }
+        Update: {
+          car_id?: number
+          notified_at?: string
+          pair_key?: string
+        }
+        Relationships: []
+      }
       trip_media: {
         Row: {
           booking_id: string
@@ -801,6 +819,8 @@ export type Database = {
           raw_subject: string | null
           renter_name: string | null
           start_time: string
+          swap_accepted_at: string | null
+          swap_car_confirmed_at: string | null
           synced_at: string | null
           turo_trip_id: string | null
         }
@@ -813,6 +833,8 @@ export type Database = {
           raw_subject?: string | null
           renter_name?: string | null
           start_time: string
+          swap_accepted_at?: string | null
+          swap_car_confirmed_at?: string | null
           synced_at?: string | null
           turo_trip_id?: string | null
         }
@@ -825,6 +847,8 @@ export type Database = {
           raw_subject?: string | null
           renter_name?: string | null
           start_time?: string
+          swap_accepted_at?: string | null
+          swap_car_confirmed_at?: string | null
           synced_at?: string | null
           turo_trip_id?: string | null
         }

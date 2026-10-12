@@ -33,9 +33,16 @@
 -- than the 15-minute gap: an email is only ever looked for while it's inside the
 -- window, so the window has to outlast any stretch of failed runs — a deploy, an
 -- outage — or that booking is missed for good. After an outage longer than a
--- day, run one catch-up by hand:
+-- day, run one catch-up: the "Sync Turo (last 30 days)" button on
+-- /admin/calendar, or by hand (?days is clamped to 30,
+-- TURO_SYNC_CATCHUP_LOOKBACK_DAYS):
 --
---      curl -X POST -H "Authorization: Bearer $CRON_SECRET" "https://YOUR-DOMAIN/api/cron/sync-turo?days=400"
+--      curl -X POST -H "Authorization: Bearer $CRON_SECRET" "https://YOUR-DOMAIN/api/cron/sync-turo?days=30"
+--
+-- pg_cron reports every run as succeeded: that only means the request was
+-- queued. Whether it reached the site is in net._http_response (kept about
+-- 6 hours). In October 2026 a domain suspension made every call time out in
+-- the TLS handshake for two days while cron.job_run_details looked healthy.
 --
 -- ── Checking on it ──────────────────────────────────────────────────────────
 --

@@ -1,8 +1,13 @@
 import {createFileRoute} from '@tanstack/react-router'
-import {getConfirmedBookings, sendTestBookingEmail} from '@/lib/db'
+import {getCars, getConfirmedBookings, getTuroBookings, sendTestBookingEmail} from '@/lib/db'
 import { TripCard } from 'src/components/admin/TripCard.tsx'
+import { ScheduleOverlapBanner } from '@/components/admin/ScheduleOverlapBanner.tsx'
+import { TuroSwapBanner, TuroSwapPreview, useTuroSwapPrompt } from '@/components/admin/TuroSwapModal.tsx'
+import { useScheduleFlags } from '@/components/admin/useScheduleFlags.ts'
 import type { BookingWithRelations } from '@/types.ts'
 import { businessDateKey, formatBusinessDate, isBusinessToday } from '@/lib/dates'
+import { addDays, todayInBusinessTz } from '@/lib/pricing.ts'
+import { tripKey } from '@/lib/schedule-overlaps'
 import { useState } from "react";
 
 type DateGroup = {
@@ -14,8 +19,16 @@ type DateGroup = {
 
 export const Route = createFileRoute('/admin/trips/booked')({
     loader: async () => {
-        const bookings = await getConfirmedBookings()
-        return { bookings }
+        // Turo trips and cars too, for the flags: a Turo trip overlapping one of
+        // ours, and a Turo swap waiting for us to pick the car. Same window as
+        // the calendar's.
+        const today = todayInBusinessTz()
+        const [bookings, turoBookings, cars] = await Promise.all([
+            getConfirmedBookings(),
+            getTuroBookings({ data: { startDate: today, endDate: addDays(today, 365) } }),
+            getCars(),
+        ])
+        return { bookings, turoBookings, cars }
     },
     component: BookedPage,
 })
@@ -102,42 +115,6 @@ export const Route = createFileRoute('/admin/trips/booked')({
 //           </pre>
 //                 </div>
 //             )}
-//         </div>
-//     )
-// }
-
-// function SyncTuroBookingsButton() {
-//     const [loading, setLoading] = useState(false)
-//     const [error, setError] = useState<string | null>(null)
-//     const router = useRouter()
-//
-//     async function handleClick() {
-//         setLoading(true)
-//         setError(null)
-//         try {
-//             const result = await syncTuroBookings() // no args
-//             console.log('sync result', result)
-//
-//             // Optionally show a quick toast/alert
-//             alert(`Sync complete.\n` + JSON.stringify(result, null, 2))
-//             console.log(result)
-//
-//             // Refresh this page’s loader data so the new bookings show up
-//             await router.invalidate()
-//         } catch (e: any) {
-//             console.error(e)
-//             setError(e?.message || 'Sync failed — see server logs')
-//         } finally {
-//             setLoading(false)
-//         }
-//     }
-//
-//     return (
-//         <div className="space-y-2">
-//             <button onClick={handleClick} className="px-3 py-2 border rounded">
-//                 {loading ? 'Syncing…' : 'Sync Turo Bookings'}
-//             </button>
-//             {error && <div className="text-red-600 text-sm">{error}</div>}
 //         </div>
 //     )
 // }
@@ -252,17 +229,22 @@ function formatGroupLabel(date: Date): string {
 }
 
 function BookedPage() {
-    const { bookings } = Route.useLoaderData();
+    const { bookings, turoBookings, cars } = Route.useLoaderData();
 
     const groups = groupBookingsByDate(bookings)
+    const flags = useScheduleFlags(bookings, turoBookings)
+    const swapPrompt = useTuroSwapPrompt(turoBookings, cars)
 
     return (
         <div className="py-8 md:py-16 px-4 md:px-8">
             <div className="max-w-2xl mx-auto">
                 <h1 className="mb-8 text-3xl text-black font-bold">Booked</h1>
-                {/*< SyncTuroBookingsButton />*/}
+                <TuroSwapBanner pending={flags.pendingSwaps} cars={cars} onOpen={swapPrompt.open} />
+                <ScheduleOverlapBanner overlaps={flags.overlaps} refs={flags.refs} cars={cars} />
+                {swapPrompt.modal}
                 {/*< InspectTuroEmailPanel />*/}
                 <SendTestBookingEmailButton bookings={bookings} />
+                <TuroSwapPreview turoBookings={turoBookings} cars={cars} />
                 {bookings.length === 0 ? (
                     <div className="">
                         <h2 className="text-xl font-bold mb-2">No bookings yet!</h2>
@@ -282,6 +264,7 @@ function BookedPage() {
                                         <TripCard
                                             key={booking.id}
                                             booking={booking}
+                                            overlapNote={flags.overlapNotes.get(tripKey({ source: 'booking', id: booking.id }))}
                                         />
                                     ))}
                                 </div>

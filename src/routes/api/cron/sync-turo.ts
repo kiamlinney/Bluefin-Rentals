@@ -11,7 +11,7 @@ import { timingSafeEqual } from 'node:crypto'
 import type { Database } from '../../../lib/database.types'
 import {
     runTuroSync,
-    TURO_SYNC_MAX_LOOKBACK_DAYS,
+    TURO_SYNC_CATCHUP_LOOKBACK_DAYS,
     TURO_SYNC_SCHEDULED_LOOKBACK_DAYS,
 } from '../../../lib/turo-sync.server'
 
@@ -24,12 +24,13 @@ function secretMatches(authorization: string | null, secret: string): boolean {
 }
 
 // ?days=N widens the search for a one-off catch-up — after an outage longer
-// than the scheduled window, say. Clamped, and anything unparseable falls back
-// to the scheduled window rather than erroring.
+// than the scheduled window, say. Clamped to the same window as the admin's
+// Sync button, and anything unparseable falls back to the scheduled window
+// rather than erroring.
 function lookbackDaysFrom(request: Request): number {
     const raw = Number.parseInt(new URL(request.url).searchParams.get('days') ?? '', 10)
     if (!Number.isFinite(raw)) return TURO_SYNC_SCHEDULED_LOOKBACK_DAYS
-    return Math.min(Math.max(raw, 1), TURO_SYNC_MAX_LOOKBACK_DAYS)
+    return Math.min(Math.max(raw, 1), TURO_SYNC_CATCHUP_LOOKBACK_DAYS)
 }
 
 export const Route = createFileRoute('/api/cron/sync-turo')({

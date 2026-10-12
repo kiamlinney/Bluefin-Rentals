@@ -6,7 +6,8 @@
 // database rules that the code relies on to be safe:
 //
 //   - the partial unique indexes (one deposit attempt in flight, one open
-//     extension, one live extra per trip), which return Postgres's 23505;
+//     extension, one live extra per trip), one Turo row per trip and per
+//     email, one overlap alert per pair, all returning Postgres's 23505;
 //   - the bookings status trigger, as written in
 //     supabase/migrations/20261007120000_prelaunch_hardening.sql.
 //
@@ -48,6 +49,10 @@ const DEFAULTS: Record<string, () => Row> = {
         payment_method_id: null, deposit_waived_at: null, deposit_waived_by: null, price_quote: null,
         miles_driven: null, pickup_location: 'Home base', booking_rate: 'non-refundable',
     }),
+    turo_bookings: () => ({
+        renter_name: null, turo_trip_id: null, raw_subject: null, email_sent_at: null, synced_at: null,
+        swap_accepted_at: null, swap_car_confirmed_at: null,
+    }),
 }
 
 type Unique = { table: string; name: string; key: (r: Row) => string | null }
@@ -68,6 +73,11 @@ const UNIQUES: Unique[] = [
         key: r => (r.status !== 'declined' ? `${r.booking_id}:${r.extra_id}` : null),
     },
     { table: 'booking_charges', name: 'booking_charges_stripe_payment_intent_id_key', key: r => r.stripe_payment_intent_id ?? null },
+    // One row per Turo trip, and per email (20260915/turo_trip_id migrations).
+    { table: 'turo_bookings', name: 'turo_bookings_turo_trip_id_key', key: r => r.turo_trip_id ?? null },
+    { table: 'turo_bookings', name: 'turo_bookings_gmail_message_id_key', key: r => r.gmail_message_id ?? null },
+    // The primary key the overlap alerts claim on (20261012120000).
+    { table: 'schedule_overlap_alerts', name: 'schedule_overlap_alerts_pkey', key: r => r.pair_key ?? null },
 ]
 
 /** The bookings status trigger, mirrored from the 2026-10-07 migration. */

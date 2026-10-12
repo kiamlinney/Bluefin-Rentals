@@ -4,13 +4,17 @@
 import { vi } from 'vitest'
 import { FakeDb, type Row } from './fakes/supabase'
 import { FakeStripe } from './fakes/stripe'
+import { FakeGmail } from './fakes/gmail'
 
-export type SentEmail = { to: string; subject: string; text?: string; html?: string }
+export type SentEmail = { to: string; subject: string; text?: string; html?: string; priority?: 'high' }
 
 export const h = {
     db: new FakeDb(),
     stripe: new FakeStripe(),
+    gmail: new FakeGmail(),
     emails: [] as SentEmail[],
+    /** How many of the next sends should fail, as Gmail refusing them would. */
+    failNextEmails: 0,
 }
 
 export const ADMIN_EMAIL = 'owners@test.bluefin'
@@ -21,7 +25,9 @@ export function reset(now: string, seed: Record<string, Row[]> = {}) {
     vi.setSystemTime(new Date(now))
     h.db = new FakeDb(seed)
     h.stripe = new FakeStripe()
+    h.gmail = new FakeGmail()
     h.emails = []
+    h.failNextEmails = 0
 }
 
 /** Moves the clock. */

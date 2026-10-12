@@ -3,7 +3,8 @@
 // What is replaced, and nothing else:
 //   - Stripe            → FakeStripe   (no network, no money)
 //   - Supabase clients  → FakeDb       (both the service-role and the cookie client)
-//   - Gmail (sendEmail) → recorded in h.emails
+//   - Gmail (sendEmail) → recorded in h.emails (h.failNextEmails makes sends fail)
+//   - Gmail (reading)   → FakeGmail, for the Turo sync
 //   - createServerFn    → calls the handler directly, so server functions are
 //                         tested exactly as the browser or a direct caller sees them
 //
@@ -47,12 +48,23 @@ vi.mock('../src/lib/supabase.server', () => ({
 }))
 
 vi.mock('../src/lib/email', () => ({
-    sendEmail: async (msg: { to: string; subject: string; text?: string; html?: string }) => {
-        h.emails.push({ to: msg.to, subject: msg.subject, text: msg.text, html: msg.html })
+    sendEmail: async (msg: { to: string; subject: string; text?: string; html?: string; priority?: 'high' }) => {
+        if (h.failNextEmails > 0) {
+            h.failNextEmails--
+            throw new Error('fake gmail: send refused')
+        }
+        h.emails.push({ to: msg.to, subject: msg.subject, text: msg.text, html: msg.html, priority: msg.priority })
     },
 }))
 
-vi.mock('googleapis', () => ({ google: {} }))
+// Only the Turo sync reads Gmail through googleapis directly (sending is
+// sendEmail, above).
+vi.mock('googleapis', () => ({
+    google: {
+        auth: { OAuth2: class { setCredentials() {} } },
+        gmail: () => live(() => h.gmail),
+    },
+}))
 
 vi.mock('@tanstack/react-start', () => ({
     createServerFn: () => {

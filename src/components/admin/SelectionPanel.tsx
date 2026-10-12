@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
-import { X, CarFront} from 'lucide-react'
+import { X, CarFront, AlertTriangle } from 'lucide-react'
 import { Link } from "@tanstack/react-router";
 import { BookingWithRelations, Car, CarBlockedDate, TuroBooking } from 'src/types.ts'
 import { upsertPriceOverrides, createBlockedDates, deleteBlockedDate } from "@/lib/db.ts";
 import { formatBusinessDate, formatBusinessTime, formatDateKey } from "@/lib/dates.ts";
 import { dateKeyToLocalDate } from "@/lib/pricing.ts";
 import { carMainImageUrl } from "@/lib/car-images.ts";
+import { tripKey } from "@/lib/schedule-overlaps";
+import { isTuroSwapPending, turoReservationUrl } from "@/lib/turo-swap";
 
 export type PanelTab = 'prices' | 'unavailability' | 'trips'
 
@@ -27,6 +29,8 @@ export type SelectionPanelProps = {
     blockedDates: CarBlockedDate[]
     onBlocksCreated: (blocks: CarBlockedDate[]) => void
     onBlockDeleted: (blockId: string) => void
+    overlapNotes: Map<string, string>
+    onTuroSwapClick: (trip: TuroBooking) => void
 }
 
 const TABS: { id: PanelTab; label: string }[] = [
@@ -71,6 +75,8 @@ export function SelectionPanel({
     blockedDates,
     onBlocksCreated,
     onBlockDeleted,
+    overlapNotes,
+    onTuroSwapClick,
 }: SelectionPanelProps) {
     return (
         <div className="fixed inset-x-0 bottom-0 h-[50dvh] rounded-t-2xl md:inset-x-auto md:bottom-auto md:right-0 md:top-19.5 md:h-160 md:w-90 md:rounded-xl z-50 bg-white border-1 border-gray-200 shadow-2xl flex flex-col">
@@ -180,6 +186,8 @@ export function SelectionPanel({
                         turoBookings={turoBookings}
                         cars={cars}
                         dateToIndex={dateToIndex}
+                        overlapNotes={overlapNotes}
+                        onTuroSwapClick={onTuroSwapClick}
                     />
                 )}
             </div>
@@ -627,14 +635,11 @@ function UnavailabilityTab({
 // its date range overlaps at least one selected date index
 
 // Turo trips are listed alongside direct bookings, tagged so each card knows
-// where to link: our reservation page, or the trip on turo.com.
+// where to link: our reservation page, or the trip on turo.com. A Turo trip
+// whose swap is waiting on us opens the "which car?" dialog instead.
 type TripItem =
     | { kind: 'direct'; booking: BookingWithRelations }
     | { kind: 'turo'; trip: TuroBooking }
-
-function turoReservationUrl(turoTripId: string) {
-    return `https://turo.com/us/en/reservation/${turoTripId}`
-}
 
 function TripsTab({
      selectedCells,
@@ -642,12 +647,16 @@ function TripsTab({
      turoBookings,
      cars,
      dateToIndex,
+     overlapNotes,
+     onTuroSwapClick,
 }: {
     selectedCells: Set<string>
     bookings: BookingWithRelations[]
     turoBookings: TuroBooking[]
     cars: Car[]
     dateToIndex: (iso: string) => number
+    overlapNotes: Map<string, string>
+    onTuroSwapClick: (trip: TuroBooking) => void
 }) {
     const carsById = useMemo(() => {
         const map = new Map<number, Car>()
@@ -738,12 +747,14 @@ function TripsTab({
                                 renterName={renterName}
                                 reference={`#${shortId}`}
                                 car={carsById.get(booking.car_id)}
+                                overlapNote={overlapNotes.get(tripKey({ source: 'booking', id: booking.id }))}
                             />
                         </Link>
                     )
                 }
 
                 const trip = item.trip
+                const swapPending = isTuroSwapPending(trip)
                 const body = (
                     <TripCardBody
                         startTime={trip.start_time}
@@ -753,8 +764,23 @@ function TripsTab({
                         reference={trip.turo_trip_id ? `Turo ID #${trip.turo_trip_id}` : 'Turo'}
                         car={carsById.get(trip.car_id)}
                         isTuro
+                        swapPending={swapPending}
+                        overlapNote={overlapNotes.get(tripKey({ source: 'turo', id: trip.id }))}
                     />
                 )
+
+                if (swapPending) {
+                    return (
+                        <button
+                            key={trip.id}
+                            type="button"
+                            onClick={() => onTuroSwapClick(trip)}
+                            className="block w-full text-left px-2 mb-2 cursor-pointer"
+                        >
+                            {body}
+                        </button>
+                    )
+                }
 
                 // Rows synced before the reservation id was captured have nothing
                 // to link to, so they're shown but not clickable
@@ -788,6 +814,8 @@ function TripCardBody({
     reference,
     car,
     isTuro = false,
+    swapPending = false,
+    overlapNote,
 }: {
     startTime: string
     endTime: string
@@ -796,9 +824,14 @@ function TripCardBody({
     reference: string
     car: Car | undefined
     isTuro?: boolean
+    /** A Turo swap waiting for us to pick the car: the card opens that dialog. */
+    swapPending?: boolean
+    /** What this trip overlaps on the same car, if anything. */
+    overlapNote?: string
 }) {
     return (
-        <div className={`flex items-stretch justify-between gap-4 border border-gray-300 rounded-xl px-4 py-4 hover:shadow-sm hover:border-gray-300 transition-colors
+        <div className={`flex items-stretch justify-between gap-4 border rounded-xl px-4 py-4 hover:shadow-sm transition-colors
+            ${overlapNote ? 'border-red-400' : swapPending ? 'border-amber-400' : 'border-gray-300 hover:border-gray-300'}
             ${isTuro && 'bg-violet-500/10'}`}
         >
             {/* Left – dates, address, renter */}
@@ -835,7 +868,17 @@ function TripCardBody({
                     <span className="text-xs text-gray-700 truncate">{renterName} {reference}</span>
                 </div>
 
-                {isTuro && (
+                {overlapNote && (
+                    <p className="text-xs font-semibold text-red-700 mt-3 flex items-start gap-1">
+                        <AlertTriangle size={12} className="mt-0.5 shrink-0" /> {overlapNote}
+                    </p>
+                )}
+
+                {swapPending ? (
+                    <p className="text-xs font-semibold text-amber-700 mt-3 flex items-start gap-1">
+                        <AlertTriangle size={12} className="mt-0.5 shrink-0" /> Swap accepted on Turo. Click to choose the car.
+                    </p>
+                ) : isTuro && (
                     <p className="text-xs text-gray-700 italic mt-3 truncate">Click to open reservation in Turo.</p>
                 )}
             </div>

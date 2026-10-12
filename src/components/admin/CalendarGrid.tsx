@@ -1,12 +1,14 @@
 import {useRef, useMemo, useState, useEffect, useCallback} from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { X } from "lucide-react"
+import { AlertTriangle, X } from "lucide-react"
 import { BookingWithRelations, Car, CarBlockedDate, TuroBooking } from "src/types.ts";
 import { MonthPicker } from "@/components/admin/MonthPicker.tsx";
 import { SelectionPanel } from "@/components/admin/SelectionPanel.tsx";
 import { businessDayStart } from "@/lib/dates.ts";
 import { dateKeyToLocalDate } from "@/lib/pricing.ts";
 import { carMainImageUrl } from "@/lib/car-images.ts";
+import { tripKey } from "@/lib/schedule-overlaps";
+import { isTuroSwapPending } from "@/lib/turo-swap";
 
 const column_width = 64 // pixels - width of one day column
 const row_height = 80 // pixels - height of one car's price row
@@ -72,12 +74,18 @@ export function CalendarGrid({
      turoBookings,
      priceOverrides,
      blockedDates,
+     overlapNotes,
+     onTuroSwapClick,
 }: {
     cars: Car[]
     bookings: BookingWithRelations[]
     turoBookings: TuroBooking[]
     priceOverrides: { car_id: number; date: string; price: number }[]
     blockedDates: CarBlockedDate[]
+    /** What each overlapping trip overlaps, keyed by tripKey (useScheduleFlags). */
+    overlapNotes: Map<string, string>
+    /** Opens the "which car is it on now?" dialog for a swapped Turo trip. */
+    onTuroSwapClick: (trip: TuroBooking) => void
 }) {
     const dateRange = buildDateRange(days_to_show)
 
@@ -739,35 +747,41 @@ export function CalendarGrid({
                                         const startIsShared = carSharedBoundaries.has(rawStart)
                                         const endIsShared = carSharedBoundaries.has(rawEnd)
 
+                                        // Red, with a flag, when another trip has this car at the same time.
+                                        const overlapNote = overlapNotes.get(tripKey({ source: 'booking', id: booking.id }))
+                                        const lineColour = overlapNote ? 'bg-red-600' : 'bg-black'
+
                                         return (
-                                            <div
-                                                key={booking.id}
-                                                className="absolute pointer-events-none z-5"
-                                                style={{
-                                                    left,
-                                                    width,
-                                                    top: row_height / 2 - 1,
-                                                    height: 2,
-                                                }}
-                                            >
-                                                {/* The line itself */}
-                                                <div className="absolute inset-0 bg-black rounded-full"/>
+                                            <div key={booking.id}>
+                                                <div
+                                                    className="absolute pointer-events-none z-5"
+                                                    style={{
+                                                        left,
+                                                        width,
+                                                        top: row_height / 2 - 1,
+                                                        height: 2,
+                                                    }}
+                                                >
+                                                    {/* The line itself */}
+                                                    <div className={`absolute inset-0 rounded-full ${lineColour}`}/>
 
-                                                {!isClampedAtStart && (
-                                                    // Start dot
-                                                    <div
-                                                        className="absolute -left-0.5 -top-[3px] w-2 h-2 rounded-full bg-black"
-                                                        style={{ left: startIsShared ? 0.1 : -2 }}
-                                                    />
-                                                )}
+                                                    {!isClampedAtStart && (
+                                                        // Start dot
+                                                        <div
+                                                            className={`absolute -left-0.5 -top-[3px] w-2 h-2 rounded-full ${lineColour}`}
+                                                            style={{ left: startIsShared ? 0.1 : -2 }}
+                                                        />
+                                                    )}
 
-                                                {!isClampedAtEnd && (
-                                                    <div
-                                                        // End dot
-                                                        className="absolute -top-[3px] w-2 h-2 rounded-full bg-black"
-                                                        style={{ right: endIsShared ? 0.1 : -2 }}
-                                                    />
-                                                )}
+                                                    {!isClampedAtEnd && (
+                                                        <div
+                                                            // End dot
+                                                            className={`absolute -top-[3px] w-2 h-2 rounded-full ${lineColour}`}
+                                                            style={{ right: endIsShared ? 0.1 : -2 }}
+                                                        />
+                                                    )}
+                                                </div>
+                                                {overlapNote && <TripFlag left={left} top={4} tone="red" title={overlapNote} label="Overlap" />}
                                             </div>
                                         )
                                     })}
@@ -791,12 +805,33 @@ export function CalendarGrid({
                                         const rightEdge = isClampedAtEnd ? dateRange.length * column_width : endIndex * column_width + column_width / 2
                                         const width = rightEdge - left
 
+                                        const overlapNote = overlapNotes.get(tripKey({ source: 'turo', id: trip.id }))
+                                        const swapPending = isTuroSwapPending(trip)
+                                        const lineColour = overlapNote ? 'bg-red-600' : 'bg-violet-500'
+
                                         return (
-                                            <div key={trip.id} className="absolute pointer-events-none z-6"
-                                                 style={{ left, width, top: row_height / 2 + 6, height: 2 }}>
-                                                <div className="absolute inset-0 bg-violet-500 rounded-full" />
-                                                {!isClampedAtStart && <div className="absolute -top-[3px] w-2 h-2 rounded-full bg-violet-500" style={{ left: -2 }} />}
-                                                {!isClampedAtEnd && <div className="absolute -top-[3px] w-2 h-2 rounded-full bg-violet-500" style={{ right: -2 }} />}
+                                            <div key={trip.id}>
+                                                <div className="absolute pointer-events-none z-6"
+                                                     style={{ left, width, top: row_height / 2 + 6, height: 2 }}>
+                                                    <div className={`absolute inset-0 rounded-full ${lineColour}`} />
+                                                    {!isClampedAtStart && <div className={`absolute -top-[3px] w-2 h-2 rounded-full ${lineColour}`} style={{ left: -2 }} />}
+                                                    {!isClampedAtEnd && <div className={`absolute -top-[3px] w-2 h-2 rounded-full ${lineColour}`} style={{ right: -2 }} />}
+                                                </div>
+                                                {/* Turo flags sit a line below the booking flags, so a
+                                                    Bluefin trip and a Turo trip starting the same day
+                                                    don't cover each other. */}
+                                                {swapPending ? (
+                                                    <TripFlag
+                                                        left={left}
+                                                        top={20}
+                                                        tone="amber"
+                                                        title="Turo swap accepted: choose the car this trip is on now"
+                                                        label="Swap: choose car"
+                                                        onClick={() => onTuroSwapClick(trip)}
+                                                    />
+                                                ) : overlapNote ? (
+                                                    <TripFlag left={left} top={20} tone="red" title={overlapNote} label="Overlap" />
+                                                ) : null}
                                             </div>
                                         )
                                     })}
@@ -826,8 +861,43 @@ export function CalendarGrid({
                     blockedDates={allBlockedDates}
                     onBlocksCreated={handleBlocksCreated}
                     onBlockDeleted={handleBlockDeleted}
+                    overlapNotes={overlapNotes}
+                    onTuroSwapClick={onTuroSwapClick}
                 />
             )}
         </div>
+    )
+}
+// A small chip at the start of a trip's bar: red for an overlap, amber for a
+// Turo swap that needs a car (clickable, opens the dialog). The bars ignore the
+// pointer so the price cells under them stay clickable; a flag with an action
+// takes the pointer back for itself only.
+function TripFlag({
+    left,
+    top,
+    tone,
+    title,
+    label,
+    onClick,
+}: {
+    left: number
+    top: number
+    tone: 'red' | 'amber'
+    title: string
+    label: string
+    onClick?: () => void
+}) {
+    const className = [
+        'absolute z-7 flex items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-bold whitespace-nowrap text-white shadow-sm',
+        tone === 'red' ? 'bg-red-600' : 'bg-amber-500',
+        onClick ? 'cursor-pointer hover:brightness-110' : 'pointer-events-none',
+    ].join(' ')
+    const style = { left: Math.max(left - 2, 0), top }
+    const content = <><AlertTriangle size={10} strokeWidth={3} />{label}</>
+
+    return onClick ? (
+        <button type="button" className={className} style={style} title={title} onClick={onClick}>{content}</button>
+    ) : (
+        <div className={className} style={style} title={title}>{content}</div>
     )
 }

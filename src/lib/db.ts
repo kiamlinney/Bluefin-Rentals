@@ -11,7 +11,8 @@ import {
     todayInBusinessTz,
     type TripQuote,
 } from './pricing'
-import { runTuroSync, TURO_SYNC_MAX_LOOKBACK_DAYS } from './turo-sync.server'
+import { flagTuroSwap, runTuroSync, TURO_SYNC_CATCHUP_LOOKBACK_DAYS } from './turo-sync.server'
+import { assignTuroTripCar as assignTuroTripCarOnServer, turoSwapOptions } from './turo-swap.server'
 import { assertBookingAccess, getServiceRoleClient, requireAdmin, requireUser } from './access.server'
 import { assertCarIsAvailable, extensionHoldRows, findCarConflict, PENDING_HOLD_MS } from './availability.server'
 import { cancelsAsBusiness, holdHasLapsed } from './booking-status.ts'
@@ -2091,20 +2092,64 @@ export const getAvailableCars = createServerFn({ method: 'GET' })
         return rows ?? []
     })
 
-// The Turo sync lives in turo-sync.server.ts 
+// The Turo sync lives in turo-sync.server.ts
 export const syncTuroBookings = createServerFn({ method: 'POST' })
     .handler(async () => {
-        const supabase = getSupabaseServerClient()
-        const authResult = await supabase.auth.getUser()
-        const user = authResult.data.user
-        if (!user) throw new Error('Not authenticated')
+        await requireAdmin()
+        // A manual run is the catch-up, so it searches the longer window. Service
+        // role, like the cron route: the overlap alerts it records have no
+        // policies, so an admin's own session can't write them.
+        return runTuroSync(getServiceRoleClient(), TURO_SYNC_CATCHUP_LOOKBACK_DAYS)
+    })
 
-        const { data: profile } = await supabase
-            .from('profiles').select('is_admin').eq('id', user.id).single()
-        if (!profile?.is_admin) throw new Error('Not authorized')
+// The cars a swapped Turo trip could be on, with what each would clash with.
+export const getTuroSwapOptions = createServerFn({ method: 'GET' })
+    .inputValidator((turoBookingId: string) => turoBookingId)
+    .handler(async ({ data: turoBookingId }) => {
+        await requireAdmin()
+        return turoSwapOptions(getServiceRoleClient(), turoBookingId)
+    })
 
-        // A manual run is the catch-up, so it searches the full window.
-        return runTuroSync(supabase, TURO_SYNC_MAX_LOOKBACK_DAYS)
+// Dev server only: acts as if Turo had just emailed "X accepted your vehicle
+// swap request" for this trip, through the same code the sync runs. The trip
+// is flagged, the IMPORTANT email goes to the owners, and the "which car?"
+// dialog opens on the calendar and the Booked tab. Picking the trip's current
+// car settles it with nothing moved. Refused in a production build
+// (import.meta.env.DEV is compiled to false), because the live database is
+// shared with the laptop and a preview there would email the owners about a
+// swap that never happened.
+export const previewTuroSwap = createServerFn({ method: 'POST' })
+    .inputValidator((turoBookingId: string) => turoBookingId)
+    .handler(async ({ data: turoBookingId }) => {
+        if (!import.meta.env.DEV) throw new Error('Swap previews only run on the dev server.')
+        await requireAdmin()
+        const supabase = getServiceRoleClient()
+
+        const { data: trip, error } = await supabase
+            .from('turo_bookings').select('turo_trip_id').eq('id', turoBookingId).maybeSingle()
+        if (error) throw new Error(error.message)
+        if (!trip) throw new Error('That Turo trip is no longer on the calendar.')
+        if (!trip.turo_trip_id) throw new Error('That Turo trip has no reservation id, so Turo could never email a swap for it.')
+
+        const { data: cars } = await supabase.from('cars').select('id, year, make, model, license_plate')
+        return flagTuroSwap(
+            supabase,
+            { turoTripId: trip.turo_trip_id, acceptedAt: new Date().toISOString() },
+            new Map((cars ?? []).map(car => [car.id, car])),
+        )
+    })
+
+// An owner saying which car a swapped Turo trip is on now.
+export const assignTuroTripCar = createServerFn({ method: 'POST' })
+    .inputValidator((input: { turoBookingId: string; carId: number }) => {
+        if (typeof input?.turoBookingId !== 'string' || !Number.isInteger(input?.carId)) {
+            throw new Error('A Turo trip and a car are required')
+        }
+        return { turoBookingId: input.turoBookingId, carId: input.carId }
+    })
+    .handler(async ({ data }) => {
+        await requireAdmin()
+        return assignTuroTripCarOnServer(getServiceRoleClient(), data)
     })
 
 export const inspectTuroEmail = createServerFn({ method: 'GET' })
