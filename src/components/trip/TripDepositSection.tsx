@@ -118,7 +118,8 @@ export function TripDepositSection({
                 <p className="text-sm text-muted max-w-md">
                     A {amount} refundable hold will be placed on {cardText} about {DEPOSIT_PLACE_BEFORE_HOURS} hours
                     before pickup ({formatBusinessDateTime(depositPlaceAt(new Date(tripStart)))}).
-                    It isn't a charge, and it's released {DEPOSIT_RELEASE_AFTER_HOURS} hours after {isHost ? 'the guest returns' : 'you return'} the car.
+                    It isn't a charge, and it's released once the car has been inspected, no later than{' '}
+                    {DEPOSIT_RELEASE_AFTER_HOURS} hours after {isHost ? 'the guest returns' : 'you return'} it.
                     {!isHost && ' Your lockbox code is sent once the hold is placed.'}
                 </p>
             )}
@@ -126,7 +127,7 @@ export function TripDepositSection({
             {deposit.state === 'held' && hold && hold.status === 'authorized' && (
                 <p className="text-sm text-muted max-w-md">
                     <span className="text-ink font-semibold">{amount} held</span> on {cardText}. It will be released
-                    around {releaseAt}{isHost && hold.keep_holding ? ' — except you chose to keep holding it' : ''}.
+                    by {releaseAt}{isHost && hold.keep_holding ? ' — except you chose to keep holding it' : ''}.
                     {isHost && hold.capture_before && <> Stripe's deadline to capture: {formatBusinessDateTime(hold.capture_before)}.</>}
                 </p>
             )}

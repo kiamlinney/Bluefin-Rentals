@@ -27,6 +27,7 @@ import {
     refundCharge,
     releaseDepositHold,
     startCardUpdate,
+    setDepositKeepHolding as setKeepHolding,
     startExtension,
 } from './payments.server'
 import { depositStateFor } from './lockbox.server'
@@ -264,8 +265,7 @@ export const setDepositKeepHolding = createServerFn({ method: 'POST' })
     .inputValidator((input: { chargeId: string; keep: boolean }) => input)
     .handler(async ({ data }) => {
         const { supabaseAdmin, charge } = await chargeForAdmin(data.chargeId)
-        if (charge.kind !== 'deposit') throw new Error('Not a deposit hold')
-        await supabaseAdmin.from('booking_charges').update({ keep_holding: data.keep }).eq('id', charge.id)
+        await setKeepHolding(supabaseAdmin, charge, data.keep)
         return { keep: data.keep }
     })
 

@@ -53,7 +53,7 @@ export const FAQS: FaqItem[] = [
     {
         question: 'Is a security deposit required?',
         answer:
-            `Yes. About ${DEPOSIT_PLACE_BEFORE_HOURS} hours before pickup we place a ${formatDepositAmount()} hold on your card. It's a hold, not a charge, and it's released ${DEPOSIT_RELEASE_AFTER_HOURS} hours after you return the car, unless it's needed to cover damage or other costs from the trip. The lockbox code is sent once the hold is in place.`,
+            `Yes. About ${DEPOSIT_PLACE_BEFORE_HOURS} hours before pickup we place a ${formatDepositAmount()} hold on your card. It's a hold, not a charge, and we release it once we've inspected the car, no later than ${DEPOSIT_RELEASE_AFTER_HOURS} hours after you return it, unless it's needed to cover damage or other costs from the trip. The lockbox code is sent once the hold is in place.`,
     },
 ]
 

@@ -8,7 +8,8 @@
 // It's the backstop for everything that happens because the clock moved rather
 // than because someone clicked: placing deposit holds the day before pickup,
 // retrying declined ones, renewing holds on long trips before Stripe lets them
-// lapse, releasing holds 72 hours after a trip, and letting go of extension
+// lapse, releasing holds nobody released by hand once the inspection window
+// after a trip is over, and letting go of extension
 // payments nobody finished. Written up in ImportantFiles/deposit.md.
 //
 // Run it by hand:

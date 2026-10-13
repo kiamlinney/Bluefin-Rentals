@@ -110,7 +110,10 @@ function TermsOfService() {
                     time your bank may show both as pending.
                 </p>
                 <p>
-                    The hold is released {DEPOSIT_RELEASE_AFTER_HOURS} hours after you return the car. If the car
+                    We release the hold once we've inspected the car after you return it, and no later than{' '}
+                    {DEPOSIT_RELEASE_AFTER_HOURS} hours after you return it. Your bank may take a few days to make
+                    the funds available again. If we find damage or other costs when we inspect the car, we may
+                    keep the hold in place for longer while we assess them, and we'll email you if we do. If the car
                     is returned damaged, or other costs described in section 6 arise, we may instead charge
                     some or all of the hold to cover them, and will tell you what for. If those costs are more
                     than the hold, the difference is charged to your card on file.

@@ -10,7 +10,7 @@ import {
 } from './fixtures'
 import {
     captureDeposit, createAdjustmentCharge, decideExtension, ensureDepositHold, refundCharge, releaseDepositHold,
-    runPaymentsSweep, startExtension, syncChargeFromIntent, loadCharge,
+    runPaymentsSweep, startExtension, syncChargeFromIntent, loadCharge, setDepositKeepHolding,
 } from '../src/lib/payments.server'
 import { decideTripExtra, requestTripExtras } from '../src/lib/db'
 
@@ -133,6 +133,46 @@ describe('the deposit hold', () => {
         expect(chargeRow(finishedHold.charge.id).status).toBe('canceled')
         expect(chargeRow(keptHold.charge.id).status).toBe('authorized')
         expect(sweep.holdsReleased).toBe(2)
+    })
+
+    it('is released by the sweep 48 hours after the trip ends, not before', async () => {
+        world(NOW) // 2026-10-10 17:00
+        const past = paidTrip({ start: '2026-10-05T15:00:00Z', end: '2026-10-08T15:00:00Z', bookedAt: BOOKED, status: 'completed', carId: 7 }) // ended 50h ago
+        const pastHold = depositHold(past.booking)
+        const inside = paidTrip({ start: '2026-10-05T19:00:00Z', end: '2026-10-08T19:00:00Z', bookedAt: BOOKED, status: 'completed', carId: 7 }) // ended 46h ago
+        const insideHold = depositHold(inside.booking)
+
+        const sweep = await runPaymentsSweep(db(), new Date(NOW))
+
+        expect(chargeRow(pastHold.charge.id).status).toBe('canceled')
+        expect(chargeRow(insideHold.charge.id).status).toBe('authorized')
+        expect(sweep.holdsReleased).toBe(1)
+    })
+
+    it('tells the guest once when we keep holding it, and the sweep then leaves it alone', async () => {
+        world(NOW)
+        const trip = paidTrip({ start: '2026-10-05T15:00:00Z', end: '2026-10-08T15:00:00Z', bookedAt: BOOKED, status: 'completed', carId: 7 }) // ended 50h ago
+        const hold = depositHold(trip.booking)
+        const kept = () => emailsTo(GUEST_EMAIL).filter(e => e.subject.includes('keeping your security hold'))
+
+        // A double click: the second press finds it already on and sends nothing.
+        expect(await setDepositKeepHolding(db(), chargeRow(hold.charge.id) as any, true)).toBe(true)
+        expect(await setDepositKeepHolding(db(), chargeRow(hold.charge.id) as any, true)).toBe(false)
+        expect(kept()).toHaveLength(1)
+
+        const sweep = await runPaymentsSweep(db(), new Date(NOW))
+        expect(sweep.holdsReleased).toBe(0)
+        expect(chargeRow(hold.charge.id).status).toBe('authorized')
+
+        // Switching it back off sends nothing; the next sweep releases it as usual.
+        expect(await setDepositKeepHolding(db(), chargeRow(hold.charge.id) as any, false)).toBe(true)
+        expect(kept()).toHaveLength(1)
+        await runPaymentsSweep(db(), new Date(NOW))
+        expect(chargeRow(hold.charge.id).status).toBe('canceled')
+
+        // A hold that's already released can't be kept, and nobody is told it was.
+        expect(await setDepositKeepHolding(db(), chargeRow(hold.charge.id) as any, true)).toBe(false)
+        expect(kept()).toHaveLength(1)
     })
 })
 

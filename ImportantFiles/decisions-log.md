@@ -15,7 +15,7 @@ move together.
 | 4 | Deposit timing | Placed automatically about 24 hours before pickup, or immediately if the trip is booked less than 24 hours ahead. | Decided |
 | 5 | Long trips | Hold requested with extended authorization where available, and renewed before it expires: new hold first, then the old one is released. | Decided |
 | 6 | Deposit declined | Lockbox code withheld until a hold succeeds. Guest and owners emailed, the system retries, the guest can update their card, and the owners can waive the deposit. | Decided |
-| 7 | Deposit release | Released automatically 72 hours after the trip ends, unless the owners captured some of it or chose "keep holding". | Decided |
+| 7 | Deposit release | Released automatically 72 hours after the trip ends, unless the owners captured some of it or chose "keep holding". **Changed to 48 hours on 2026-10-13 (row 60).** | Decided |
 | 8 | Extensions | Automatic if every added minute is free. Within 1 hour of the trip's end it becomes a request the owners approve (the card is held meanwhile). Refused if any of the time is taken. No extending after the trip has ended. | Decided |
 | 9 | Extension price | Only the added billable days, at current prices for those dates, discounted at the tier for the new total trip length. | Decided |
 | 10 | Invoicing | Charge the saved card directly. If it declines, email the guest a link to pay on rentbluefin.com. Our own ledger, not Stripe Invoicing. | Decided |
@@ -100,3 +100,9 @@ list: [pre-launch-audit.md](pre-launch-audit.md).
 | 50 | Finishing interrupted cancellations | If a cancellation stops partway (the server goes down after the trip is marked cancelled), the payments sweep completes it within about 15 minutes: the refund the guest was quoted, the later charges, the emails. We're emailed once if its refund keeps failing. → `src/lib/payments.server.ts#completeCancellation` | **Proposed** |
 | 51 | Extension request at the trip's end | The hourly job leaves a trip open for up to 48 hours after its end while an extension request is unanswered, so it can still be approved. → `supabase/migrations/20261007120000_prelaunch_hardening.sql` | **Proposed** |
 | 52 | An owner's own booking | An owner who books a trip for themselves and cancels it gets the guest's terms, not the full "we cancelled" refund. Only cancelling someone else's booking counts as the business cancelling. Found in the 2026-10-08 rehearsal, where an owner's non-refundable test booking was refunded in full. → `src/lib/booking-status.ts#cancelsAsBusiness` | **Proposed** |
+
+## 2026-10-13: Deposit release
+
+| # | Topic | Decision | Status |
+|---|---|---|---|
+| 60 | Deposit release window | The hold is released once we've inspected the returned car, usually the same day, with the reservation page's **Release** button. If nobody releases it, it's released automatically <!-- const:DEPOSIT_RELEASE_AFTER_HOURS -->48<!-- /const --> hours after the trip ends (was 72). Same exceptions as before: a capture, or **Keep holding**. The terms, FAQ, trip page and "hold placed" email say "once we've inspected the car, no later than 48 hours". The terms add that if we find damage or other costs we may keep the hold longer while we assess them, and we'll email the guest if we do: pressing **Keep holding** sends "We're keeping your security hold for now" (once per switch-on; switching it back off sends nothing). → `src/lib/payments.server.ts#setDepositKeepHolding` → `src/lib/deposit.ts#DEPOSIT_RELEASE_AFTER_HOURS` | Decided (owners, via Liam: "48 hours should be enough") |

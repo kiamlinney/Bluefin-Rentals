@@ -1,6 +1,6 @@
 # Security deposit
 
-*Last checked against the code: 2026-09-29.* Constants: `src/lib/deposit.ts#DEPOSIT_AMOUNT`
+*Last checked against the code: 2026-09-29 (release window updated 2026-10-13).* Constants: `src/lib/deposit.ts#DEPOSIT_AMOUNT`
 and the lines below it. Engine: `src/lib/payments.server.ts#ensureDepositHold`.
 
 ## The rules
@@ -9,7 +9,7 @@ and the lines below it. Engine: `src/lib/payments.server.ts#ensureDepositHold`.
 |---|---|---|
 | Amount, every car | <!-- const:DEPOSIT_AMOUNT -->$1,500<!-- /const --> | Decided 2026-09-25, **expected to change** |
 | Placed before pickup | <!-- const:DEPOSIT_PLACE_BEFORE_HOURS -->24<!-- /const --> hours | Decided |
-| Released after return | <!-- const:DEPOSIT_RELEASE_AFTER_HOURS -->72<!-- /const --> hours | Decided |
+| Released after return, at the latest | <!-- const:DEPOSIT_RELEASE_AFTER_HOURS -->48<!-- /const --> hours (usually released by hand after inspection, often the same day) | Decided 2026-10-13 (was 72) |
 | Renewed when this close to Stripe's deadline | <!-- const:DEPOSIT_RENEW_BEFORE_HOURS -->24<!-- /const --> hours | Implementation choice |
 | Wait between retries after a decline | <!-- const:DEPOSIT_RETRY_AFTER_HOURS -->6<!-- /const --> hours | Implementation choice |
 
@@ -62,7 +62,7 @@ Stripe cancels a hold on its own after a network-set time:
 Source: [Stripe: extended authorizations](https://docs.stripe.com/payments/extended-authorization)
 
 When a hold would expire before the trip ends plus the
-<!-- const:DEPOSIT_RELEASE_AFTER_HOURS -->72<!-- /const -->-hour inspection window, the
+<!-- const:DEPOSIT_RELEASE_AFTER_HOURS -->48<!-- /const -->-hour inspection window, the
 sweep places **a fresh hold first, then releases the old one**, about
 <!-- const:DEPOSIT_RENEW_BEFORE_HOURS -->24<!-- /const --> hours before Stripe's deadline.
 The guest may briefly see two pending holds; the guest is emailed about the renewal.
@@ -90,10 +90,20 @@ Card holds saved through Link don't get extended authorization; they renew more 
 
 ## After the trip
 
-- **Automatic release** <!-- const:DEPOSIT_RELEASE_AFTER_HOURS -->72<!-- /const --> hours
-  after the trip ends, unless you captured some of it or pressed **Keep holding**. The
-  guest is emailed.
+- **Release after inspection** (reservation page, **Release**): the usual case, often the
+  same day the car comes back. The guest is emailed.
+  → `src/lib/payments.ts#releaseTripDeposit`
+- **Automatic release** <!-- const:DEPOSIT_RELEASE_AFTER_HOURS -->48<!-- /const --> hours
+  after the trip ends if nobody released it, unless you captured some of it or pressed
+  **Keep holding**. The guest is emailed. Customers are told "once we've inspected the car,
+  no later than 48 hours after return".
   → `src/lib/payments.server.ts#releaseDepositHold`
+- **Keep holding** (reservation page): stops the automatic release while you look into
+  damage or costs. The guest is emailed "We're keeping your security hold for now", without
+  a reason (once per switch-on; **Allow automatic release** sends nothing). The terms say
+  we may do this and will email them. A kept hold on a finished trip isn't renewed, so it
+  still ends at Stripe's `capture_before`: capture or release before then.
+  → `src/lib/payments.server.ts#setDepositKeepHolding`
 - **Capture for damage** (reservation page): enter an amount up to the hold and what it's
   for; the guest is told the reason. Whatever isn't captured is released in the same
   step. **A hold can only be captured once.**

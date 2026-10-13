@@ -569,6 +569,12 @@ Needs step 1c's deploy first: the `/api/cron/payments` route must be live.
   select id, 'REAL_CODE' from public.cars where is_available
   on conflict (car_id) do update
     set lockbox_code = excluded.lockbox_code, updated_at = now();
+  **Status (2026-10-13):** requested from Stripe support by email on standard (blended)
+  pricing. Support asked for a business justification (what we sell, why 7 days isn't enough,
+  authorization-to-capture time, volume and average amount), which was answered from the 2026
+  Turo trip export: median trip 3.9 days, 19% over a week, about 5–10 trips a month expected on
+  the site, $1,500 holds, released after inspection and at the latest 48 hours after return.
+  Waiting on their review. Account MCC confirmed as 7512 (car rental).
   ```
   Then open any trip page as an admin and check the real code shows.
 - [ ] **Deposit amount.** Confirm it (<!-- const:DEPOSIT_AMOUNT -->$1,500<!-- /const --> for now),

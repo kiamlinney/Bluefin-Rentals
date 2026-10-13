@@ -384,8 +384,12 @@ browser pages import** — type-only imports are fine.
   pickup — never earlier, because a
   hold lasts ~7 days. At most one attempt in flight per booking
   (`booking_charges_one_deposit_in_flight`). Renewed new-hold-first before `capture_before`,
-  released `DEPOSIT_RELEASE_AFTER_HOURS` after the trip unless `keep_holding`. Capture is
-  partial-allowed, once only.
+  released `DEPOSIT_RELEASE_AFTER_HOURS` (48 since 2026-10-13, was 72) after the trip unless
+  `keep_holding`. That's the *latest* release: the owners normally press Release after
+  inspecting the car, often the same day, and customer copy says "once we've inspected the
+  car, no later than 48 hours after return". **Keep holding** (`setDepositKeepHolding`)
+  emails the guest, because the terms promise it; the switch is a conditional update so a
+  double click sends once. Capture is partial-allowed, once only.
 - **Extensions** (`startExtension`, pricing in `src/lib/extension.ts`): automatic if free,
   a held request inside `EXTENSION_REQUEST_CUTOFF_MINUTES` of the end, refused if any added
   time is taken. The `booking_extensions` row is inserted before charging so the time is held;
@@ -394,7 +398,9 @@ browser pages import** — type-only imports are fine.
   `request_extended_authorization: 'if_available'` does *not* fall back when the account isn't
   eligible: Stripe rejects the whole request ("This account is not eligible for the requested
   card features"), which failed every hold in the 2026-09-29 rehearsal. Turn it on only after
-  Stripe enables the feature (IC+ pricing or a support request).
+  Stripe enables the feature (IC+ pricing or a support request). **Requested from Stripe
+  support on 2026-10-13** on blended pricing, MCC 7512 confirmed; status in
+  `ImportantFiles/go-live-checklist.md` §2.
 - **Only a `StripeCardError` is the guest's problem.** `chargeSavedCard` treats any other Stripe
   error as ours: it cancels the intent, closes the row as `failed` with "Stripe refused the
   request", alerts the owners and gives the guest a neutral message. It never runs the

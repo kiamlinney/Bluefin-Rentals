@@ -74,6 +74,7 @@ import {
     sendDepositCapturedEmail,
     sendDepositDeclinedEmails,
     sendDepositHeldEmail,
+    sendDepositKeptEmail,
     sendDepositReleasedEmail,
     sendExtensionEmail,
     sendPayLinkEmail,
@@ -1094,6 +1095,31 @@ export async function releaseDepositHold(
     }
 
     if (options.notifyGuest) await sendDepositReleasedEmail(admin, toChargeRow(claimed))
+    return true
+}
+
+/**
+ * "Keep holding" on, or back off. Switching it on emails the guest: the terms
+ * say we may keep a hold past the inspection window, and a guest expecting the
+ * money back shouldn't learn otherwise from their bank. The update is
+ * conditional on the current value, so a double click sends one email.
+ * Returns whether anything changed.
+ */
+export async function setDepositKeepHolding(admin: AdminClient, charge: ChargeRow, keep: boolean): Promise<boolean> {
+    if (charge.kind !== 'deposit') throw new Error('Not a deposit hold')
+    if (charge.status !== 'authorized') return false
+
+    const { data: changed } = await admin
+        .from('booking_charges')
+        .update({ keep_holding: keep })
+        .eq('id', charge.id)
+        .eq('status', 'authorized')
+        .eq('keep_holding', !keep)
+        .select(CHARGE_SELECT)
+        .maybeSingle()
+    if (!changed) return false
+
+    if (keep) await sendDepositKeptEmail(admin, toChargeRow(changed))
     return true
 }
 

@@ -153,6 +153,7 @@ delay, which matters near pickup.
 | Security hold renewed | Guest | A long trip's hold is replaced |
 | Couldn't place your hold | Guest + owners | First decline in a run of declines |
 | Part of your hold was kept | Guest | An owner captures from the deposit |
+| Keeping your hold for now | Guest | An owner presses **Keep holding** (once per switch-on) |
 | Hold released | Guest | The deposit hold is released |
 | Extension request | Owners | A last-hour extension needs an answer |
 | Trip extended / couldn't extend | Guest (+ owners) | An extension is confirmed or declined |

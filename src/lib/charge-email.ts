@@ -298,7 +298,7 @@ export async function sendDepositHeldEmail(admin: AdminClient, chargeId: string,
         await send(booking.profiles?.email, `Your ${carName(booking.cars)} is ready — Bluefin`, render({
             heading: 'Your security hold is placed',
             intro: [
-                `Hi ${who}, we've placed a ${amount} security hold on your card for your trip. This is a hold, not a charge: the money stays in your account but is set aside until ${DEPOSIT_RELEASE_AFTER_HOURS} hours after you return the car, when it's released.`,
+                `Hi ${who}, we've placed a ${amount} security hold on your card for your trip. This is a hold, not a charge: the money stays in your account but is set aside until we've inspected the car after you return it. We release it then, and no later than ${DEPOSIT_RELEASE_AFTER_HOURS} hours after you return it.`,
                 code
                     ? `Your lockbox code is (${code}). Enter it into the lock box mounted on the driver side window to get the key.`
                     : 'We will send you the lockbox code before your trip starts.',
@@ -398,6 +398,29 @@ export async function sendDepositReleasedEmail(admin: AdminClient, charge: Charg
         }))
     } catch (err: any) {
         console.error(`[email] deposit released failed for ${charge.id}:`, err?.message || err)
+    }
+}
+
+/**
+ * An owner pressed "Keep holding", so the hold won't be released when the
+ * inspection window ends. Called by the update that switched it on, so a double
+ * click sends once.
+ */
+export async function sendDepositKeptEmail(admin: AdminClient, charge: ChargeRow): Promise<void> {
+    try {
+        const booking = await loadBooking(admin, charge.booking_id)
+        if (!booking) return
+        await send(booking.profiles?.email, 'We’re keeping your security hold for now — Bluefin', render({
+            heading: 'We’re keeping your security hold for now',
+            intro: [
+                `Hi ${firstName(booking.profiles?.full_name ?? null)}, we need to look into something from your trip, so we're keeping the ${formatDepositAmount(charge.amount)} hold on your card in place for now instead of releasing it.`,
+                `It's still a hold, not a charge. If any of it is needed to cover damage or other costs from your trip, we'll tell you what for. Otherwise we'll release it.`,
+            ],
+            rows: tripRows(booking),
+            footerNote: 'Questions? Just reply to this email.',
+        }))
+    } catch (err: any) {
+        console.error(`[email] deposit kept failed for ${charge.id}:`, err?.message || err)
     }
 }
 

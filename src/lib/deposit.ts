@@ -28,10 +28,11 @@ export const DEPOSIT_AMOUNT = 1500
 // when a trip is booked a month out would lapse weeks before the car moved.
 export const DEPOSIT_PLACE_BEFORE_HOURS = 24
 
-// How long after the trip ends the hold stays on, so the car can be inspected
-// before the money is let go. An owner can capture part of it, or press
-// "keep holding", inside this window.
-export const DEPOSIT_RELEASE_AFTER_HOURS = 72
+// The latest the hold stays on after the trip ends, so the car can be inspected
+// before the money is let go. We usually release it by hand sooner, once we've
+// inspected the car (often the same day). An owner can capture part of it, or
+// press "keep holding", inside this window.
+export const DEPOSIT_RELEASE_AFTER_HOURS = 48
 
 // A hold within this long of Stripe's own capture deadline is renewed if it's
 // still needed. The payments sweep runs every 15 minutes, so a day's margin
