@@ -25,6 +25,7 @@ to review and to hold the code to. The customer-facing pages (`/policies/terms`,
 | [tax-todo.md](tax-todo.md) | **Open questions for the accountant**, what we do now on each, and where each answer goes in the code |
 | [decisions-log.md](decisions-log.md) | Every policy decision, dated, and whether you decided it or it's a proposal awaiting your review |
 | [go-live-checklist.md](go-live-checklist.md) | Everything that must happen before real payments are taken |
+| [policy-review.md](policy-review.md) | **Open decisions and legal questions in the draft terms and privacy policy**, each marked on the page, with a suggested answer |
 | [pre-launch-audit.md](pre-launch-audit.md) | Every money and status function checked for wrong-status, double, concurrent and half-finished runs: what was fixed, and what needs your decision |
 
 ## How these stay true

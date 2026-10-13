@@ -282,7 +282,7 @@ export function TripReceipt({
                     already looking at their own name. */}
                 {isAdmin ? (
                     <Link
-                        to="/admin/user/$userId"
+                        to="/admin/customers/$userId"
                         params={{ userId: profile.id }}
                         className="text-sm font-semibold text-pine-500 hover:underline"
                     >

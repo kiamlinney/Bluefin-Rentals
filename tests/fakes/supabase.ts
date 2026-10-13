@@ -6,8 +6,10 @@
 // database rules that the code relies on to be safe:
 //
 //   - the partial unique indexes (one deposit attempt in flight, one open
-//     extension, one live extra per trip), one Turo row per trip and per
-//     email, one overlap alert per pair, all returning Postgres's 23505;
+//     extension, one live extra per trip, one active block per account and
+//     per licence), one Turo row per trip and per email, one overlap alert per
+//     pair, one identity per customer, all returning Postgres's 23505;
+//   - upsert as PostgREST does it (merge-duplicates on the conflict target);
 //   - the bookings status trigger, as written in
 //     supabase/migrations/20261007120000_prelaunch_hardening.sql.
 //
@@ -53,6 +55,21 @@ const DEFAULTS: Record<string, () => Row> = {
         renter_name: null, turo_trip_id: null, raw_subject: null, email_sent_at: null, synced_at: null,
         swap_accepted_at: null, swap_car_confirmed_at: null,
     }),
+    customer_blocks: () => ({
+        user_id: null, license_number: null, source: 'manual', matched_block_id: null, blocked_by: null,
+        lifted_at: null, lifted_by: null, lift_reason: null,
+    }),
+    customer_identities: () => ({
+        livemode: false, verified_at: null, first_name: null, last_name: null, dob: null, license_number: null,
+        document_type: null, issuing_country: null, issuing_state: null, issued_date: null, expiration_date: null,
+        address: null, sensitive_captured: false,
+    }),
+}
+
+// Tables whose primary key isn't `id`, for upsert's default conflict target.
+const PRIMARY_KEYS: Record<string, string[]> = {
+    customer_identities: ['user_id'],
+    customer_tags: ['user_id', 'tag'],
 }
 
 type Unique = { table: string; name: string; key: (r: Row) => string | null }
@@ -78,6 +95,20 @@ const UNIQUES: Unique[] = [
     { table: 'turo_bookings', name: 'turo_bookings_gmail_message_id_key', key: r => r.gmail_message_id ?? null },
     // The primary key the overlap alerts claim on (20261012120000).
     { table: 'schedule_overlap_alerts', name: 'schedule_overlap_alerts_pkey', key: r => r.pair_key ?? null },
+    // The CRM (20261013120000): one active block per account and per licence,
+    // one identity per user, a tag once per customer.
+    {
+        table: 'customer_blocks',
+        name: 'customer_blocks_one_active_per_user',
+        key: r => (r.lifted_at == null && r.user_id != null ? r.user_id : null),
+    },
+    {
+        table: 'customer_blocks',
+        name: 'customer_blocks_one_active_per_license',
+        key: r => (r.lifted_at == null && r.license_number != null ? r.license_number : null),
+    },
+    { table: 'customer_identities', name: 'customer_identities_pkey', key: r => r.user_id ?? null },
+    { table: 'customer_tags', name: 'customer_tags_pkey', key: r => `${r.user_id}:${r.tag}` },
 ]
 
 /** The bookings status trigger, mirrored from the 2026-10-07 migration. */
@@ -192,7 +223,13 @@ class Query implements PromiseLike<Result> {
         return this
     }
     insert(rows: Row | Row[]) { this.op = 'insert'; this.payload = rows; return this }
-    upsert(rows: Row | Row[]) { this.op = 'upsert'; this.payload = rows; return this }
+    private conflictCols: string[] | null = null
+    upsert(rows: Row | Row[], opts?: { onConflict?: string }) {
+        this.op = 'upsert'
+        this.payload = rows
+        this.conflictCols = opts?.onConflict ? opts.onConflict.split(',').map(s => s.trim()) : null
+        return this
+    }
     update(patch: Row) { this.op = 'update'; this.payload = patch; return this }
     delete() { this.op = 'delete'; return this }
 
@@ -280,9 +317,20 @@ class Query implements PromiseLike<Result> {
             const list = Array.isArray(this.payload) ? this.payload : [this.payload]
             const inserted: Row[] = []
             for (const raw of list) {
-                if (this.op === 'upsert' && raw.id) {
-                    const existing = db.rows(this.table).find(r => r.id === raw.id)
-                    if (existing) { Object.assign(existing, raw); inserted.push(existing); continue }
+                if (this.op === 'upsert') {
+                    // PostgREST's merge-duplicates: on a conflict, only the
+                    // columns sent are updated; the rest keep their values.
+                    const cols = this.conflictCols ?? PRIMARY_KEYS[this.table] ?? ['id']
+                    const existing = cols.every(c => raw[c] != null)
+                        ? db.rows(this.table).find(r => cols.every(c => eq(r[c], raw[c])))
+                        : undefined
+                    if (existing) {
+                        const violation = db.checkWrite(this.table, existing, { ...existing, ...raw })
+                        if (violation) return { data: null, error: violation }
+                        Object.assign(existing, raw)
+                        inserted.push(existing)
+                        continue
+                    }
                 }
                 const row: Row = {
                     id: randomUUID(),

@@ -15,6 +15,8 @@ import { flagTuroSwap, runTuroSync, TURO_SYNC_CATCHUP_LOOKBACK_DAYS } from './tu
 import { assignTuroTripCar as assignTuroTripCarOnServer, turoSwapOptions } from './turo-swap.server'
 import { assertBookingAccess, getServiceRoleClient, requireAdmin, requireUser } from './access.server'
 import { assertCarIsAvailable, extensionHoldRows, findCarConflict, PENDING_HOLD_MS } from './availability.server'
+import { assertNotBlocked } from './blocks.server'
+import { recordVerifiedIdentity } from './identity.server'
 import { cancelsAsBusiness, holdHasLapsed } from './booking-status.ts'
 import { DEFAULT_BOOKING_RATE, type BookingRate } from './booking-rate.ts'
 import { cancelDecisionFor, laterChargesRefundTotal, refundForCancellation } from './cancellation-policy.ts'
@@ -714,6 +716,10 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         // their own row with the anon key (see
         // supabase/migrations/20260927120000_payments_ledger.sql).
         const supabaseAdmin = getServiceRoleClient()
+
+        // Before either resume path, which would otherwise hand a blocked
+        // customer the client secret of a checkout they started earlier.
+        await assertNotBlocked(supabaseAdmin, user.id)
 
         // The guest's Stripe customer, which the card is saved to when this
         // payment succeeds. Created on first checkout.
@@ -1595,9 +1601,8 @@ export const getProfile = createServerFn({ method: 'GET' })
 const PROFILE_VIEW_COLUMNS =
     'id, full_name, email, phone, date_of_birth, num_trips, created_at, identity_verified'
 
-// Fetches one profile for the user profile pages. Two callers with different
-// rights: the admin page at /admin/user/$userId reads anyone, the guest page at
-// /profile reads only the caller.
+// Fetches one profile for /profile. A guest reads only their own; an admin may
+// read anyone's (the CRM, /admin/customers, has its own fuller read).
 //
 // RLS already draws that line (profiles_select_owner_or_admin in schema.sql),
 // but the check below is not redundant — server functions are callable directly,
@@ -1630,35 +1635,6 @@ export const getUserProfile = createServerFn({ method: 'GET' })
         if (!data) throw new Error('User not found')
 
         return { profile: data, isAdminViewer }
-    })
-
-// Every booking a given user has made, newest first, for the trip history list
-// on the admin profile page. Admin-only: the guest profile page never calls it,
-// and /my-bookings already covers a user's view of their own trips.
-export const getUserTripHistory = createServerFn({ method: 'GET' })
-    .inputValidator((userId: string) => userId)
-    .handler(async ({ data: userId }) => {
-        const supabase = getSupabaseServerClient()
-        const authResult = await supabase.auth.getUser()
-        const user = authResult.data.user
-        if (!user) throw new Error('Not authenticated')
-
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('is_admin')
-            .eq('id', user.id)
-            .single()
-
-        if (!profile?.is_admin) throw new Error('Not authorized')
-
-        const { data, error } = await supabase
-            .from('bookings')
-            .select('id, start_time, end_time, status, cars(id, year, make, model)')
-            .eq('user_id', userId)
-            .order('start_time', { ascending: false })
-
-        if (error) throw new Error(error.message)
-        return data || []
     })
 
 // Saves driver info to the profile.
@@ -1699,6 +1675,11 @@ export const saveDriverInfo = createServerFn({ method: 'POST' })
 
 // ---- Stripe ----------------------------------------------------------------------------
 
+// The documents Stripe Identity may verify: a driver's licence only (Liam,
+// 2026-10-13). An ID card or passport proves who someone is, not that they may
+// drive. Stated in the terms ("Who can rent") and the checkout's ID step.
+const IDENTITY_DOCUMENT_TYPES = ['driving_license'] as const
+
 // Creates a Stripe Identity Verification Session.
 // Stripe returns a URL — we redirect the user there for the actual scan.
 // The `return_url` is where Stripe sends the user after they finish.
@@ -1709,6 +1690,9 @@ export const createIdentitySession = createServerFn({ method: 'POST' })
         const authResult = await supabase.auth.getUser()
         const user = authResult.data.user
         if (!user) throw new Error('Not authenticated')
+
+        // Verifying only leads to booking, and a blocked account can't book.
+        await assertNotBlocked(getServiceRoleClient(), user.id)
 
         // Check if user already has an identity session
         const { data: profile } = await supabase
@@ -1722,21 +1706,25 @@ export const createIdentitySession = createServerFn({ method: 'POST' })
                 profile.stripe_identity_session_id
             )
 
-            // 'requires_input' meaning user has not finished yet, return them to the same identity session id
-            if (existingSession.status === 'requires_input' && existingSession.url) {
+            // 'requires_input' meaning user has not finished yet, return them to the same identity session id.
+            // Only if it was opened under the current document rule: one from
+            // before 2026-10-13 also accepts ID cards, so a fresh one is made.
+            const allowed = existingSession.options?.document?.allowed_types
+            const sameRule = allowed?.length === IDENTITY_DOCUMENT_TYPES.length &&
+                IDENTITY_DOCUMENT_TYPES.every(t => allowed.includes(t))
+            if (existingSession.status === 'requires_input' && existingSession.url && sameRule) {
                 return { url: existingSession.url, sessionId: existingSession.id }
             }
         }
 
         // Create the verification session with Stripe
-        // 'document' type means license/passport scan + selfie match
+        // 'document' type means a document scan + selfie match
         const session = await stripe.identity.verificationSessions.create({
             type: 'document',
             metadata: { userId: user.id },
             options: {
                 document: {
-                    // Only accept driver's licenses and ID cards, not passports
-                    allowed_types: ['driving_license', 'id_card'],
+                    allowed_types: [...IDENTITY_DOCUMENT_TYPES],
                     require_live_capture: true,   // no uploaded photos
                     require_matching_selfie: true, // selfie must match document
                 },
@@ -1789,6 +1777,11 @@ export const finalizeIdentitySession = createServerFn({ method: 'POST' })
                     stripe_identity_session_id: session.id
                 })
                 .eq('id', user.id)
+
+            // The licence copy for the CRM. Best-effort here: the webhook for the
+            // same verification does it too, and retries until it works.
+            await recordVerifiedIdentity(supabaseAdmin, session.id)
+                .catch((err: any) => console.error('[identity] record on finalize failed:', err?.message || err))
 
             return { verified: true }
         }
@@ -2564,6 +2557,7 @@ export const createReview = createServerFn({ method: 'POST' })
         const { rating, body } = cleanReviewInput(data)
 
         const supabaseAdmin = getServiceRoleClient()
+        await assertNotBlocked(supabaseAdmin, user.id)
         const { data: booking } = await supabaseAdmin
             .from('bookings')
             .select('id, car_id, user_id, status')
@@ -2974,7 +2968,9 @@ export const requestTripExtras = createServerFn({ method: 'POST' })
         message?: string
     }) => input)
     .handler(async ({ data }) => {
-        const { supabaseAdmin, user } = await assertBookingAccess(data.bookingId)
+        const { supabaseAdmin, user, isAdmin } = await assertBookingAccess(data.bookingId)
+        // A guest asking for something new. An owner acting on the trip isn't.
+        if (!isAdmin) await assertNotBlocked(supabaseAdmin, user.id)
 
         const { data: booking, error } = await supabaseAdmin
             .from('bookings')

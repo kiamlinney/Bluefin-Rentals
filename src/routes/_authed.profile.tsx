@@ -52,7 +52,7 @@ function ProfilePage() {
                 )}
 
                 <div className="bg-surface border border-line rounded-2xl p-8 md:p-10">
-                    <UserProfile profile={profile} viewer="self" />
+                    <UserProfile profile={profile} />
                 </div>
             </div>
         </div>

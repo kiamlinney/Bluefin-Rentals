@@ -227,7 +227,7 @@ $28.52", and pays **$369.13**.
 - **Checkout:** the two tax lines appear above the trip total. The total is the amount
   charged.
 - **Receipts and later-charge receipts:** the tax lines, as charged.
-- **Terms of service, section 9 (Taxes):** prices are before tax; sales tax is the state's
+- **Terms of service, <!-- const:TERMS_SECTION_TAXES -->section 18<!-- /const --> (Taxes):** prices are before tax; sales tax is the state's
   plus the local taxes where the car is picked up; the 9.2% rental tax applies to rentals of
   28 days or less; later charges are taxed the same way; a refund returns the tax on the
   amount refunded.

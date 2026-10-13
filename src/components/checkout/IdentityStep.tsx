@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from '@tanstack/react-router'
 import { createIdentitySession, finalizeIdentitySession, getProfile } from '@/lib/db'
 import type { CheckoutSearch } from '@/lib/checkout-search.ts'
 
@@ -162,6 +163,18 @@ export function IdentityStep({
                     ))}
                 </div>
             </div>
+
+            {/* The notice for what verifying collects and keeps, given before
+                the guest starts. DRAFT wording, pending legal review with the
+                privacy policy (ImportantFiles/policy-review.md, LR-BIOMETRIC). */}
+            <p className="text-muted text-xs mt-4">
+                Stripe takes the photos and compares your selfie with the photo on your license.
+                Stripe keeps the images; we keep your name, date of birth, license number and its
+                dates, to confirm you can rent and to prevent fraud. Details in our{' '}
+                <Link to="/policies/privacy" target="_blank" rel="noopener noreferrer" className="underline text-pine-500">
+                    privacy policy
+                </Link>.
+            </p>
 
             {error && <p className="text-red-600 text-sm mt-4">{error}</p>}
 

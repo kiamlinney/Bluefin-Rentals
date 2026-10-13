@@ -5,14 +5,18 @@ import {formatBusinessDate, formatBusinessTime} from "@/lib/dates.ts";
 import {carMainImageUrl} from "@/lib/car-images.ts";
 import {money} from "@/lib/email-template.ts";
 import {tripPhase} from "@/lib/booking-status";
+import {CustomerFlags} from "@/components/admin/CustomerFlags";
 
 export function TripCard({
     booking,
     overlapNote,
+    customer,
 }: {
     booking: BookingWithRelations
     /** What this trip overlaps on the same car (useScheduleFlags), shown in red. */
     overlapNote?: string
+    /** The guest's CRM tags and block (getCustomerFlags). */
+    customer?: { tags: string[]; blocked: boolean }
 }) {
     const car = booking.cars
 
@@ -119,6 +123,8 @@ export function TripCard({
                         </div>
                     )}
                 </div>
+
+                {customer && <CustomerFlags tags={customer.tags} blocked={customer.blocked} className="mt-1" />}
 
                 {overlapNote && (
                     <p className="mt-2 flex items-start gap-1 text-sm font-semibold text-red-700">

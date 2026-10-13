@@ -27,6 +27,7 @@ import {
     syncChargeFromIntent,
 } from '../../lib/payments.server'
 import { sendAdminAlert } from '../../lib/charge-email'
+import { recordVerifiedIdentity } from '../../lib/identity.server'
 
 type AdminClient = SupabaseClient<any, any, any>
 
@@ -341,6 +342,11 @@ export const Route = createFileRoute('/api/stripe-webhook')({
                                     console.error('Supabase update error (identity verified):', error)
                                     throw error
                                 }
+                                // The licence copy for the CRM, and the blocklist
+                                // check on it. A throw answers 500 and Stripe
+                                // retries, well inside the 48 hours the
+                                // restricted key can read the licence for.
+                                await recordVerifiedIdentity(supabaseAdmin, sess.id)
                             } else {
                                 console.warn('identity.verified missing metadata.userId; skipping profile update')
                             }

@@ -93,7 +93,7 @@ Two different Supabase clients are used, and picking the right one matters:
   - **Every event is routed first**: a PaymentIntent with `metadata.chargeId` (or a `kind` other than `'trip'`) is a ledger charge and goes to `syncChargeFromIntent`; anything else is a checkout. Before the ledger, a second PaymentIntent on a booking matched no row, returned 500, and would have been retried for three days.
   - `confirmCheckout` **reads the row before updating**: no row → 500 (the insert may not have committed; retry); `canceled`/`completed` → left alone (a refunded trip is never revived); `pending`/`expired`/`failed` → confirmed.
   - **`payment_intent.payment_failed` no longer marks a checkout `failed`.** Stripe fires it for every declined attempt and the guest can retry on the same intent; marking the row failed made the successful retry unconfirmable.
-- Stripe Identity (`createIdentitySession` / `finalizeIdentitySession`) handles driver's license verification separately from payment, storing `stripe_identity_session_id` on `profiles` and flipping `identity_verified` via webhook or finalize call.
+- Stripe Identity (`createIdentitySession` / `finalizeIdentitySession`) handles driver's license verification separately from payment, storing `stripe_identity_session_id` on `profiles` and flipping `identity_verified` via webhook or finalize call. **Driver's licence only** (`IDENTITY_DOCUMENT_TYPES`, Liam 2026-10-13): no ID cards or passports. An unfinished session made under a different rule is replaced, not resumed. Stripe's **sandbox ignores this**: every test verification comes back as Jenny Rosen's passport with the same number, which is also why the licence-match blocking test works there.
 
 ### Pending holds — the rule three places have to agree on
 
@@ -267,7 +267,7 @@ An admin moves a trip onto another car from the reservation page's **Swap vehicl
   later code is the new car's. The email is sent after the swap commits and never fails it:
   `{ emailSent: false }` tells the admin to contact the guest.
 - `TripVehicleSwapSection` (shared, `voice` prop) lists the swaps and reasons on both trip pages.
-  `/policies/terms` section 7 states the rules to customers.
+  `/policies/terms` ("If we change your car") states the rules to customers.
 
 ### Guest welcome email (`src/lib/welcome-message.ts`, `src/lib/welcome-email.ts`)
 
@@ -563,6 +563,69 @@ has none — discarding a pending checkout gets a plain inline confirm on its ca
 page instead. **Cancelling a confirmed trip lives on the guest trip page**, not on the Trips
 list card, which is what let that card become a plain `<Link>` instead of an overlay-anchor wrapper.
 
+### Customer CRM and blocking (`src/lib/crm.ts`, `blocks.ts`, `blocks.server.ts`, `identity.server.ts`)
+
+`/admin/customers` lists every account (search, filters, sort, CSV export) and
+`/admin/customers/$userId` is one customer: licence, contact, trips, money, reviews, notes,
+tags, block history. `/admin/user/$userId` now redirects there. Built 2026-10-12. Server
+functions are in `crm.ts`, and each calls `requireAdmin()` first.
+
+- **The licence is copied when verification succeeds, because Stripe won't give it to us
+  later.** Stripe returns the licence number, DOB, expiry and photos only to a *restricted* key
+  (`STRIPE_IDENTITY_RESTRICTED_KEY`, `rk_…`) and only for **48 hours** after verification.
+  Reading them later needs an IP-restricted key, and Railway has fixed outgoing IPs only on Pro.
+  `recordVerifiedIdentity` runs from the webhook (`identity.verification_session.verified`,
+  which answers 500 on failure so Stripe retries inside the window) and from
+  `finalizeIdentitySession`. It upserts `customer_identities`. **The sensitive columns are
+  only written by a read that got them**, so a refresh after 48 hours never nulls them.
+  Photos are never copied: the CRM shows 30-second FileLinks inside 48 hours, then links to the
+  Stripe Dashboard. Without the key, verification still works but no licence number is kept.
+  Guests verified before 2026-10-12 have none; an owner can type it in from the Dashboard
+  (`setCustomerLicenseNumber`).
+- **CRM data is never on `profiles`.** `customer_identities`, `customer_blocks`,
+  `customer_notes` and `customer_tags` are service-role only, with no policies. A guest
+  reads their own profile with `select('*')`, so a "Caution" tag or a licence column there
+  would ship to them. None of the tables references `bookings` (the PGRST201 trap).
+- **A block stops new activity, not sign-in.** `assertNotBlocked` is called in
+  `createCheckoutSession` (before both resume paths), `createIdentitySession`, the guest path of
+  `requestTripExtension` and `requestTripExtras`, and `createReview`. **Never on a confirmation
+  path, a pay link or a trip page**: a blocked guest must still be able to pay what they owe.
+  It fails closed: if the blocklist can't be read, the action fails. A new action a guest can
+  start needs the check too.
+- **A block matches the account or its licence number** (normalized by `normalizeLicense`).
+  When a new account verifies a blocked licence, `checkLicenseAgainstBlocks` blocks it
+  (`source: 'license_match'`) and emails the owners once. The partial unique indexes (one
+  active block per user, one per licence) are what make that race-safe. Unblocking lifts
+  every block on the person, including the original and its copies. Admins can't be blocked.
+  Liam chose licence-only matching (no email, phone, card or IP).
+- **Blocking never cancels a confirmed trip.** It returns the upcoming trips for the dialog to
+  list. It does cancel the PaymentIntent of every `pending`, `expired` and `failed` checkout
+  (`releaseOpenCheckouts`), because the webhook revives expired and failed rows on a late
+  payment.
+- Tags and the Blocked chip show on the reservation page and the Booked/History trip cards
+  (`getCustomerFlags`). The CSV export leaves out licence number and DOB on purpose.
+- Tests: `tests/crm.test.ts`. Every guard was mutation-checked when written.
+
+### Terms of service and privacy policy (drafts)
+
+Both are written in full but are **drafts** (2026-10-12). Anything the owners haven't decided
+is an `<OwnerDecision id="OD-…">` placeholder on the page, and wording for a lawyer is
+`<LegalReview id="LR-…">` (`src/components/policies/PolicyParts.tsx`). Every id is listed in
+`ImportantFiles/policy-review.md`, and `tests/policy-review.test.ts` fails if a page and that
+document disagree. **Never resolve a marker with a guess.** Replace it only with the owners'
+answer, then move its row to Resolved and add a decisions-log row.
+
+- **Terms section numbers come from `src/lib/policy-sections.ts#TERMS_SECTIONS`.** Cite a
+  section with `termsSection('deposit')` in code and `<!-- const:TERMS_SECTION_DEPOSIT -->section
+  6<!-- /const -->` in `ImportantFiles/`, never a typed number. The terms were reordered on
+  2026-10-12 (eligibility and booking first), which is why this exists.
+- **The privacy policy describes what the code collects.** Its header comment lists the code
+  each claim rests on. A new third-party service, analytics, marketing email, a new table of
+  personal data, or a change to what's kept means the privacy page changes in the same piece of
+  work. Facts it depends on: no analytics or ad pixels, photos stripped of EXIF, **videos
+  uploaded with their metadata**, ID images never copied, Supabase in `us-east-2`.
+- The checkout agreement line links the privacy policy, and the ID step says what's kept.
+
 ### Ratings & reviews (`src/lib/reviews.ts`, review functions at the end of `db.ts`)
 
 A review belongs to a **booking** (`reviews.booking_id`, unique), and only a `completed` one. `createReview` takes just the booking id and copies `car_id`/`user_id` off the row, so a guest can only review a car they actually rented. Never accept a car id from the client for a guest review. Imported Turo reviews (`source = 'turo'`, admin-entered) are the only rows without a booking.
@@ -625,6 +688,12 @@ Use them read-only; schema changes are Liam's to run. The 2026-10-07 audit
 
 **Status:** `20261007120000` and `20261008120000_fix_signup.sql` (below) were both run
 2026-10-08 (verified live). `20261007130000` (drop `get_available_cars`) runs after deploy.
+`20261013120000_customer_crm.sql` was run 2026-10-12 (verified live: four tables, RLS on, no
+policies, no anon/authenticated grants, both partial unique indexes; regenerated types match
+`database.types.ts` exactly). It had to run before the CRM deployed, because the block check
+reads `customer_blocks` on every checkout and fails closed. **A check that tests a constraint
+should report OK, not end on the expected error**: the first version of this file's check
+finished with a duplicate-key error, which reads as a failure.
 
 **Sign-ups were broken from 2026-09-27 to 2026-10-08** ("Database error saving new user"; no
 account created in between). `profiles_guard_server_columns` refused a new profile whose
@@ -957,7 +1026,13 @@ is baked in at build time and changing it triggers a rebuild.
 
 ## Environment variables
 
-Required in `.env` (see `.env` locally, never commit real values): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `VITE_STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `MAPBOX_TOKEN`, `ADMIN_NOTIFICATION_EMAIL`, `SITE_URL`, `VITE_SITE_URL`, `CRON_SECRET`, and optionally `VITE_ALLOW_INDEXING`.
+Required in `.env` (see `.env` locally, never commit real values): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `VITE_STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `MAPBOX_TOKEN`, `ADMIN_NOTIFICATION_EMAIL`, `SITE_URL`, `VITE_SITE_URL`, `CRON_SECRET`, `STRIPE_IDENTITY_RESTRICTED_KEY`, and optionally `VITE_ALLOW_INDEXING`.
+
+`STRIPE_IDENTITY_RESTRICTED_KEY` is a Stripe restricted key (`rk_test_…` locally, `rk_live_…`
+in Railway at go-live) with *Identity Verification Results: Read*, *Recent Detailed
+Verification Results: Read* and *Files: Write*. It's server-only (read in
+`identity.server.ts`). Unset degrades: verification works, but no licence number is kept and
+the CRM shows no photos.
 
 **Local `.env` stays on localhost and sandbox keys.** Production values live only in
 Railway's variables. A live secret key in local `.env` means a test booking on your laptop

@@ -11,6 +11,7 @@
 
 import { createServerFn } from '@tanstack/react-start'
 import { assertBookingAccess, getServiceRoleClient, requireAdmin } from './access.server'
+import { assertNotBlocked } from './blocks.server'
 import {
     captureDeposit,
     createAdjustmentCharge,
@@ -26,8 +27,8 @@ import {
     refreshCharge,
     refundCharge,
     releaseDepositHold,
-    startCardUpdate,
     setDepositKeepHolding as setKeepHolding,
+    startCardUpdate,
     startExtension,
 } from './payments.server'
 import { depositStateFor } from './lockbox.server'
@@ -139,6 +140,8 @@ export const requestTripExtension = createServerFn({ method: 'POST' })
     .inputValidator((input: ExtensionInput) => input)
     .handler(async ({ data }) => {
         const { supabaseAdmin, user, isAdmin } = await assertBookingAccess(data.bookingId)
+        // A guest asking for more time. An owner extending the trip isn't.
+        if (!isAdmin) await assertNotBlocked(supabaseAdmin, user.id)
         const result = await startExtension(supabaseAdmin, {
             bookingId: data.bookingId,
             newEndDate: data.newEndDate,

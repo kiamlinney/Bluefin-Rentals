@@ -46,6 +46,7 @@ import { MILES_INCLUDED_PER_DAY } from '../src/lib/distance.ts'
 import { EXTRAS } from '../src/lib/extras.ts'
 import { DISCOUNT_TIERS, LONG_DURATION_DISCOUNT, SAME_DAY_SURCHARGE } from '../src/lib/pricing.ts'
 import { PENDING_HOLD_MS } from '../src/lib/availability.ts'
+import { TERMS_SECTIONS, termsSection } from '../src/lib/policy-sections.ts'
 
 const ROOT = new URL('..', import.meta.url).pathname
 const DOCS = join(ROOT, 'ImportantFiles')
@@ -101,6 +102,12 @@ const EXPECTED: Record<string, string> = {
     EXTRA_PREPAID_REFUEL: extra('prepaid-refuel'),
     EXTRA_UNLIMITED_MILEAGE: extra('unlimited-mileage'),
     EXTRA_CHILD_SEAT: extra('child-seat'),
+    // Where the terms of service say something: <!-- const:TERMS_SECTION_DEPOSIT -->section 6<!-- /const -->.
+    // Reordering the terms (src/lib/policy-sections.ts) fails every document still quoting the old number.
+    ...Object.fromEntries(TERMS_SECTIONS.map(s => [
+        `TERMS_SECTION_${s.id.toUpperCase().replace(/-/g, '_')}`,
+        termsSection(s.id),
+    ])),
 }
 
 let failures = 0

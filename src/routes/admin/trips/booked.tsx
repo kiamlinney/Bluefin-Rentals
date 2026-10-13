@@ -1,5 +1,6 @@
 import {createFileRoute} from '@tanstack/react-router'
 import {getCars, getConfirmedBookings, getTuroBookings, sendTestBookingEmail} from '@/lib/db'
+import { getCustomerFlags } from '@/lib/crm'
 import { TripCard } from 'src/components/admin/TripCard.tsx'
 import { ScheduleOverlapBanner } from '@/components/admin/ScheduleOverlapBanner.tsx'
 import { TuroSwapBanner, TuroSwapPreview, useTuroSwapPrompt } from '@/components/admin/TuroSwapModal.tsx'
@@ -28,7 +29,8 @@ export const Route = createFileRoute('/admin/trips/booked')({
             getTuroBookings({ data: { startDate: today, endDate: addDays(today, 365) } }),
             getCars(),
         ])
-        return { bookings, turoBookings, cars }
+        const customerFlags = await getCustomerFlags({ data: bookings.map(b => b.user_id) })
+        return { bookings, turoBookings, cars, customerFlags }
     },
     component: BookedPage,
 })
@@ -229,7 +231,7 @@ function formatGroupLabel(date: Date): string {
 }
 
 function BookedPage() {
-    const { bookings, turoBookings, cars } = Route.useLoaderData();
+    const { bookings, turoBookings, cars, customerFlags } = Route.useLoaderData();
 
     const groups = groupBookingsByDate(bookings)
     const flags = useScheduleFlags(bookings, turoBookings)
@@ -265,6 +267,7 @@ function BookedPage() {
                                             key={booking.id}
                                             booking={booking}
                                             overlapNote={flags.overlapNotes.get(tripKey({ source: 'booking', id: booking.id }))}
+                                            customer={customerFlags[booking.user_id]}
                                         />
                                     ))}
                                 </div>

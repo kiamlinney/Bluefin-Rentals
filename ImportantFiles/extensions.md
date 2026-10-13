@@ -76,5 +76,5 @@ The extension follows the trip's refund outcome ([cancellation-and-refunds.md](c
 
 ## Customers are told
 
-`/policies/terms` section 4; the Extend trip dialog (price and whether it's a request);
+`/policies/terms` <!-- const:TERMS_SECTION_EXTENSIONS -->section 13<!-- /const -->; the Extend trip dialog (price and whether it's a request);
 the "trip extended" / "couldn't extend" emails.

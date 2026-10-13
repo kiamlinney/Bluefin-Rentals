@@ -103,5 +103,5 @@ photos and messages are the evidence. Nothing on the site responds automatically
 
 ## Customers are told
 
-`/policies/terms` sections 2, 5, 6 and 7 (a changed car keeps its price and per-mile rate); the checkout consent line; the extras page ("held
+`/policies/terms` <!-- const:TERMS_SECTION_PAYMENT -->section 5<!-- /const -->, <!-- const:TERMS_SECTION_EXTRAS -->section 14<!-- /const -->, <!-- const:TERMS_SECTION_COSTS -->section 15<!-- /const --> and <!-- const:TERMS_SECTION_SWAP -->section 16<!-- /const --> (a changed car keeps its price and per-mile rate); the checkout consent line; the extras page ("held
 on your card now"); the pay page; the receipt and pay-link emails.

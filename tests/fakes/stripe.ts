@@ -233,7 +233,88 @@ export class FakeStripe {
         constructEvent: (body: string) => JSON.parse(body),
     }
 
-    identity = { verificationSessions: { create: async () => ({}), retrieve: async () => ({}) } }
+    // ── Stripe Identity ──────────────────────────────────────────────────────
+    //
+    // Verification sessions as Stripe returns them. The sensitive fields (date
+    // of birth, document number, expiry) come back only when the request
+    // expands them, and Stripe refuses that request once the 48 hours are up:
+    // `sensitiveExpired` simulates that. (Which key made the request can't be
+    // told apart here: every Stripe client is this one fake.)
+    identitySessions = new Map<string, any>()
+    sensitiveExpired = false
+    fileLinksMade: string[] = []
+
+    /** A verified session for a user, with the licence Stripe read off it. */
+    seedVerifiedIdentity(o: { userId: string; licenseNumber: string; dob?: string; expires?: string; createdAt?: Date }): string {
+        const id = nextId('vs')
+        const toParts = (d: string) => { const [year, month, day] = d.split('-').map(Number); return { year, month, day } }
+        this.identitySessions.set(id, {
+            id,
+            object: 'identity.verification_session',
+            status: 'verified',
+            livemode: false,
+            metadata: { userId: o.userId },
+            verified_outputs: {
+                first_name: 'Gina', last_name: 'Guest', address: { line1: '1 Main St', city: 'Saint Paul', state: 'MN', postal_code: '55101', country: 'US' },
+                __dob: toParts(o.dob ?? '1990-04-05'),
+            },
+            last_verification_report: {
+                id: nextId('vr'),
+                created: Math.floor((o.createdAt ?? new Date()).getTime() / 1000),
+                document: {
+                    type: 'driving_license', issuing_country: 'US', first_name: 'Gina', last_name: 'Guest',
+                    issued_date: { year: 2022, month: 1, day: 2 }, address: null,
+                    files: ['file_front', 'file_back'],
+                    __number: o.licenseNumber, __expiration_date: toParts(o.expires ?? '2030-04-05'),
+                },
+                selfie: { selfie: 'file_selfie', document: 'file_front', status: 'verified' },
+            },
+        })
+        return id
+    }
+
+    /** The params of every verification session created. */
+    identityCreated: any[] = []
+
+    identity = {
+        verificationSessions: {
+            create: async (params: any) => {
+                this.identityCreated.push(params)
+                const id = nextId('vs')
+                const session = { id, status: 'requires_input', url: `https://verify.stripe.test/${id}`, metadata: params.metadata, options: params.options }
+                this.identitySessions.set(id, session)
+                return structuredClone(session)
+            },
+            retrieve: async (id: string, opts?: { expand?: string[] }) => {
+                this.calls.push(`identity.retrieve:${id}`)
+                const s = this.identitySessions.get(id)
+                if (!s) return { id, status: 'requires_input', metadata: {} }
+                if (!s.verified_outputs) return structuredClone(s) // not verified yet: nothing to expand
+                const expand = opts?.expand ?? []
+                const sensitive = expand.some(e => ['verified_outputs.dob', 'last_verification_report.document.number', 'last_verification_report.document.expiration_date'].includes(e))
+                if (sensitive && this.sensitiveExpired) {
+                    throw new StripeError('Sensitive verification results are only available for 48 hours.', 'StripePermissionError')
+                }
+                const out = structuredClone(s)
+                const { __dob, ...outputs } = out.verified_outputs
+                const { __number, __expiration_date, ...doc } = out.last_verification_report.document
+                out.verified_outputs = expand.some(e => e.startsWith('verified_outputs')) ? outputs : null
+                if (expand.includes('verified_outputs.dob')) out.verified_outputs = { ...outputs, dob: __dob }
+                const report = { ...out.last_verification_report, document: doc }
+                if (expand.includes('last_verification_report.document.number')) report.document.number = __number
+                if (expand.includes('last_verification_report.document.expiration_date')) report.document.expiration_date = __expiration_date
+                out.last_verification_report = expand.some(e => e.startsWith('last_verification_report')) ? report : report.id
+                return out
+            },
+        },
+    }
+
+    fileLinks = {
+        create: async (params: { file: string; expires_at: number }) => {
+            this.fileLinksMade.push(params.file)
+            return { id: nextId('link'), url: `https://files.stripe.test/${params.file}`, expires_at: params.expires_at }
+        },
+    }
 
     /** Total refunded on a payment, in dollars. */
     refundedOn(intentId: string): number {

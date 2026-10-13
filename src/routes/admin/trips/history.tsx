@@ -1,5 +1,6 @@
 import {createFileRoute} from '@tanstack/react-router'
 import {getPastBookings} from '@/lib/db'
+import {getCustomerFlags} from '@/lib/crm'
 import {TripCard} from 'src/components/admin/TripCard.tsx'
 import type { BookingWithRelations } from '@/types.ts'
 import {businessDateKey, businessDayStart, formatBusinessDate} from '@/lib/dates'
@@ -14,7 +15,8 @@ type DateGroup = {
 export const Route = createFileRoute('/admin/trips/history')({
     loader: async () => {
         const bookings = await getPastBookings()
-        return { bookings }
+        const customerFlags = await getCustomerFlags({ data: bookings.map(b => b.user_id) })
+        return { bookings, customerFlags }
     },
     component: HistoryPage,
 })
@@ -74,7 +76,7 @@ function formatGroupLabel(date: Date): string {
 }
 
 function HistoryPage() {
-    const { bookings } = Route.useLoaderData();
+    const { bookings, customerFlags } = Route.useLoaderData();
 
     const groups = groupBookingsByDate(bookings)
 
@@ -102,6 +104,7 @@ function HistoryPage() {
                                         <TripCard
                                             key={booking.id}
                                             booking={booking}
+                                            customer={customerFlags[booking.user_id]}
                                         />
                                     ))}
                                 </div>

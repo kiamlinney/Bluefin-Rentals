@@ -51,7 +51,7 @@ import { businessDateKey, businessWallClockTime } from './dates.ts'
 //
 // Read by every place that has to agree on what "held" means — assertCarIsAvailable
 // (the enforcement point), getBookedDates (what the calendar greys out), the
-// payments sweep, and the terms page (section 1). One constant because it
+// payments sweep, and the terms page ("Booking and confirmation"). One constant because it
 // drifting apart is precisely how a customer ends up picking a date the calendar
 // showed as open and being refused at checkout.
 export const PENDING_HOLD_MS = 60 * 60 * 1000

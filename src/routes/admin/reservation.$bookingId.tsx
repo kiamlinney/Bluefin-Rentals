@@ -33,6 +33,8 @@ import {ExtensionRequestModal} from "@/components/admin/ExtensionRequestModal";
 import {SwapVehicleModal} from "@/components/admin/SwapVehicleModal";
 import {CancelTripModal} from "@/components/admin/CancelTripModal";
 import {TRIP_PHASE_LABEL, tripPhase} from "@/lib/booking-status";
+import {getCustomerFlags} from "@/lib/crm";
+import {CustomerFlags} from "@/components/admin/CustomerFlags";
 import {TripVehicleSwapSection} from "@/components/trip/TripVehicleSwapSection";
 
 export const Route = createFileRoute('/admin/reservation/$bookingId')({
@@ -47,13 +49,14 @@ export const Route = createFileRoute('/admin/reservation/$bookingId')({
         const lockboxCode = await getTripLockboxCode({ data: params.bookingId })
         const extras = await getTripExtras({ data: params.bookingId })
         const payments = await getTripPayments({ data: params.bookingId })
-        return { booking, priceOverrides, drivers, lockboxCode, extras, payments }
+        const flags = (await getCustomerFlags({ data: [booking.user_id] }))[booking.user_id] ?? { tags: [], blocked: false }
+        return { booking, priceOverrides, drivers, lockboxCode, extras, payments, flags }
     },
     component: ReservationDetailsPage,
 })
 
 function ReservationDetailsPage() {
-    const { booking, priceOverrides, drivers, lockboxCode, extras, payments } = Route.useLoaderData()
+    const { booking, priceOverrides, drivers, lockboxCode, extras, payments, flags } = Route.useLoaderData()
     const car = booking.cars
     const profile = booking.profiles
     // Shared with the trip list and the profile pages, so the same renter reads
@@ -570,7 +573,7 @@ function ReservationDetailsPage() {
                                     wrapping the whole block, so the trips and
                                     joined lines stay non-interactive. */}
                                 <Link
-                                    to="/admin/user/$userId"
+                                    to="/admin/customers/$userId"
                                     params={{ userId: profile.id }}
                                     className="w-12 h-12 shrink-0 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors flex items-center justify-center text-gray-500 font-bold text-lg"
                                 >
@@ -578,12 +581,13 @@ function ReservationDetailsPage() {
                                 </Link>
                                 <div>
                                     <Link
-                                        to="/admin/user/$userId"
+                                        to="/admin/customers/$userId"
                                         params={{ userId: profile.id }}
                                         className="font-bold text-gray-900 hover:underline"
                                     >
                                         {renterName}
                                     </Link>
+                                    <CustomerFlags tags={flags.tags} blocked={flags.blocked} className="my-1" />
                                     {(profile.num_trips ?? 0) > 0 && (
                                         <p className="text-s text-gray-500">{profile.num_trips} trips</p>
                                     )}

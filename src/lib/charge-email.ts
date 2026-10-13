@@ -556,15 +556,23 @@ export async function sendLatePaymentRefundedEmails(
 /** A plain alert to the owners. Never throws. */
 export async function sendAdminAlert(
     _admin: AdminClient,
-    { subject, lines, bookingId }: { subject: string; lines: string[]; bookingId?: string },
+    { subject, lines, bookingId, link }: {
+        subject: string
+        lines: string[]
+        bookingId?: string
+        /** A button to somewhere other than a reservation. A path on this site. */
+        link?: { path: string; text: string }
+    },
 ): Promise<void> {
     try {
         await send(ADMIN_RECIPIENT, `[Bluefin] ${subject}`, render({
             heading: subject,
             intro: lines,
-            action: bookingId
-                ? { href: `${SITE_URL}/admin/reservation/${bookingId}`, text: 'Open reservation' }
-                : undefined,
+            action: link
+                ? { href: `${SITE_URL}${link.path}`, text: link.text }
+                : bookingId
+                    ? { href: `${SITE_URL}/admin/reservation/${bookingId}`, text: 'Open reservation' }
+                    : undefined,
             footerNote: 'Sent by the Bluefin payments system.',
         }))
     } catch (err: any) {

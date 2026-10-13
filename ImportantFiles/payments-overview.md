@@ -59,7 +59,7 @@ then **where the code enforces it** and **where customers are told**. Rules mark
   → `src/lib/payments.server.ts#recordBookingPaymentMethod`, `src/lib/payments.server.ts#finishCardUpdate`
 - Bookings made **before** card saving existed have no saved card and can never be
   charged again; the owners' charge form says so. (All such bookings are sandbox tests.)
-- **Customers are told:** checkout consent line; `/policies/terms` sections 2–3; FAQ
+- **Customers are told:** checkout consent line; `/policies/terms` <!-- const:TERMS_SECTION_PAYMENT -->section 5<!-- /const --> and <!-- const:TERMS_SECTION_DEPOSIT -->section 6<!-- /const -->; FAQ
   "When am I charged?".
 
 ## 4. One booking, many charges: the ledger

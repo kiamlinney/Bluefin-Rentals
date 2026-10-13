@@ -218,6 +218,14 @@ export function PaymentStep({
                         className="underline cursor-pointer text-pine-500"
                     >
                      cancellation policy
+                    </Link>, and I've read the{' '}
+                    <Link
+                        to="/policies/privacy"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline cursor-pointer text-pine-500"
+                    >
+                        privacy policy
                     </Link>.
                 </span>
             </label>

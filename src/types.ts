@@ -67,7 +67,7 @@ export type BookingWithDetails = Booking & {
 
 // getUserProfile:
 //     .select(PROFILE_VIEW_COLUMNS)
-// The profile pages (/profile and /admin/user/$userId) read one profile row
+// The profile page (/profile) reads one profile row
 // directly rather than through a booking. Same reasoning as above for the
 // narrow Pick<>: `is_admin`, `stripe_identity_session_id` and the home address
 // are all columns on this table that nothing here renders, and the guest page
@@ -84,14 +84,6 @@ export type UserProfileView = Pick<
     | 'created_at'
     | 'identity_verified'
 >
-
-// getUserTripHistory:
-//     .select('id, start_time, end_time, status, cars(id, year, make, model)')
-// The admin profile page lists a renter's trips as links back to the matching
-// reservation, so it needs neither the full booking row nor the full car row.
-export type UserTripSummary = Pick<Booking, 'id' | 'start_time' | 'end_time' | 'status'> & {
-    cars: Pick<Car, 'id' | 'year' | 'make' | 'model'>
-}
 
 // getTripMedia (db.ts:1479) and recordTripMedia (db.ts:1582):
 //     .select('*, profiles:uploaded_by(full_name)')

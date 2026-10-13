@@ -607,6 +607,179 @@ export type Database = {
         }
         Relationships: []
       }
+      customer_blocks: {
+        Row: {
+          blocked_by: string | null
+          created_at: string
+          id: string
+          license_number: string | null
+          lift_reason: string | null
+          lifted_at: string | null
+          lifted_by: string | null
+          matched_block_id: string | null
+          reason: string
+          source: string
+          user_id: string | null
+        }
+        Insert: {
+          blocked_by?: string | null
+          created_at?: string
+          id?: string
+          license_number?: string | null
+          lift_reason?: string | null
+          lifted_at?: string | null
+          lifted_by?: string | null
+          matched_block_id?: string | null
+          reason: string
+          source?: string
+          user_id?: string | null
+        }
+        Update: {
+          blocked_by?: string | null
+          created_at?: string
+          id?: string
+          license_number?: string | null
+          lift_reason?: string | null
+          lifted_at?: string | null
+          lifted_by?: string | null
+          matched_block_id?: string | null
+          reason?: string
+          source?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_blocks_matched_block_id_fkey"
+            columns: ["matched_block_id"]
+            isOneToOne: false
+            referencedRelation: "customer_blocks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_identities: {
+        Row: {
+          address: Json | null
+          dob: string | null
+          document_type: string | null
+          expiration_date: string | null
+          first_name: string | null
+          issued_date: string | null
+          issuing_country: string | null
+          issuing_state: string | null
+          last_name: string | null
+          license_number: string | null
+          livemode: boolean
+          sensitive_captured: boolean
+          updated_at: string
+          user_id: string
+          verification_session_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          address?: Json | null
+          dob?: string | null
+          document_type?: string | null
+          expiration_date?: string | null
+          first_name?: string | null
+          issued_date?: string | null
+          issuing_country?: string | null
+          issuing_state?: string | null
+          last_name?: string | null
+          license_number?: string | null
+          livemode?: boolean
+          sensitive_captured?: boolean
+          updated_at?: string
+          user_id: string
+          verification_session_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          address?: Json | null
+          dob?: string | null
+          document_type?: string | null
+          expiration_date?: string | null
+          first_name?: string | null
+          issued_date?: string | null
+          issuing_country?: string | null
+          issuing_state?: string | null
+          last_name?: string | null
+          license_number?: string | null
+          livemode?: boolean
+          sensitive_captured?: boolean
+          updated_at?: string
+          user_id?: string
+          verification_session_id?: string
+          verified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_identities_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_notes: {
+        Row: {
+          author_id: string | null
+          body: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          author_id?: string | null
+          body: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          author_id?: string | null
+          body?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_notes_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_tags: {
+        Row: {
+          created_at: string
+          tag: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          tag: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          tag?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_tags_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           address: string | null

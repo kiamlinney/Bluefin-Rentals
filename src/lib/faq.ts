@@ -44,7 +44,7 @@ export const FAQS: FaqItem[] = [
             "A valid driver's license and a credit or debit card. Your license is verified through Stripe Identity during checkout — you'll photograph the front and back and take a selfie, and it's usually confirmed within a minute.",
     },
     // Card saving and the deposit: ImportantFiles/payments-overview.md and
-    // deposit.md, and sections 2–3 of /policies/terms.
+    // deposit.md, and the payment and deposit sections of /policies/terms.
     {
         question: 'When am I charged?',
         answer:

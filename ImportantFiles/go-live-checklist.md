@@ -46,6 +46,11 @@ you test, or it acts on your test bookings too.
   button shows on your laptop. (It stays set in Railway, so the live site stays paused.)
 - [ ] **Lockbox code exists.** Every available car should have a row in `car_secrets` (the
   test code is `0000`). Without one, no code ever shows and the lockbox tests can't pass.
+- [ ] **CRM tables and the Identity key (for Test 21).** `customer_identities` and the
+  other CRM tables exist (`supabase/migrations/20261013120000_customer_crm.sql` has been run),
+  and `.env` has `STRIPE_IDENTITY_RESTRICTED_KEY=rk_test_…`: a **sandbox** restricted key
+  with *Identity Verification Results: Read*, *Recent Detailed Verification Results: Read*
+  and *Files: Write*. Without the key, verification still works but no licence number is kept.
 - [ ] **Know that real emails go out**, to the owners' inbox and whatever email the test
   guest account uses. Links in them point at `localhost:5173` (your `.env` `SITE_URL`).
 
@@ -506,6 +511,46 @@ a blocked date of one car (the admin calendar shows them).
 **Expect:** that car is **not** listed; cars free on those dates are. Before 2026-10-07 every
 car was listed for every customer, whatever was booked.
 
+#### Test 21: The customer CRM, the licence copy, and blocking
+Needs two test accounts that are **not** admins (A and B) and the setup item "CRM tables and
+the Identity key" above. Stripe's sandbox verification screen offers test outcomes: choose
+the one that **verifies**, and use the same option both times so both accounts get the same
+test licence number.
+
+**Do:**
+1. As A, start a checkout and complete ID verification. Stop at the payment step and leave
+   the tab open.
+2. As an admin, open **Customers** in the admin menu, find A, open them.
+3. On A's page press **Show licence photos**, then add a tag and a note.
+4. Press **Block customer**, give a reason, confirm.
+5. Back in A's open checkout tab, press pay with `4242…`.
+6. As B, start a checkout and complete ID verification the same way.
+7. On B's customer page, press **Unblock**, give a reason.
+8. As A, start a new checkout.
+9. On the Customers list, press **Export CSV**.
+
+**Expect:**
+- Step 2: A shows **Verified**, with legal name, date of birth (and age), licence number,
+  issuing state, issue and expiry dates.
+- Step 3: the licence front, back and selfie appear. The tag shows on the list and on A's trips
+  in **Trips → Booked**; the note shows with your name.
+- Step 4: the dialog says A has no upcoming trips (or lists them, with links); the red banner
+  appears; no email is sent to A.
+- Step 5: the payment fails (the checkout was closed); the pending row is `expired` in Supabase,
+  and its PaymentIntent is **canceled** in Stripe.
+- Step 6: B's verification succeeds, then the owners get **"A blocked customer verified under a
+  new account"**. B's page shows the red banner ("automatic: same licence as a blocked
+  account"), and B's checkout refuses with "We can't accept bookings from this account…".
+  If B is **not** blocked, compare the licence numbers on A's and B's pages: if Stripe's
+  sandbox gave them different numbers, that's the test data, not a bug. Note it and skip to
+  step 7 using A.
+- Step 7: the dialog says it also unblocks A. Both banners are gone; both block histories show
+  the block and its lifting.
+- Step 8: A gets as far as payment again.
+- Step 9: the file opens in a spreadsheet; it has no licence number or date of birth column.
+
+**Pass** if all of the above. Note anything that differs.
+
 ### 1c. When you're done
 
 - [ ] Stop the listener (Ctrl+C). Nothing to change back in `.env`.
@@ -524,6 +569,12 @@ car was listed for every customer, whatever was booked.
   monthly. See [deposit.md](deposit.md#long-trips). **Only after Stripe confirms**, set
   `EXTENDED_AUTHORIZATION_ENABLED = true` in `src/lib/deposit.ts`. Turning it on early makes
   every hold fail.
+  **Status (2026-10-13):** requested from Stripe support by email on standard (blended)
+  pricing. Support asked for a business justification (what we sell, why 7 days isn't enough,
+  authorization-to-capture time, volume and average amount), which was answered from the 2026
+  Turo trip export: median trip 3.9 days, 19% over a week, about 5–10 trips a month expected on
+  the site, $1,500 holds, released after inspection and at the latest 48 hours after return.
+  Waiting on their review. Account MCC confirmed as 7512 (car rental).
 - [ ] **Live webhook.** In Stripe **live** mode → Developers → Event destinations → add an
   endpoint: `https://rentbluefin.com/api/stripe-webhook` (no `www`), subscribed to **all 14
   events** listed in [payments-overview.md §5](payments-overview.md#5-the-stripe-webhook).
@@ -531,6 +582,11 @@ car was listed for every customer, whatever was booked.
 - [ ] **Live keys.** In Railway, change **all three together**, to the live values:
   `STRIPE_SECRET_KEY`, `VITE_STRIPE_PUBLISHABLE_KEY`, and `STRIPE_WEBHOOK_SECRET` (from the
   live endpoint you just made). Mixing live and test keys breaks payment.
+- [ ] **Live Identity key.** In Stripe **live** mode → API keys → Create restricted key, with
+  *Identity Verification Results: Read*, *Recent Detailed Verification Results: Read* and
+  *Files: Write*. Put it in Railway as `STRIPE_IDENTITY_RESTRICTED_KEY` (`rk_live_…`). Without
+  it, live guests' licence numbers are never kept, and a blocked guest can come back under a
+  new email.
 - [ ] Optional, Stripe's recommendation: use a **restricted API key** (`rk_…`) on the server
   instead of the full secret key.
 - [ ] Optional: rotate `CRON_SECRET` (it was pasted in a chat on 2026-09-29). Change it in `.env`,
@@ -569,24 +625,17 @@ Needs step 1c's deploy first: the `/api/cron/payments` route must be live.
   select id, 'REAL_CODE' from public.cars where is_available
   on conflict (car_id) do update
     set lockbox_code = excluded.lockbox_code, updated_at = now();
-  **Status (2026-10-13):** requested from Stripe support by email on standard (blended)
-  pricing. Support asked for a business justification (what we sell, why 7 days isn't enough,
-  authorization-to-capture time, volume and average amount), which was answered from the 2026
-  Turo trip export: median trip 3.9 days, 19% over a week, about 5–10 trips a month expected on
-  the site, $1,500 holds, released after inspection and at the latest 48 hours after return.
-  Waiting on their review. Account MCC confirmed as 7512 (car rental).
   ```
   Then open any trip page as an admin and check the real code shows.
 - [ ] **Deposit amount.** Confirm it (<!-- const:DEPOSIT_AMOUNT -->$1,500<!-- /const --> for now),
   or change it in `src/lib/deposit.ts#DEPOSIT_AMOUNT`.
 - [ ] **Decisions.** Review every row marked **Proposed** or **Placeholder** in
   [decisions-log.md](decisions-log.md).
-- [ ] **Terms of service.** Read the draft payment sections on `/policies/terms`, have a lawyer
-  look if you can, write the remaining sections, then remove the "Draft" banner and set the
-  revision date.
+- [ ] **Terms of service and privacy policy.** Both are written in full as drafts (2026-10-12).
+  Work through [policy-review.md](policy-review.md): answer every owner decision, have a lawyer
+  look at the legal-review items, then remove both "Draft" banners and set the revision dates.
 - [ ] **Tax.** Work through [tax-todo.md](tax-todo.md), at least items 1–5 (the sales tax permit
   first), then set `TAX_CONFIG_REVIEWED = true` in `src/lib/tax.ts`.
-- [ ] **Privacy policy.** `/policies/privacy` is still empty.
 
 ## 6. Open for real bookings
 

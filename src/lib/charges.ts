@@ -19,7 +19,7 @@ import { ownerChargeAllowed } from './booking-status.ts'
 /**
  * Why an owner can't charge this trip's card yet, or null if they can.
  *
- * Owner charges are for costs a trip causes (terms, section 6), so on top of
+ * Owner charges are for costs a trip causes (terms, "Costs arising from your trip"), so on top of
  * ownerChargeAllowed's status rule they only open at pickup. The saved card
  * could technically be charged any time after checkout, and the deposit hold
  * has nothing to do with it, so this is what stops a charge before the trip.

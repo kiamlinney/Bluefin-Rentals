@@ -130,7 +130,7 @@ Cancelling a trip releases any hold. → `src/lib/payments.server.ts#settleLedge
 
 ## Customers are told
 
-`/policies/terms` section 3; checkout consent line; FAQ "Is a security deposit
+`/policies/terms` <!-- const:TERMS_SECTION_DEPOSIT -->section 6<!-- /const -->; checkout consent line; FAQ "Is a security deposit
 required?" and "When am I charged?"; trip page "Security deposit" section; the emails
 listed in [payments-overview.md](payments-overview.md).
 
