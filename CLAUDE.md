@@ -63,6 +63,22 @@ checked that way. `verify-*.ts` scripts still run standalone too.
   - **The `redirect` it passes must be a relative path** (`useLocation().href`, e.g. `/checkout/11?startDate=…`), never `window.location.href`. `SignUpForm` only follows redirects starting with `/`. Passing an absolute URL sent customers who signed up mid-checkout to `/fleet` and lost their trip.
   - **Child loaders still run for signed-out visitors** even though the child component isn't rendered. The checkout loader skips `getProfile()` when `context.isLoggedIn` is false, because it throws without a session. **Every other `_authed` loader starts with `if (!context.isLoggedIn) return SIGNED_OUT`** (`src/lib/signed-out.ts`, typed `never` so `useLoaderData()` isn't widened). Before 2026-10-08 seven of them threw, and each signed-out visit (every guest opening an emailed trip or pay link) answered HTTP 500 behind a correct-looking sign-in form. A new `_authed` page needs the guard; `tests/signed-out.test.ts` lists the pages and must gain it.
 - `admin.tsx` is a real layout route: its `beforeLoad` calls `getUserWithProfile()`, redirects to `/login` if unauthenticated and `/403` if `!user.is_admin`.
+- **Owners sign in with a username** (`jade`, `nick`, `liam`; since 2026-10-15). `loginUser`
+  takes an `identifier`: with an `@` it's an email, otherwise `emailForLogin`
+  (`src/lib/login.server.ts`) lowercases it, looks it up in `login_usernames` and signs in
+  with that account's email. An unknown username throws Supabase's own "Invalid login
+  credentials", so the form can't reveal which names exist. `login_usernames` is service-role
+  only, with rows added by hand (`20261015120000_login_usernames.sql`), so guests can't get
+  one. Its own table, not a `profiles` column, because a guest updates their own profile.
+  - **Jade and Nick each have their own account on one inbox** through Gmail
+    plus-addressing: `bluefinbiz+jade@gmail.com` and `bluefinbiz+nick@gmail.com` both
+    deliver to `bluefinbiz@gmail.com`. Supabase requires a unique email per account, and
+    separate accounts are what make `admin_changes`, CRM notes and blocks say who did it.
+    The old shared "Jade&Nick" account (`bluefinbiz@gmail.com`) was deleted 2026-10-15; nothing
+    referenced it. Both new accounts were verified live the same day (confirmed, admin,
+    usernames set, signed in).
+  - The login field is `type="text"` with `inputMode="email"`: `type="email"` rejects "Jade".
+    Its label still says "Email" so guests don't go looking for a username.
 - There is **no centralized admin middleware for data access** — every admin-only function in `src/lib/db.ts` independently re-fetches the caller's profile and checks `profile.is_admin` before doing privileged work. When adding a new admin server function, copy this per-function check rather than assuming route-level auth covers it (server functions can be called directly, not just through a loader). **That includes debugging helpers nobody calls**: `inspectTuroEmail` sat unguarded until 2026-10-07, letting anyone read the business inbox by message id, because its only caller was commented out.
 
 ### Data layer (`src/lib/db.ts`, `src/lib/auth.ts`)

@@ -17,7 +17,7 @@ export function LoginForm({switchToSignUp, redirect}: LoginFormProps) {
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         const formData = new FormData(e.currentTarget);
-        const email = formData.get("email") as string;
+        const identifier = formData.get("identifier") as string;
         const password = formData.get("password") as string;
 
         setStatus("loading");
@@ -25,7 +25,7 @@ export function LoginForm({switchToSignUp, redirect}: LoginFormProps) {
 
         try {
             await loginUser({
-                data: { email, password },
+                data: { identifier, password },
             });
 
             await router.invalidate();
@@ -79,11 +79,17 @@ export function LoginForm({switchToSignUp, redirect}: LoginFormProps) {
                                 <p className="text-red-500 text-sm font-medium">{errorMessage}</p>
                             )}
                             <div className="grid gap-2">
-                                <label htmlFor="email" className="text-sm font-medium leading-none">Email</label>
+                                {/* Plain text, not type="email": owners sign in with a username (login.server.ts). */}
+                                <label htmlFor="identifier" className="text-sm font-medium leading-none">Email</label>
                                 <input
-                                    id="email"
-                                    name="email"
-                                    type="email"
+                                    id="identifier"
+                                    name="identifier"
+                                    type="text"
+                                    inputMode="email"
+                                    autoComplete="username"
+                                    autoCapitalize="none"
+                                    autoCorrect="off"
+                                    spellCheck={false}
                                     required
                                     className="h-9 w-full rounded-md border border-line bg-transparent px-3 py-1 text-base md:text-sm shadow-sm transition-colors placeholder:text-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand"
                                 />

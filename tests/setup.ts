@@ -70,15 +70,17 @@ vi.mock('@tanstack/react-start', () => ({
     createServerFn: () => {
         let validate: ((input: any) => any) | null = null
         const builder: any = {
-            inputValidator(fn: (input: any) => any) {
-                validate = fn
+            // A function, or a schema like auth.ts's zod objects (as TanStack accepts both).
+            inputValidator(fn: ((input: any) => any) | { parse: (input: any) => any }) {
+                validate = typeof fn === 'function' ? fn : input => fn.parse(input)
                 return builder
             },
             middleware() {
                 return builder
             },
             handler(fn: (ctx: { data: any }) => any) {
-                return (arg?: { data?: any }) => fn({ data: validate ? validate(arg?.data) : arg?.data })
+                // async, so a refused input rejects the way a real server function call does.
+                return async (arg?: { data?: any }) => fn({ data: validate ? validate(arg?.data) : arg?.data })
             },
         }
         return builder

@@ -442,9 +442,29 @@ export class FakeDb {
         return Promise.resolve({ data: null, error: { message: `fake supabase: rpc ${name} not implemented` } })
     }
 
+    /** Accounts signInWithPassword and auth.admin.getUserById know about (auth.users). */
+    authUsers: { id: string; email: string; password: string }[] = []
+
     get auth() {
         return {
             getUser: async () => ({ data: { user: this.user }, error: null }),
+            // Email matched without regard to case, as GoTrue does.
+            signInWithPassword: async ({ email, password }: { email: string; password: string }) => {
+                const account = this.authUsers.find(u => u.email.toLowerCase() === email.toLowerCase())
+                if (!account || account.password !== password) {
+                    return { data: { user: null, session: null }, error: { message: 'Invalid login credentials' } }
+                }
+                this.user = { id: account.id, email: account.email }
+                return { data: { user: this.user, session: {} }, error: null }
+            },
+            admin: {
+                getUserById: async (id: string) => {
+                    const account = this.authUsers.find(u => u.id === id)
+                    return account
+                        ? { data: { user: { id: account.id, email: account.email } }, error: null }
+                        : { data: { user: null }, error: { message: 'User not found' } }
+                },
+            },
         }
     }
 

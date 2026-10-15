@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getSupabaseServerClient } from "./supabase.server.ts";
+import { emailForLogin } from "./login.server.ts";
 import z from "zod";
 
 export const getUser = createServerFn({ method: 'GET' })
@@ -39,15 +40,17 @@ export const getUserWithProfile = createServerFn({ method: 'GET' })
         }
     })
 
+// `identifier` is an email, or an owner's username (login.server.ts).
 export const loginUser = createServerFn({ method: 'POST' })
     .inputValidator(z.object({
-        email: z.string().email(),
+        identifier: z.string().trim().min(1),
         password: z.string()
     }))
     .handler(async({ data: formInput }) => {
+        const email = await emailForLogin(formInput.identifier)
         const supabase = getSupabaseServerClient()
         const { data, error } = await supabase.auth.signInWithPassword({
-            email: formInput.email,
+            email,
             password: formInput.password,
         });
 

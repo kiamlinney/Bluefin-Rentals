@@ -819,6 +819,24 @@ export type Database = {
           },
         ]
       }
+      login_usernames: {
+        Row: {
+          created_at: string
+          user_id: string
+          username: string
+        }
+        Insert: {
+          created_at?: string
+          user_id: string
+          username: string
+        }
+        Update: {
+          created_at?: string
+          user_id?: string
+          username?: string
+        }
+        Relationships: []
+      }
       pricing_periods: {
         Row: {
           created_at: string
