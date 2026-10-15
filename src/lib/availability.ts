@@ -37,7 +37,7 @@
 // business-wall-clock conversion; it's pure for the same reason.
 
 import { addDays, daysBetween, timeToMinutes, todayInBusinessTz } from './pricing.ts'
-import { businessDateKey, businessWallClockTime } from './dates.ts'
+import { businessDateKey, businessWallClockTime, formatMinutesOfDay } from './dates.ts'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -59,6 +59,10 @@ export const PENDING_HOLD_MS = 60 * 60 * 1000
 export const TURNAROUND_HOURS = 3
 export const MIN_LEAD_TIME_HOURS = 3
 
+// What a guest is told about a car the owners have unlisted: on its page in
+// place of the booking widget, and by checkout if they get that far anyway.
+export const UNLISTED_CAR_MESSAGE = 'This car isn’t available to book right now.'
+
 // Our opening hours, and the first and last pickup/return slot. business.ts
 // builds the published hours (footer, FAQ, structured data) from these.
 export const BUSINESS_OPEN_MINUTES = 600 // 10:00 AM
@@ -66,6 +70,39 @@ export const BUSINESS_CLOSE_MINUTES = 1380 // 11:00 PM
 export const SLOT_MINUTES = 30
 
 const MINUTES_PER_DAY = 1440
+
+// ── Time slots ───────────────────────────────────────────────────────────────
+
+// Minutes since midnight -> the 'H:mm' value the time dropdowns emit and the URL
+// carries ('9:30', '14:00'). Unpadded hour, the car page's existing format.
+export function slotValue(minutes: number): string {
+    return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`
+}
+
+export type TimeSlot = { value: string; label: string; minutes: number }
+
+// Every pickup/return slot inside opening hours, first to last.
+export function businessTimeSlots(): TimeSlot[] {
+    const slots: TimeSlot[] = []
+    for (let m = BUSINESS_OPEN_MINUTES; m <= BUSINESS_CLOSE_MINUTES; m += SLOT_MINUTES) {
+        slots.push({ value: slotValue(m), label: formatMinutesOfDay(m), minutes: m })
+    }
+    return slots
+}
+
+// Whether a time from a URL is one of those slots, spelled exactly as the
+// dropdowns spell it. Anything else is dropped rather than shown as a choice
+// nobody made.
+export function isBusinessSlot(value: unknown): value is string {
+    if (typeof value !== 'string' || !/^\d{1,2}:\d{2}$/.test(value)) return false
+    const minutes = timeToMinutes(value)
+    return (
+        slotValue(minutes) === value
+        && minutes >= BUSINESS_OPEN_MINUTES
+        && minutes <= BUSINESS_CLOSE_MINUTES
+        && minutes % SLOT_MINUTES === 0
+    )
+}
 
 // Sentinels for "occupied from before this day began" and "occupied past this
 // day's end". Outside the 0..1440 range so they always lose/win the min/max in
@@ -381,4 +418,25 @@ export function findTripConflict(
         .filter(key => !isFullyFree(dayWindow(map, key)))
 
     return interior.length > 0 ? { kind: 'days-unavailable', dateKeys: interior } : null
+}
+
+// What /fleet's search asks: could a trip run between these days, at these
+// times where the guest gave them? Times are optional in the search bar, so a
+// missing one stands in as the most forgiving slot that day allows (the earliest
+// start, the latest end) and the rest is findTripConflict, the car page's own
+// check. With neither time this answers exactly what dateRangeIsBookable does.
+export function searchRangeIsBookable(
+    startKey: string,
+    startTime: string | undefined,
+    endKey: string,
+    endTime: string | undefined,
+    map: AvailabilityMap,
+    now: Date = new Date(),
+): boolean {
+    if (endKey < startKey) return false
+    const start = startTime ? timeToMinutes(startTime) : earliestStartMinutesFor(startKey, map, now)
+    const end = endTime ? timeToMinutes(endTime) : latestEndMinutesFor(endKey, map)
+    if (start === null || end === null) return false
+    if (startKey === endKey && start >= end) return false
+    return findTripConflict(startKey, slotValue(start), endKey, slotValue(end), map, now) === null
 }

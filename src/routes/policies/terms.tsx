@@ -131,6 +131,12 @@ function TermsOfService() {
                     at checkout, including any discounts, surcharges, fees, extras and tax, is the price you pay.
                 </p>
                 <p>
+                    Daily prices vary by date: weekends and busy periods (holidays and big local events, for
+                    example) can cost more, and quieter periods less. Each day of your trip is priced for its own
+                    date, and the car page and checkout show the total before you book. Once you've booked, later
+                    price changes don't affect your trip.
+                </p>
+                <p>
                     A booking is confirmed once your payment succeeds, and we email you to say so. While you check
                     out, the car is held for you for {holdLength}. If you pay after that and someone else has booked
                     the car for any of your dates in the meantime, we can't confirm your trip: we refund your payment
@@ -330,8 +336,8 @@ function TermsOfService() {
                     we decline, the hold is released. A trip can't be extended once it has ended.
                 </p>
                 <p>
-                    An extension costs the price of the days it adds, at our current daily prices for those dates,
-                    with the length discount for your trip's new total length. Time added within a day you've already
+                    An extension costs the price of the days it adds, at our current daily prices for those dates
+                    (weekend and busy-period prices included), with the length discount for your trip's new total length. Time added within a day you've already
                     paid for costs nothing. Extensions are on the same cancellation terms as your trip, and each added
                     day includes the usual {MILES_INCLUDED_PER_DAY}-mile allowance.
                 </p>

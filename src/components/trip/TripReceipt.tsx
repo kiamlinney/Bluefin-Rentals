@@ -147,6 +147,11 @@ function DayBreakdown({ days }: { days: QuoteDay[] }) {
                                 Special rate
                             </span>
                         )}
+                        {group.adjustmentLabel && (
+                            <span className="ml-1.5 font-semibold uppercase tracking-wide text-muted">
+                                {group.adjustmentLabel}
+                            </span>
+                        )}
                     </span>
                     {showAmounts && (
                         <span className="tabular-nums">{formatMoney(group.subtotal)}</span>

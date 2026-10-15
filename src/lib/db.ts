@@ -14,8 +14,10 @@ import {
 import { flagTuroSwap, runTuroSync, TURO_SYNC_CATCHUP_LOOKBACK_DAYS } from './turo-sync.server'
 import { assignTuroTripCar as assignTuroTripCarOnServer, turoSwapOptions } from './turo-swap.server'
 import { assertBookingAccess, getServiceRoleClient, requireAdmin, requireUser } from './access.server'
-import { assertCarIsAvailable, extensionHoldRows, findCarConflict, PENDING_HOLD_MS } from './availability.server'
+import { assertCarIsAvailable, assertCarIsListed, extensionHoldRows, findCarConflict, PENDING_HOLD_MS } from './availability.server'
 import { assertNotBlocked } from './blocks.server'
+import { loadPricingRules } from './pricing-rules.server'
+import { distanceFeeForTrip } from './distance'
 import { recordVerifiedIdentity } from './identity.server'
 import { cancelsAsBusiness, holdHasLapsed } from './booking-status.ts'
 import { DEFAULT_BOOKING_RATE, type BookingRate } from './booking-rate.ts'
@@ -42,7 +44,8 @@ import { geocodeAddresses } from './geocode'
 import {
     MIN_LEAD_TIME_HOURS,
     buildAvailabilityMap,
-    dateRangeIsBookable,
+    isBusinessSlot,
+    searchRangeIsBookable,
     startableDayCount,
     toOccupiedSpans,
     type UnavailabilityRow,
@@ -78,6 +81,23 @@ export const getCars = createServerFn({ method: 'GET' })
             .from('cars')
             .select('*')
             .eq('is_available', true)
+            .order('make', { ascending: true })
+            .order('model', { ascending: true })
+            .order('year', { ascending: true })
+
+        if (error) throw new Error(error.message)
+        return data
+    })
+
+// Every car, listed or not, for the admin calendar. getCars above is the public
+// fleet and leaves unlisted cars out, which used to make them vanish from the
+// calendar too.
+export const getAdminCars = createServerFn({ method: 'GET' })
+    .handler(async () => {
+        await requireAdmin()
+        const { data, error } = await getSupabaseServerClient()
+            .from('cars')
+            .select('*')
             .order('make', { ascending: true })
             .order('model', { ascending: true })
             .order('year', { ascending: true })
@@ -453,7 +473,7 @@ async function quoteTripOnServer(input: {
     // Ids as requested. calculateTripPrice prices them from the catalogue and
     // drops anything it doesn't recognise, so this needs no validation here.
     extraIds: string[]
-}): Promise<TripQuote> {
+}): Promise<TripQuote & { mileageRate: number }> {
     const isoDurationMs = new Date(input.endTimeIso).getTime() - new Date(input.startTimeIso).getTime()
 
     const supabaseAdmin = createClient(
@@ -462,10 +482,10 @@ async function quoteTripOnServer(input: {
         { auth: { persistSession: false, autoRefreshToken: false } }
     )
 
-    const [{ data: car, error: carErr }, { data: overrideRows, error: ovErr }] = await Promise.all([
+    const [{ data: car, error: carErr }, { data: overrideRows, error: ovErr }, pricingRules] = await Promise.all([
         supabaseAdmin
             .from('cars')
-            .select('price_per_day')
+            .select('price_per_day, distance_fee')
             .eq('id', input.carId)
             .single(),
         supabaseAdmin
@@ -474,6 +494,9 @@ async function quoteTripOnServer(input: {
             .eq('car_id', input.carId)
             .gte('date', input.startDateLocal)
             .lte('date', input.endDateLocal),
+        // The same rules the car page and checkout priced the trip with
+        // (getPricingRules), read fresh.
+        loadPricingRules(supabaseAdmin),
     ])
 
     if (carErr || !car) throw new Error('Car not found')
@@ -486,6 +509,7 @@ async function quoteTripOnServer(input: {
         endTime: input.endTimeLocal,
         basePricePerDay: Number(car.price_per_day),
         overrides: buildOverrideMap(overrideRows ?? []),
+        pricingRules,
         // The fee comes from the server's own resolution of the pickup, not from
         // anything the client sent — same principle as the base rate and the
         // overrides above, both of which are read here rather than accepted.
@@ -514,7 +538,12 @@ async function quoteTripOnServer(input: {
         throw new Error('Trip dates are inconsistent. Please reselect your dates.')
     }
 
-    return quote
+    // The per-mile rate for driving past the allowance, as the car page and
+    // checkout showed it. Stored in price_quote with everything else, because
+    // it's computed from the car's price_per_day and distance_fee, which the
+    // owners can now change from the Vehicles page: read live, a later edit
+    // would re-rate the mileage on every trip already booked (receipt.ts#mileageRateFor).
+    return { ...quote, mileageRate: distanceFeeForTrip(car, quote, Number(car.price_per_day)) }
 }
 
 // ── Payment methods: cards only ───────────────────────────────────────────────
@@ -721,6 +750,13 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
         // customer the client secret of a checkout they started earlier.
         await assertNotBlocked(supabaseAdmin, user.id)
 
+        // An unlisted car's page still loads from an old link, so checkout is
+        // where it's actually refused. Before the resume paths for the same
+        // reason as the block check. (The bookingId path checks its own row's
+        // car too, since that needn't be this one.)
+        if (!Number.isFinite(carIdNum)) throw new Error('Invalid car id')
+        await assertCarIsListed(supabaseAdmin, carIdNum)
+
         // The guest's Stripe customer, which the card is saved to when this
         // payment succeeds. Created on first checkout.
         const customerId = await getOrCreateCustomer(supabaseAdmin, user.id)
@@ -743,6 +779,7 @@ export const createCheckoutSession = createServerFn({ method: 'POST' })
                 // The row's own times, not data.startTime — those arrive through an
                 // editable URL and needn't describe the booking being resumed.
                 assertStartIsBookable(existing.start_time)
+                await assertCarIsListed(supabaseAdmin, existing.car_id)
                 await assertCarIsAvailable(
                     existing.car_id,
                     existing.start_time,
@@ -2037,13 +2074,17 @@ export const deleteBlockedDate = createServerFn({ method: 'POST' })
 
 // `start`/`end` are business-timezone date keys (YYYY-MM-DD), both inclusive.
 export const getAvailableCars = createServerFn({ method: 'GET' })
-    .inputValidator((input: { start?: string; end?: string }) => input)
+    .inputValidator((input: { start?: string; end?: string; startTime?: string; endTime?: string }) => input)
     .handler(async ({ data }) => {
         const supabase = getSupabaseServerClient()
 
         const dateKey = /^\d{4}-\d{2}-\d{2}$/
         if (data.start && data.end) {
             if (!dateKey.test(data.start) || !dateKey.test(data.end)) throw new Error('Choose valid dates')
+            // Times are optional; one that's given must be a real slot.
+            for (const time of [data.startTime, data.endTime]) {
+                if (time !== undefined && !isBusinessSlot(time)) throw new Error('Choose valid times')
+            }
             // Through loadUnavailabilityRows and the calendar's map, the same
             // way getFeaturedCars does. This used to call the get_available_cars
             // SQL function as the visitor, whose RLS hides other people's
@@ -2066,7 +2107,7 @@ export const getAvailableCars = createServerFn({ method: 'GET' })
                 (cars ?? []).map(async car => {
                     const rows = await loadUnavailabilityRows(supabase, supabaseAdmin, car.id, viewerId)
                     const map = buildAvailabilityMap(toOccupiedSpans(rows))
-                    return dateRangeIsBookable(data.start!, data.end!, map, now)
+                    return searchRangeIsBookable(data.start!, data.startTime, data.end!, data.endTime, map, now)
                 }),
             )
             return (cars ?? []).filter((_, i) => free[i])

@@ -12,7 +12,7 @@ import {
     PICKUP_LOCATIONS,
     resolvePickup,
 } from '../src/lib/pickup.ts'
-import { calculateTripPrice } from '../src/lib/pricing.ts'
+import { calculateTripPrice, NO_PRICING_RULES } from '../src/lib/pricing.ts'
 import { refundForCancellation } from '../src/lib/cancellation-policy.ts'
 
 const results: boolean[] = []
@@ -52,7 +52,7 @@ console.log('Fees')
 const airport = resolvePickup({ kind: 'listed', id: 'msp' })
 const quoteFor = (bookingRate: 'refundable' | 'non-refundable', withPickup = true) => calculateTripPrice({
     startDate: '2026-11-02', startTime: '10:00', endDate: '2026-11-06', endTime: '10:00',
-    basePricePerDay: 100, today: '2026-10-01', bookingRate,
+    basePricePerDay: 100, today: '2026-10-01', bookingRate, pricingRules: NO_PRICING_RULES,
     ...(withPickup ? { pickupFee: airport.fee, pickupFeeLabel: airport.feeLabel } : {}),
     taxJurisdiction: airport.taxJurisdiction,
 })

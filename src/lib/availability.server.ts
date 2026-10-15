@@ -13,7 +13,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getServiceRoleClient } from './access.server'
-import { TURNAROUND_HOURS } from './availability'
+import { TURNAROUND_HOURS, UNLISTED_CAR_MESSAGE } from './availability'
 import { businessDateKey, formatBusinessDateTime } from './dates'
 
 const MS_PER_HOUR = 60 * 60 * 1000
@@ -54,6 +54,18 @@ export async function extensionHoldRows(
         start_time: row.from_end_time as string,
         end_time: row.to_end_time as string,
     }))
+}
+
+/**
+ * New checkouts only. An unlisted car still has its page (old links keep
+ * working) and its existing trips keep their extensions, pay links and swaps,
+ * so this is checked in createCheckoutSession and nowhere else. Fails closed:
+ * a car that can't be read can't be booked.
+ */
+export async function assertCarIsListed(supabaseAdmin: SupabaseClient<any, any, any>, carId: number) {
+    const { data, error } = await supabaseAdmin.from('cars').select('is_available').eq('id', carId).maybeSingle()
+    if (error) throw new Error(error.message)
+    if (!data || data.is_available === false) throw new Error(UNLISTED_CAR_MESSAGE)
 }
 
 // Authoritative server-side conflict check for a car/date-range, checked before

@@ -76,6 +76,11 @@ export function PriceBreakdown({
                                             Special rate
                                         </span>
                                     )}
+                                    {group.adjustmentLabel && (
+                                        <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-ink-400">
+                                            {group.adjustmentLabel}
+                                        </span>
+                                    )}
                                     {/* Only on a collapsed run — "1 day ×" next
                                         to a single date would be filler. */}
                                     {group.days > 1 && (

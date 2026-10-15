@@ -10,11 +10,14 @@
 
 import {
     addDays,
+    dailyPrice,
     findDiscountTier,
     getTripDurationMinutes,
     LONG_DURATION_DISCOUNT,
+    quoteDay,
     roundMoney,
     type PriceOverrides,
+    type PricingRules,
     type QuoteDay,
 } from './pricing.ts'
 import { DEFAULT_BOOKING_RATE, REFUNDABLE_SURCHARGE, type BookingRate } from './booking-rate.ts'
@@ -47,7 +50,9 @@ export function extensionMode(currentEnd: Date, now: Date = new Date()): Extensi
 //
 // Decided by the owners on 2026-09-25: an extension pays for the billable days
 // it ADDS, at current prices for those dates, discounted at the tier for the
-// NEW total trip length.
+// NEW total trip length. "Current prices" include the automatic pricing rules
+// in force when the extension is priced (busy, slow, weekend), the same as a
+// new booking for those dates would pay.
 //
 // Billable days are the same ceil(duration / 24h) rule calculateTripPrice uses,
 // counted from the trip's start. So the added days are simply
@@ -102,6 +107,8 @@ export type ExtensionQuoteInput = {
     newEndTime: string
     basePricePerDay: number
     overrides?: PriceOverrides
+    /** Required: the added days are priced like any other day (pricing.ts#dailyPrice). */
+    pricingRules: PricingRules
     bookingRate?: BookingRate
     /** Every extra currently on the trip; only the per-day ones are extended. */
     tripExtraIds?: string[]
@@ -134,10 +141,12 @@ export function calculateExtensionPrice(input: ExtensionQuoteInput): ExtensionQu
     let subtotal = 0
     for (let i = fromBillableDays; i < fromBillableDays + added; i++) {
         const date = addDays(startDate, i)
-        const override = overrides[date]
-        const price = roundMoney(override ?? input.basePricePerDay)
-        days.push({ date, price, isOverride: override !== undefined })
-        subtotal += price
+        const day = quoteDay(
+            dailyPrice({ date, basePricePerDay: input.basePricePerDay, override: overrides[date], rules: input.pricingRules }),
+            date,
+        )
+        days.push(day)
+        subtotal += day.price
     }
     subtotal = roundMoney(subtotal)
 

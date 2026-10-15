@@ -8,7 +8,9 @@
 //   - the partial unique indexes (one deposit attempt in flight, one open
 //     extension, one live extra per trip, one active block per account and
 //     per licence), one Turo row per trip and per email, one overlap alert per
-//     pair, one identity per customer, all returning Postgres's 23505;
+//     pair, one identity per customer, one secrets row per car, all returning
+//     Postgres's 23505;
+//   - pricing periods never overlapping (an exclusion constraint, 23P01);
 //   - upsert as PostgREST does it (merge-duplicates on the conflict target);
 //   - the bookings status trigger, as written in
 //     supabase/migrations/20261007120000_prelaunch_hardening.sql.
@@ -70,6 +72,15 @@ const DEFAULTS: Record<string, () => Row> = {
 const PRIMARY_KEYS: Record<string, string[]> = {
     customer_identities: ['user_id'],
     customer_tags: ['user_id', 'tag'],
+    car_secrets: ['car_id'],
+}
+
+/**
+ * pricing_periods_no_overlap (20261014120000): an exclusion constraint, so no
+ * two periods share a date. Postgres answers 23P01.
+ */
+function periodsOverlap(a: Row, b: Row): boolean {
+    return String(a.start_date) <= String(b.end_date) && String(b.start_date) <= String(a.end_date)
 }
 
 type Unique = { table: string; name: string; key: (r: Row) => string | null }
@@ -108,6 +119,7 @@ const UNIQUES: Unique[] = [
         key: r => (r.lifted_at == null && r.license_number != null ? r.license_number : null),
     },
     { table: 'customer_identities', name: 'customer_identities_pkey', key: r => r.user_id ?? null },
+    { table: 'car_secrets', name: 'car_secrets_pkey', key: r => (r.car_id == null ? null : String(r.car_id)) },
     { table: 'customer_tags', name: 'customer_tags_pkey', key: r => `${r.user_id}:${r.tag}` },
 ]
 
@@ -397,6 +409,9 @@ export class FakeDb {
             if (key == null) continue
             const clash = this.rows(table).some(r => r !== old && u.key(r) === key)
             if (clash) return { message: `duplicate key value violates unique constraint "${u.name}"`, code: '23505' }
+        }
+        if (table === 'pricing_periods' && this.rows(table).some(r => r !== old && periodsOverlap(r, next))) {
+            return { message: 'conflicting key value violates exclusion constraint "pricing_periods_no_overlap"', code: '23P01' }
         }
         if (table === 'bookings') {
             if (!CANCELED_BY.has(next.canceled_by)) {

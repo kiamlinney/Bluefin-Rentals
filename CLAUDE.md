@@ -299,19 +299,15 @@ column-level `REVOKE` does not fix that (a table-level grant isn't narrowed by o
 has no policies at all and is granted only to `service_role`; `getTripForGuest` reads it fresh
 each load, so a rotated code is right on the page even when the emailed one has gone stale.
 
-**There is no admin UI for the codes yet — rows are inserted by hand in Supabase.** The table
-starts empty, and an empty table is silent: `buildWelcomeMessage` drops the code sentences
-entirely rather than printing "null", so the email and trip page simply say the code will follow.
-If a guest reports not getting a code, check for a row before debugging anything else.
+**Codes are set on each car's Vehicles page** (`setVehicleLockboxCode`, since 2026-10-13; before
+that they were inserted by hand). A car with no code is silent: `buildWelcomeMessage` drops the
+code sentences entirely rather than printing "null", so the email and trip page simply say the
+code will follow. If a guest reports not getting a code, check the car's Vehicles page (or for a
+`car_secrets` row) before debugging anything else. `car_secrets.vin` holds each car's VIN,
+entered by Liam in Supabase. The car's Vehicles page shows it read-only with an NHTSA recall
+link; there is deliberately no way to edit it on the site.
 
-```sql
-insert into public.car_secrets (car_id, lockbox_code)
-select id, '<code>' from public.cars where is_available
-on conflict (car_id) do update
-  set lockbox_code = excluded.lockbox_code, updated_at = now();
-```
-
-Rotating a code is a one-row `update`; the trip page is correct immediately. **The emailed copy
+Rotating a code takes effect on the trip page immediately. **The emailed copy
 goes stale** — the "hold placed" email goes out about a day before pickup, which narrows that
 window but doesn't close it.
 
@@ -563,6 +559,86 @@ has none — discarding a pending checkout gets a plain inline confirm on its ca
 page instead. **Cancelling a confirmed trip lives on the guest trip page**, not on the Trips
 list card, which is what let that card become a plain `<Link>` instead of an overlay-anchor wrapper.
 
+### Pricing rules (`src/lib/pricing.ts#dailyPrice`, `pricing-rules.ts`, `pricing-rules.server.ts`)
+
+Built 2026-10-13; the written record is `ImportantFiles/pricing-rules.md`. A day's price is:
+a price typed on the calendar (`car_price_overrides`) **wins outright**; otherwise
+`round(base × busy-or-slow × weekend)` to **whole dollars**. Multipliers multiply. The
+multipliers and weekend days are in `pricing_settings` (one row), the busy/slow date ranges in
+`pricing_periods` (inclusive, never overlapping: an exclusion constraint). Owners edit them at
+**/admin/pricing** (Vehicles → Pricing in the nav). A day no rule touches is exactly `price_per_day`, cents and all.
+
+- **`pricingRules` is a required input to `calculateTripPrice` and `calculateExtensionPrice`.**
+  That's on purpose: a caller that forgot would charge base price on busy days. Pass
+  `NO_PRICING_RULES` only where it's meant (tests, scripts, the reservation page's fallback for
+  rows with no `price_quote`).
+- **Every price path loads the same rules**: car page and checkout loaders via
+  `getPricingRules()` (public server fn), the server via `loadPricingRules()` (fails closed if
+  the row is missing), the admin calendar cells and `SelectionPanel`'s "+$10" via one
+  `priceForCell` in `CalendarGrid`. A new place that shows or charges a day's price must use
+  `dailyPrice` with the rules too, or the guest sees one total and Stripe takes another.
+- `QuoteDay.adjustments` (only present when a rule applied, so `NO_PRICING_RULES` output is
+  byte-identical to before) feeds the "Weekend" / "Busy period" labels in `PriceBreakdown`,
+  `TripReceipt` and checkout's "Includes … prices" note.
+- **The per-mile rate is frozen at checkout** (`price_quote.mileageRate`, read by
+  `receipt.ts#mileageRateFor`). Before this it was recomputed from the car's *current*
+  `price_per_day`/`distance_fee`, so editing either re-rated every booked trip, while the terms
+  promised "the rate shown when you booked". Any new mileage display reads it through
+  `mileageRateFor` (or `buildReceipt`).
+- The fakes seed neutral rules in `world()`; `setPricingRules()` turns them on for a test.
+
+### Vehicles admin (`src/lib/vehicles.ts`, `fleet-view.ts`, `/admin/vehicles`)
+
+Built 2026-10-13. `/admin/vehicles` lists every car (listed or not), Turo-style cards or a
+table, with search and Trip status / Listing status filters in the URL.
+`/admin/vehicles/$carId` covers:
+- the listing switch;
+- base price and per-mile fee, with a preview at the pricing rules;
+- the lockbox code;
+- the VIN, read-only, with an NHTSA recall link;
+- every Bluefin and Turo trip, filterable by source, showing Bluefin trips only by default;
+- a change log.
+
+**Trip counts are lifetime, Turo + Bluefin** (`fleet-view.ts#tripCount`, Liam 2026-10-14):
+- Liam enters each car's Turo count once in Supabase, as `cars.turo_trip_count` plus
+  `turo_trip_count_at` (both or neither: a check constraint).
+- The count is that number, plus the `turo_bookings` rows that end after
+  `turo_trip_count_at` (and by now), plus completed Bluefin trips.
+- With no Turo count entered, it's Bluefin trips only.
+
+The count depends on the Turo sync catching every trip. After a sync outage, press "Sync Turo
+(last 30 days)" or trips go missing from the count too. Shown as "n trips", never broken down
+on the card; the car's page shows the breakdown.
+
+**The search box (`FleetSearchField`) keeps its text locally and writes the URL after a 200ms
+pause.** When it was bound straight to the URL, every keystroke navigated and re-rendered the
+whole calendar before the character appeared, and fast typing dropped letters. The loaders
+don't re-run on a search-only change (TanStack only reloads a route on enter), so the lag was
+rendering, not fetching.
+
+Each server function calls `requireAdmin()` and logs to `admin_changes` (no FK to `cars`, like
+`booking_vehicle_swaps`). A lockbox change is logged without the code.
+
+- **Unlisting** (`setVehicleListed`, conditional on the current value): new checkouts are
+  refused by `assertCarIsListed`, called in `createCheckoutSession` **before both resume
+  paths**, and in the bookingId path again for that row's own car. Open checkouts on the car
+  are released (`releaseOpenCheckouts({ carId })`). Confirmed trips, extensions, pay links and
+  swaps are untouched. The car page stays up, with a notice in place of the widget and
+  `noindex`, and the checkout loader redirects to it. **`is_available = null` means listed**
+  (`listingStatusOf`), as it always has.
+- `getCars` is the public fleet (listed only). The admin calendar uses `getAdminCars` (all),
+  and its toolbar filters default to Listed.
+- **Calendar toolbar** (`CalendarToolbar` → `FleetFilters` → `FilterPopover`):
+  - Filters are in the URL: `q`, `sort`, `status`, `cars`. A missing `status` means "listed";
+    an empty array means all.
+  - The sorts and "booked days in the next 30" come from `fleet-view.ts`. Booked days use the
+    billing rule (24h rounded up from pickup), Bluefin and Turo together, overlaps counted once.
+  - `CalendarGrid` drops selected cells of cars a filter hides.
+- Route files mustn't export anything but `Route` (code-splitting), which is why
+  `ListingBadge`/`vehicleStatusText` live in `components/admin/VehicleStatus.tsx`.
+- Tests: `tests/vehicles.test.ts`, `tests/pricing-rules.test.ts`, `tests/fleet-view.test.ts`,
+  every guard mutation-checked.
+
 ### Customer CRM and blocking (`src/lib/crm.ts`, `blocks.ts`, `blocks.server.ts`, `identity.server.ts`)
 
 `/admin/customers` lists every account (search, filters, sort, CSV export) and
@@ -600,8 +676,8 @@ functions are in `crm.ts`, and each calls `requireAdmin()` first.
   Liam chose licence-only matching (no email, phone, card or IP).
 - **Blocking never cancels a confirmed trip.** It returns the upcoming trips for the dialog to
   list. It does cancel the PaymentIntent of every `pending`, `expired` and `failed` checkout
-  (`releaseOpenCheckouts`), because the webhook revives expired and failed rows on a late
-  payment.
+  (`releaseOpenCheckouts`, in `open-checkouts.server.ts`, shared with unlisting a car), because
+  the webhook revives expired and failed rows on a late payment.
 - Tags and the Blocked chip show on the reservation page and the Booked/History trip cards
   (`getCustomerFlags`). The CSV export leaves out licence number and DOB on purpose.
 - Tests: `tests/crm.test.ts`. Every guard was mutation-checked when written.
@@ -694,6 +770,21 @@ policies, no anon/authenticated grants, both partial unique indexes; regenerated
 reads `customer_blocks` on every checkout and fails closed. **A check that tests a constraint
 should report OK, not end on the expected error**: the first version of this file's check
 finished with a duplicate-key error, which reads as a failure.
+
+`20261014120000_vehicles_and_pricing_rules.sql` was run 2026-10-13. It was verified live:
+- `car_secrets.vin`, `admin_changes`, `pricing_settings` (one row: 1.40 / 0.85 / 1.10, `{5,6,0}`)
+  and `pricing_periods` with its `pricing_periods_no_overlap` constraint all exist.
+- The regenerated types only added these.
+
+Every quote reads `pricing_settings` and fails closed without its row, so never delete it: the
+car page, checkout and the admin calendar would all stop working.
+
+`20261014130000_turo_trip_counts.sql` was run 2026-10-14. All nine cars' Turo counts were
+entered the same day (verified live), and the types were regenerated.
+- **To correct a count later,** set both columns in one statement:
+  `update cars set turo_trip_count = N, turo_trip_count_at = now() where id = X`.
+- **Setting only the number is refused** (`cars_turo_trip_count_pair_chk`). That's what
+  happened on Liam's first attempt, and nothing was saved.
 
 **Sign-ups were broken from 2026-09-27 to 2026-10-08** ("Database error saving new user"; no
 account created in between). `profiles_guard_server_columns` refused a new profile whose

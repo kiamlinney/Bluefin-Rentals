@@ -30,12 +30,15 @@ import { Route as PoliciesPrivacyRouteImport } from './routes/policies/privacy'
 import { Route as PoliciesCancellationRouteImport } from './routes/policies/cancellation'
 import { Route as FleetCarSlugRouteImport } from './routes/fleet/$carSlug'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe-webhook'
+import { Route as AdminPricingRouteImport } from './routes/admin/pricing'
 import { Route as AdminCalendarRouteImport } from './routes/admin/calendar'
 import { Route as AuthedProfileRouteImport } from './routes/_authed.profile'
+import { Route as AdminVehiclesIndexRouteImport } from './routes/admin/vehicles/index'
 import { Route as AdminCustomersIndexRouteImport } from './routes/admin/customers/index'
 import { Route as AuthedTripsIndexRouteImport } from './routes/_authed.trips.index'
 import { Route as ApiCronSyncTuroRouteImport } from './routes/api/cron/sync-turo'
 import { Route as ApiCronPaymentsRouteImport } from './routes/api/cron/payments'
+import { Route as AdminVehiclesCarIdRouteImport } from './routes/admin/vehicles/$carId'
 import { Route as AdminUserUserIdRouteImport } from './routes/admin/user.$userId'
 import { Route as AdminTripsHistoryRouteImport } from './routes/admin/trips/history'
 import { Route as AdminTripsBookedRouteImport } from './routes/admin/trips/booked'
@@ -156,6 +159,11 @@ const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
   path: '/api/stripe-webhook',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminPricingRoute = AdminPricingRouteImport.update({
+  id: '/pricing',
+  path: '/pricing',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminCalendarRoute = AdminCalendarRouteImport.update({
   id: '/calendar',
   path: '/calendar',
@@ -165,6 +173,11 @@ const AuthedProfileRoute = AuthedProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
   getParentRoute: () => AuthedRoute,
+} as any)
+const AdminVehiclesIndexRoute = AdminVehiclesIndexRouteImport.update({
+  id: '/vehicles/',
+  path: '/vehicles/',
+  getParentRoute: () => AdminRoute,
 } as any)
 const AdminCustomersIndexRoute = AdminCustomersIndexRouteImport.update({
   id: '/customers/',
@@ -185,6 +198,11 @@ const ApiCronPaymentsRoute = ApiCronPaymentsRouteImport.update({
   id: '/api/cron/payments',
   path: '/api/cron/payments',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AdminVehiclesCarIdRoute = AdminVehiclesCarIdRouteImport.update({
+  id: '/vehicles/$carId',
+  path: '/vehicles/$carId',
+  getParentRoute: () => AdminRoute,
 } as any)
 const AdminUserUserIdRoute = AdminUserUserIdRouteImport.update({
   id: '/user/$userId',
@@ -285,6 +303,7 @@ export interface FileRoutesByFullPath {
   '/testimonials': typeof TestimonialsRoute
   '/profile': typeof AuthedProfileRoute
   '/admin/calendar': typeof AdminCalendarRoute
+  '/admin/pricing': typeof AdminPricingRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
   '/fleet/$carSlug': typeof FleetCarSlugRoute
   '/policies/cancellation': typeof PoliciesCancellationRoute
@@ -303,10 +322,12 @@ export interface FileRoutesByFullPath {
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
   '/admin/user/$userId': typeof AdminUserUserIdRoute
+  '/admin/vehicles/$carId': typeof AdminVehiclesCarIdRoute
   '/api/cron/payments': typeof ApiCronPaymentsRoute
   '/api/cron/sync-turo': typeof ApiCronSyncTuroRoute
   '/trips/': typeof AuthedTripsIndexRoute
   '/admin/customers/': typeof AdminCustomersIndexRoute
+  '/admin/vehicles/': typeof AdminVehiclesIndexRoute
   '/trips/$bookingId/extras': typeof AuthedTripsBookingIdExtrasRoute
   '/trips/$bookingId/photos': typeof AuthedTripsBookingIdPhotosRoute
   '/trips/$bookingId/receipt': typeof AuthedTripsBookingIdReceiptRoute
@@ -327,6 +348,7 @@ export interface FileRoutesByTo {
   '/testimonials': typeof TestimonialsRoute
   '/profile': typeof AuthedProfileRoute
   '/admin/calendar': typeof AdminCalendarRoute
+  '/admin/pricing': typeof AdminPricingRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
   '/fleet/$carSlug': typeof FleetCarSlugRoute
   '/policies/cancellation': typeof PoliciesCancellationRoute
@@ -345,10 +367,12 @@ export interface FileRoutesByTo {
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
   '/admin/user/$userId': typeof AdminUserUserIdRoute
+  '/admin/vehicles/$carId': typeof AdminVehiclesCarIdRoute
   '/api/cron/payments': typeof ApiCronPaymentsRoute
   '/api/cron/sync-turo': typeof ApiCronSyncTuroRoute
   '/trips': typeof AuthedTripsIndexRoute
   '/admin/customers': typeof AdminCustomersIndexRoute
+  '/admin/vehicles': typeof AdminVehiclesIndexRoute
   '/trips/$bookingId/extras': typeof AuthedTripsBookingIdExtrasRoute
   '/trips/$bookingId/photos': typeof AuthedTripsBookingIdPhotosRoute
   '/trips/$bookingId/receipt': typeof AuthedTripsBookingIdReceiptRoute
@@ -372,6 +396,7 @@ export interface FileRoutesById {
   '/testimonials': typeof TestimonialsRoute
   '/_authed/profile': typeof AuthedProfileRoute
   '/admin/calendar': typeof AdminCalendarRoute
+  '/admin/pricing': typeof AdminPricingRoute
   '/api/stripe-webhook': typeof ApiStripeWebhookRoute
   '/fleet/$carSlug': typeof FleetCarSlugRoute
   '/policies/cancellation': typeof PoliciesCancellationRoute
@@ -390,10 +415,12 @@ export interface FileRoutesById {
   '/admin/trips/booked': typeof AdminTripsBookedRoute
   '/admin/trips/history': typeof AdminTripsHistoryRoute
   '/admin/user/$userId': typeof AdminUserUserIdRoute
+  '/admin/vehicles/$carId': typeof AdminVehiclesCarIdRoute
   '/api/cron/payments': typeof ApiCronPaymentsRoute
   '/api/cron/sync-turo': typeof ApiCronSyncTuroRoute
   '/_authed/trips/': typeof AuthedTripsIndexRoute
   '/admin/customers/': typeof AdminCustomersIndexRoute
+  '/admin/vehicles/': typeof AdminVehiclesIndexRoute
   '/_authed/trips/$bookingId_/extras': typeof AuthedTripsBookingIdExtrasRoute
   '/_authed/trips/$bookingId_/photos': typeof AuthedTripsBookingIdPhotosRoute
   '/_authed/trips/$bookingId_/receipt': typeof AuthedTripsBookingIdReceiptRoute
@@ -417,6 +444,7 @@ export interface FileRouteTypes {
     | '/testimonials'
     | '/profile'
     | '/admin/calendar'
+    | '/admin/pricing'
     | '/api/stripe-webhook'
     | '/fleet/$carSlug'
     | '/policies/cancellation'
@@ -435,10 +463,12 @@ export interface FileRouteTypes {
     | '/admin/trips/booked'
     | '/admin/trips/history'
     | '/admin/user/$userId'
+    | '/admin/vehicles/$carId'
     | '/api/cron/payments'
     | '/api/cron/sync-turo'
     | '/trips/'
     | '/admin/customers/'
+    | '/admin/vehicles/'
     | '/trips/$bookingId/extras'
     | '/trips/$bookingId/photos'
     | '/trips/$bookingId/receipt'
@@ -459,6 +489,7 @@ export interface FileRouteTypes {
     | '/testimonials'
     | '/profile'
     | '/admin/calendar'
+    | '/admin/pricing'
     | '/api/stripe-webhook'
     | '/fleet/$carSlug'
     | '/policies/cancellation'
@@ -477,10 +508,12 @@ export interface FileRouteTypes {
     | '/admin/trips/booked'
     | '/admin/trips/history'
     | '/admin/user/$userId'
+    | '/admin/vehicles/$carId'
     | '/api/cron/payments'
     | '/api/cron/sync-turo'
     | '/trips'
     | '/admin/customers'
+    | '/admin/vehicles'
     | '/trips/$bookingId/extras'
     | '/trips/$bookingId/photos'
     | '/trips/$bookingId/receipt'
@@ -503,6 +536,7 @@ export interface FileRouteTypes {
     | '/testimonials'
     | '/_authed/profile'
     | '/admin/calendar'
+    | '/admin/pricing'
     | '/api/stripe-webhook'
     | '/fleet/$carSlug'
     | '/policies/cancellation'
@@ -521,10 +555,12 @@ export interface FileRouteTypes {
     | '/admin/trips/booked'
     | '/admin/trips/history'
     | '/admin/user/$userId'
+    | '/admin/vehicles/$carId'
     | '/api/cron/payments'
     | '/api/cron/sync-turo'
     | '/_authed/trips/'
     | '/admin/customers/'
+    | '/admin/vehicles/'
     | '/_authed/trips/$bookingId_/extras'
     | '/_authed/trips/$bookingId_/photos'
     | '/_authed/trips/$bookingId_/receipt'
@@ -702,6 +738,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiStripeWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/pricing': {
+      id: '/admin/pricing'
+      path: '/pricing'
+      fullPath: '/admin/pricing'
+      preLoaderRoute: typeof AdminPricingRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/calendar': {
       id: '/admin/calendar'
       path: '/calendar'
@@ -715,6 +758,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/profile'
       preLoaderRoute: typeof AuthedProfileRouteImport
       parentRoute: typeof AuthedRoute
+    }
+    '/admin/vehicles/': {
+      id: '/admin/vehicles/'
+      path: '/vehicles'
+      fullPath: '/admin/vehicles/'
+      preLoaderRoute: typeof AdminVehiclesIndexRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/admin/customers/': {
       id: '/admin/customers/'
@@ -743,6 +793,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/cron/payments'
       preLoaderRoute: typeof ApiCronPaymentsRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/admin/vehicles/$carId': {
+      id: '/admin/vehicles/$carId'
+      path: '/vehicles/$carId'
+      fullPath: '/admin/vehicles/$carId'
+      preLoaderRoute: typeof AdminVehiclesCarIdRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/admin/user/$userId': {
       id: '/admin/user/$userId'
@@ -881,6 +938,7 @@ const AuthedRouteWithChildren =
 
 interface AdminRouteChildren {
   AdminCalendarRoute: typeof AdminCalendarRoute
+  AdminPricingRoute: typeof AdminPricingRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminBusinessEarningsRoute: typeof AdminBusinessEarningsRoute
   AdminBusinessRatingsReviewsRoute: typeof AdminBusinessRatingsReviewsRoute
@@ -890,11 +948,14 @@ interface AdminRouteChildren {
   AdminTripsBookedRoute: typeof AdminTripsBookedRoute
   AdminTripsHistoryRoute: typeof AdminTripsHistoryRoute
   AdminUserUserIdRoute: typeof AdminUserUserIdRoute
+  AdminVehiclesCarIdRoute: typeof AdminVehiclesCarIdRoute
   AdminCustomersIndexRoute: typeof AdminCustomersIndexRoute
+  AdminVehiclesIndexRoute: typeof AdminVehiclesIndexRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminCalendarRoute: AdminCalendarRoute,
+  AdminPricingRoute: AdminPricingRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminBusinessEarningsRoute: AdminBusinessEarningsRoute,
   AdminBusinessRatingsReviewsRoute: AdminBusinessRatingsReviewsRoute,
@@ -904,7 +965,9 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminTripsBookedRoute: AdminTripsBookedRoute,
   AdminTripsHistoryRoute: AdminTripsHistoryRoute,
   AdminUserUserIdRoute: AdminUserUserIdRoute,
+  AdminVehiclesCarIdRoute: AdminVehiclesCarIdRoute,
   AdminCustomersIndexRoute: AdminCustomersIndexRoute,
+  AdminVehiclesIndexRoute: AdminVehiclesIndexRoute,
 }
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)

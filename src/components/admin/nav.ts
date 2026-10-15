@@ -1,4 +1,4 @@
-import { CalendarDays, Car, LineChart, Users } from 'lucide-react'
+import { CalendarDays, Car, CarFront, LineChart, Users } from 'lucide-react'
 
 export type AdminNavItem = {
     label: string
@@ -19,6 +19,14 @@ export const adminNav: AdminNavItem[] = [
         children: [
             { label: 'Booked', path: '/admin/trips/booked'},
             { label: 'History', path: '/admin/trips/history'},
+        ],
+    },
+    {
+        label: 'Vehicles',
+        icon: CarFront,
+        children: [
+            { label: 'All vehicles', path: '/admin/vehicles'},
+            { label: 'Pricing', path: '/admin/pricing'},
         ],
     },
     { label: 'Customers', path: '/admin/customers', icon: Users },

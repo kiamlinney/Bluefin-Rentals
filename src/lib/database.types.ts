@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_changes: {
+        Row: {
+          car_id: number | null
+          changed_by: string | null
+          created_at: string
+          field: string
+          id: string
+          new_value: string | null
+          old_value: string | null
+        }
+        Insert: {
+          car_id?: number | null
+          changed_by?: string | null
+          created_at?: string
+          field: string
+          id?: string
+          new_value?: string | null
+          old_value?: string | null
+        }
+        Update: {
+          car_id?: number | null
+          changed_by?: string | null
+          created_at?: string
+          field?: string
+          id?: string
+          new_value?: string | null
+          old_value?: string | null
+        }
+        Relationships: []
+      }
       booking_additional_drivers: {
         Row: {
           booking_id: string
@@ -520,16 +550,19 @@ export type Database = {
           car_id: number
           lockbox_code: string | null
           updated_at: string
+          vin: string | null
         }
         Insert: {
           car_id: number
           lockbox_code?: string | null
           updated_at?: string
+          vin?: string | null
         }
         Update: {
           car_id?: number
           lockbox_code?: string | null
           updated_at?: string
+          vin?: string | null
         }
         Relationships: [
           {
@@ -560,6 +593,8 @@ export type Database = {
           price_per_day: number
           transmission: string | null
           trim: string | null
+          turo_trip_count: number | null
+          turo_trip_count_at: string | null
           updated_at: string | null
           year: number
         }
@@ -581,6 +616,8 @@ export type Database = {
           price_per_day: number
           transmission?: string | null
           trim?: string | null
+          turo_trip_count?: number | null
+          turo_trip_count_at?: string | null
           updated_at?: string | null
           year: number
         }
@@ -602,6 +639,8 @@ export type Database = {
           price_per_day?: number
           transmission?: string | null
           trim?: string | null
+          turo_trip_count?: number | null
+          turo_trip_count_at?: string | null
           updated_at?: string | null
           year?: number
         }
@@ -779,6 +818,66 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      pricing_periods: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          end_date: string
+          id: string
+          kind: string
+          label: string
+          start_date: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          end_date: string
+          id?: string
+          kind: string
+          label: string
+          start_date: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          end_date?: string
+          id?: string
+          kind?: string
+          label?: string
+          start_date?: string
+        }
+        Relationships: []
+      }
+      pricing_settings: {
+        Row: {
+          busy_multiplier: number
+          id: boolean
+          slow_multiplier: number
+          updated_at: string
+          updated_by: string | null
+          weekend_days: number[]
+          weekend_multiplier: number
+        }
+        Insert: {
+          busy_multiplier?: number
+          id?: boolean
+          slow_multiplier?: number
+          updated_at?: string
+          updated_by?: string | null
+          weekend_days?: number[]
+          weekend_multiplier?: number
+        }
+        Update: {
+          busy_multiplier?: number
+          id?: boolean
+          slow_multiplier?: number
+          updated_at?: string
+          updated_by?: string | null
+          weekend_days?: number[]
+          weekend_multiplier?: number
+        }
+        Relationships: []
       }
       profiles: {
         Row: {

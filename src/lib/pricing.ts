@@ -221,10 +221,141 @@ export { roundMoney }
 // 'YYYY-MM-DD' -> price for that day.
 export type PriceOverrides = Record<string, number>
 
+// ── Automatic pricing rules ──────────────────────────────────────────────────
+//
+// Decided by Liam on 2026-10-13. A car's price_per_day is its base. On top of
+// that, fleet-wide:
+//   - a busy or slow multiplier for dates inside a busy or slow period the
+//     owners entered (date ranges, inclusive, never overlapping), and
+//   - a weekend multiplier on the configured weekdays (Fri, Sat and Sun).
+// They multiply: a busy Saturday is base x busy x weekend. The result is
+// rounded to whole dollars. A price the owners typed for a date on the
+// calendar (car_price_overrides) wins outright, with no multiplier on it.
+//
+// The rules are stored in pricing_settings and pricing_periods and read by
+// src/lib/pricing-rules.ts. Every quote takes them as a REQUIRED input: if a
+// caller could leave them out, the one that forgot would quietly price busy
+// days at the base rate. NO_PRICING_RULES is for callers that mean "no rules"
+// (prices from before the rules existed, and tests of everything else).
+//
+// Written for review: ImportantFiles/pricing-rules.md.
+
+export type PricingPeriodKind = 'busy' | 'slow'
+
+export type PricingPeriod = {
+    kind: PricingPeriodKind
+    /** 'YYYY-MM-DD', inclusive. */
+    startDate: string
+    /** 'YYYY-MM-DD', inclusive. */
+    endDate: string
+    label?: string
+}
+
+export type PricingRules = {
+    busyMultiplier: number
+    slowMultiplier: number
+    weekendMultiplier: number
+    /** 0 = Sunday ... 6 = Saturday. */
+    weekendDays: number[]
+    periods: PricingPeriod[]
+}
+
+/**
+ * What a multiplier may be set to: a guard against typos (1.4 typed as 14, or
+ * .14), not a pricing policy. The database enforces the same bounds
+ * (pricing_settings check constraints).
+ */
+export const MULTIPLIER_MIN = 0.5
+export const MULTIPLIER_MAX = 3
+
+export const NO_PRICING_RULES: PricingRules = {
+    busyMultiplier: 1,
+    slowMultiplier: 1,
+    weekendMultiplier: 1,
+    weekendDays: [],
+    periods: [],
+}
+
+/** Why a day costs more or less than the base rate. */
+export type DayAdjustment = PricingPeriodKind | 'weekend'
+
+export const DAY_ADJUSTMENT_LABEL: Record<DayAdjustment, string> = {
+    busy: 'Busy period',
+    slow: 'Slow period',
+    weekend: 'Weekend',
+}
+
+/** 0 = Sunday ... 6 = Saturday, for a 'YYYY-MM-DD' key. No timezone involved. */
+export function weekdayOf(dateKey: string): number {
+    return new Date(dateKeyToUtcMs(dateKey)).getUTCDay()
+}
+
+/** The busy or slow period a date falls in, if any. */
+export function periodFor(rules: PricingRules, dateKey: string): PricingPeriod | null {
+    return rules.periods.find(p => p.startDate <= dateKey && dateKey <= p.endDate) ?? null
+}
+
+/** What the rules multiply a date's base price by, and why. 1 and [] when nothing applies. */
+export function dayMultiplier(rules: PricingRules, dateKey: string): { multiplier: number; adjustments: DayAdjustment[] } {
+    const adjustments: DayAdjustment[] = []
+    let multiplier = 1
+    const period = periodFor(rules, dateKey)
+    if (period) {
+        const m = period.kind === 'busy' ? rules.busyMultiplier : rules.slowMultiplier
+        if (m !== 1) {
+            multiplier *= m
+            adjustments.push(period.kind)
+        }
+    }
+    if (rules.weekendDays.includes(weekdayOf(dateKey)) && rules.weekendMultiplier !== 1) {
+        multiplier *= rules.weekendMultiplier
+        adjustments.push('weekend')
+    }
+    // Four places is plenty for a product of two two-decimal multipliers, and
+    // it stops 1.4 x 1.1 arriving as 1.5400000000000003.
+    return { multiplier: Math.round(multiplier * 10000) / 10000, adjustments }
+}
+
+/**
+ * One day's price. A typed calendar price wins outright. Otherwise the base,
+ * times whatever the rules say, rounded to whole dollars. A day no rule touches
+ * is exactly the base price, as it always was.
+ */
+export function dailyPrice(input: {
+    date: string
+    basePricePerDay: number
+    override?: number
+    rules: PricingRules
+}): { price: number; isOverride: boolean; adjustments: DayAdjustment[] } {
+    if (input.override !== undefined) {
+        return { price: roundMoney(input.override), isOverride: true, adjustments: [] }
+    }
+    const { multiplier, adjustments } = dayMultiplier(input.rules, input.date)
+    if (adjustments.length === 0) {
+        return { price: roundMoney(input.basePricePerDay), isOverride: false, adjustments }
+    }
+    // Rounded to cents first so a product like 84.49999999 can't round the
+    // wrong way, then to whole dollars.
+    return { price: Math.round(roundMoney(input.basePricePerDay * multiplier)), isOverride: false, adjustments }
+}
+
 export type QuoteDay = {
     date: string
     price: number
     isOverride: boolean
+    /**
+     * Which rules changed this day's price. Left off a day no rule touched, and
+     * missing on quotes stored before the rules existed; either way the day
+     * shows no label.
+     */
+    adjustments?: DayAdjustment[]
+}
+
+/** A priced day as a quote line. `adjustments` only when a rule applied. */
+export function quoteDay(priced: ReturnType<typeof dailyPrice>, date: string): QuoteDay {
+    return priced.adjustments.length > 0
+        ? { date, price: priced.price, isOverride: priced.isOverride, adjustments: priced.adjustments }
+        : { date, price: priced.price, isOverride: priced.isOverride }
 }
 
 export type TripQuote = {
@@ -281,6 +412,8 @@ export type TripQuoteInput = {
     endTime: string
     basePricePerDay: number
     overrides?: PriceOverrides
+    // Required, unlike everything optional below: see "Automatic pricing rules".
+    pricingRules: PricingRules
     today?: string      // defaults to today in the business's timezone
     // Comes from resolvePickup() in src/lib/pickup.ts. Optional so every existing
     // caller — and every future one quoting a plain home-base pickup — keeps
@@ -392,10 +525,8 @@ export function calculateTripPrice(input: TripQuoteInput): TripQuote {
     let subtotal = 0
     for (let i = 0; i < billableDays; i++) {
         const date = addDays(startDate, i)
-        const override = overrides[date]
-        const price = roundMoney(override ?? basePricePerDay)
-        days.push({ date, price, isOverride: override !== undefined })
-        subtotal += price
+        days.push(quoteDay(dailyPrice({ date, basePricePerDay, override: overrides[date], rules: input.pricingRules }), date))
+        subtotal += days[i]!.price
     }
     subtotal = roundMoney(subtotal)
 
@@ -518,7 +649,15 @@ export type QuoteDayGroup = {
     /** True only when every day in the run came from a price override, so a
      *  merged run can't be badged "special rate" on the strength of one day. */
     isOverride: boolean
+    /**
+     * Why the run costs what it does, e.g. "Weekend" or "Busy period + Weekend",
+     * when every day in it was adjusted by the same rules. Null otherwise.
+     */
+    adjustmentLabel: string | null
 }
+
+const adjustmentLabelFor = (day: QuoteDay) =>
+    day.adjustments?.length ? day.adjustments.map(a => DAY_ADJUSTMENT_LABEL[a]).join(' + ') : null
 
 // Grouped on price alone, not on (price, isOverride). An override set to the
 // same number as the base rate is not a different price to the person paying
@@ -545,6 +684,9 @@ export function groupQuoteDays(days: QuoteDay[]): QuoteDayGroup[] {
             current.days += 1
             current.subtotal = roundMoney(current.price * current.days)
             current.isOverride = current.isOverride && day.isOverride
+            // Same price but a different reason (rare: a busy weekday priced
+            // the same as a weekend day) keeps the run and drops the label.
+            if (current.adjustmentLabel !== adjustmentLabelFor(day)) current.adjustmentLabel = null
             continue
         }
 
@@ -555,6 +697,7 @@ export function groupQuoteDays(days: QuoteDay[]): QuoteDayGroup[] {
             price: day.price,
             subtotal: day.price,
             isOverride: day.isOverride,
+            adjustmentLabel: adjustmentLabelFor(day),
         })
     }
 

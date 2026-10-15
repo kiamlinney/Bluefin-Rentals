@@ -44,7 +44,7 @@ import { LATE_BOOKING_GRACE_HOURS, LATE_BOOKING_WINDOW_HOURS, SHORT_TRIP_DAYS } 
 import { DELIVERY_FEE, DELIVERY_RADIUS_MILES, LISTED_PICKUP_FEE } from '../src/lib/pickup.ts'
 import { MILES_INCLUDED_PER_DAY } from '../src/lib/distance.ts'
 import { EXTRAS } from '../src/lib/extras.ts'
-import { DISCOUNT_TIERS, LONG_DURATION_DISCOUNT, SAME_DAY_SURCHARGE } from '../src/lib/pricing.ts'
+import { DISCOUNT_TIERS, LONG_DURATION_DISCOUNT, MULTIPLIER_MAX, MULTIPLIER_MIN, SAME_DAY_SURCHARGE } from '../src/lib/pricing.ts'
 import { PENDING_HOLD_MS } from '../src/lib/availability.ts'
 import { TERMS_SECTIONS, termsSection } from '../src/lib/policy-sections.ts'
 
@@ -97,6 +97,7 @@ const EXPECTED: Record<string, string> = {
     LISTED_PICKUP_FEE: dollars(LISTED_PICKUP_FEE),
     MILES_INCLUDED_PER_DAY: String(MILES_INCLUDED_PER_DAY),
     SAME_DAY_SURCHARGE: pct(SAME_DAY_SURCHARGE.percent),
+    PRICING_MULTIPLIER_RANGE: `${MULTIPLIER_MIN} to ${MULTIPLIER_MAX}`,
     LONG_DURATION_DISCOUNT: `${pct(LONG_DURATION_DISCOUNT.percent)} from ${LONG_DURATION_DISCOUNT.minDays} days`,
     DISCOUNT_TIERS: [...DISCOUNT_TIERS].reverse().map(t => `${pct(t.percent)} from ${t.minDays} days`).join(', '),
     EXTRA_PREPAID_REFUEL: extra('prepaid-refuel'),

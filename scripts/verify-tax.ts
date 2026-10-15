@@ -15,7 +15,7 @@ import {
     SHORT_TERM_MAX_DAYS,
     taxJurisdictionForPickup,
 } from '../src/lib/tax.ts'
-import { calculateTripPrice } from '../src/lib/pricing.ts'
+import { calculateTripPrice, NO_PRICING_RULES } from '../src/lib/pricing.ts'
 import { storedQuote } from '../src/lib/receipt.ts'
 import { refundForCancellation } from '../src/lib/cancellation-policy.ts'
 
@@ -74,7 +74,7 @@ console.log('\nIn a quote')
 {
     const q = calculateTripPrice({
         startDate: '2026-11-02', startTime: '10:00', endDate: '2026-11-04', endTime: '10:00',
-        basePricePerDay: 100, today: '2026-10-01', taxJurisdiction: 'saint-paul',
+        basePricePerDay: 100, today: '2026-10-01', taxJurisdiction: 'saint-paul', pricingRules: NO_PRICING_RULES,
     })
     pass(eq(q.preTaxTotal, 200) && eq(q.taxTotal, 38.15) && eq(q.total, 238.15),
         'a $200 trip in Saint Paul: 200 + 38.15 tax = 238.15', JSON.stringify({ pre: q.preTaxTotal, tax: q.taxTotal, total: q.total }))
@@ -97,7 +97,7 @@ console.log('\nRefunds')
 {
     const q = calculateTripPrice({
         startDate: '2026-11-02', startTime: '10:00', endDate: '2026-11-06', endTime: '10:00',
-        basePricePerDay: 100, today: '2026-10-01', bookingRate: 'refundable', taxJurisdiction: 'saint-paul',
+        basePricePerDay: 100, today: '2026-10-01', bookingRate: 'refundable', taxJurisdiction: 'saint-paul', pricingRules: NO_PRICING_RULES,
     })
     // Late refundable cancellation: one day's fee kept, premium kept.
     const outcome = refundForCancellation({

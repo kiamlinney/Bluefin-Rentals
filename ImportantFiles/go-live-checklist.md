@@ -551,6 +551,41 @@ test licence number.
 
 **Pass** if all of the above. Note anything that differs.
 
+#### Test 22: Pricing rules, unlisting, and the frozen per-mile rate (added 2026-10-13)
+Needs `supabase/migrations/20261014120000_vehicles_and_pricing_rules.sql` run first (its check
+should print "OK" on every line). Use a **non-admin** guest account for the checkouts. Pick a
+car, here called "the car", and note its base price (Vehicles → the car), called BASE.
+
+**Do:**
+1. **Vehicles → Pricing**: leave busy ×1.4, slow ×0.85, weekend ×1.1 (Fri, Sat, Sun).
+   **Add period**: Busy, "Rehearsal", covering next Friday and Saturday only.
+2. Look at the admin calendar for those dates.
+3. As the guest, on the car's page, choose next Thursday 10:00 AM to next Monday 10:00 AM and
+   open the price details.
+4. Continue through checkout and pay with `4242…`.
+5. Open the booking in Supabase and note `price_quote.mileageRate`. On the car's Vehicles page,
+   change the per-mile fee (e.g. add $0.20) and the base price (add $10), and save.
+6. Open the trip's receipt (guest) and the reservation page (admin).
+7. On the car's Vehicles page press **Unlist** and confirm. As the guest, open the car's page,
+   then try the checkout link from step 4's URL again.
+8. **List** the car again. Delete the "Rehearsal" period.
+
+**Expect:**
+- Step 2: an amber strip under Friday and Saturday; those cells show BASE × 1.54 and Sunday
+  BASE × 1.1, each rounded to whole dollars. Thursday and Monday show BASE.
+- Step 3: the breakdown shows Thursday at BASE, Friday and Saturday labelled "Busy period +
+  Weekend", Sunday labelled "Weekend". The total matches checkout's.
+- Step 4: checkout says "Includes weekend and busy-period prices", and the amount in Stripe
+  equals checkout's total to the cent.
+- Step 6: both pages show the per-mile rate from step 5 (`mileageRate`), not a new one, and the
+  trip's price is unchanged. The car's change history lists both edits with your name.
+- Step 7: the car's page says "This car isn't available to book right now" with no booking
+  widget or phone bar; the checkout link goes back to the car's page. Your step 4 trip is
+  still confirmed.
+- Step 8: the car books again; the pricing change history shows the period added and deleted.
+
+**Pass** if all of the above.
+
 ### 1c. When you're done
 
 - [ ] Stop the listener (Ctrl+C). Nothing to change back in `.env`.

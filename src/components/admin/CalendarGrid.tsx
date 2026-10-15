@@ -5,7 +5,7 @@ import { BookingWithRelations, Car, CarBlockedDate, TuroBooking } from "src/type
 import { MonthPicker } from "@/components/admin/MonthPicker.tsx";
 import { SelectionPanel } from "@/components/admin/SelectionPanel.tsx";
 import { businessDayStart } from "@/lib/dates.ts";
-import { dateKeyToLocalDate } from "@/lib/pricing.ts";
+import { dailyPrice, dateKeyToLocalDate, DAY_ADJUSTMENT_LABEL, periodFor, type PricingRules } from "@/lib/pricing.ts";
 import { carMainImageUrl } from "@/lib/car-images.ts";
 import { tripKey } from "@/lib/schedule-overlaps";
 import { isTuroSwapPending } from "@/lib/turo-swap";
@@ -76,11 +76,14 @@ export function CalendarGrid({
      blockedDates,
      overlapNotes,
      onTuroSwapClick,
+     pricingRules,
 }: {
     cars: Car[]
     bookings: BookingWithRelations[]
     turoBookings: TuroBooking[]
     priceOverrides: { car_id: number; date: string; price: number }[]
+    /** The busy/slow/weekend rules every quote uses; the cells show prices with them. */
+    pricingRules: PricingRules
     blockedDates: CarBlockedDate[]
     /** What each overlapping trip overlaps, keyed by tripKey (useScheduleFlags). */
     overlapNotes: Map<string, string>
@@ -265,12 +268,21 @@ export function CalendarGrid({
     }, [priceOverrides, localOverridesState])
 
     // getPriceForCell
-    // Resolves the displayed price for one cell: override ?? car base price
-    // Called during render of every visible cell, must be fast
-    const getPriceForCell = (carId: number, basePrice: number, date: Date): number => {
-        const dateStr = date.toLocaleDateString("en-CA")
-        return priceOverrideMap.get(`${carId}:${dateStr}`) ?? basePrice
-    }
+    // Resolves the displayed price for one cell the way a quote does
+    // (pricing.ts#dailyPrice): a typed price wins, else the base price times the
+    // busy/slow/weekend rules. Called during render of every visible cell.
+    const basePriceByCarId = useMemo(
+        () => new Map(cars.map(car => [car.id, Number(car.price_per_day)])),
+        [cars],
+    )
+    const priceForCell = useCallback((carId: number, dateKey: string): number => dailyPrice({
+        date: dateKey,
+        basePricePerDay: basePriceByCarId.get(carId) ?? 0,
+        override: priceOverrideMap.get(`${carId}:${dateKey}`),
+        rules: pricingRules,
+    }).price, [basePriceByCarId, priceOverrideMap, pricingRules])
+    const getPriceForCell = (carId: number, date: Date): number =>
+        priceForCell(carId, date.toLocaleDateString("en-CA"))
 
     // Return true if this cell has a manually set override price
     // Used to visually distinguish overridden prices
@@ -339,6 +351,23 @@ export function CalendarGrid({
         return preview
     }, [panelOpen, activeTab, selectedCells])
 
+
+    // The toolbar's filters can hide a car while some of its cells are
+    // selected. Those cells go, so the panel never acts on a car you can't see.
+    // Runs only when `cars` changes; the selection it reads is the one from that
+    // same render, so it's current.
+    useEffect(() => {
+        const shown = new Set(cars.map(c => c.id))
+        const kept = new Set([...selectedCells].filter(key => shown.has(parseCellKey(key).carId)))
+        if (kept.size !== selectedCells.size) {
+            setSelectedCells(kept)
+            if (kept.size === 0) {
+                setPanelOpen(false)
+                setRangeMode(false)
+            }
+        }
+        if (anchorCell && !shown.has(parseCellKey(anchorCell).carId)) setAnchorCell(null)
+    }, [cars])
 
     // Escape key handler
 
@@ -605,6 +634,18 @@ export function CalendarGrid({
                                         >
                                             {dayNum}
                                         </span>
+                                        {/* A busy or slow period (Pricing rules) as a strip along
+                                            the bottom of the date: amber busy, blue slow. */}
+                                        {(() => {
+                                            const period = periodFor(pricingRules, date.toLocaleDateString("en-CA"))
+                                            if (!period) return null
+                                            return (
+                                                <span
+                                                    title={`${DAY_ADJUSTMENT_LABEL[period.kind]}: ${period.label ?? ''}`}
+                                                    className={`absolute bottom-1 inset-x-2 h-1 rounded-full ${period.kind === 'busy' ? 'bg-amber-400' : 'bg-sky-400'}`}
+                                                />
+                                            )
+                                        })()}
                                     </div>
                                 )
                             })}
@@ -645,6 +686,11 @@ export function CalendarGrid({
                                         <div className="flex flex-col text-left min-w-0">
                                             <p className="text-xs text-black mt-1">{car.make} {car.model} {car.year}</p>
                                             <p className="text-xs text-gray-600">{car.license_plate}</p>
+                                            {car.is_available === false && (
+                                                <span className="mt-0.5 w-fit rounded bg-red-100 px-1.5 text-[10px] font-semibold text-red-700">
+                                                    Unlisted
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -660,7 +706,7 @@ export function CalendarGrid({
                                             makeCellKey(car.id, virtualColumn.index)
                                         )
 
-                                        const resolvedPrice = date ? getPriceForCell(car.id, car.price_per_day, date) : car.price_per_day
+                                        const resolvedPrice = date ? getPriceForCell(car.id, date) : car.price_per_day
                                         const isOverridden = date ? hasOverride(car.id, date) : false
 
                                         const cellKey = makeCellKey(car.id, virtualColumn.index)
@@ -856,7 +902,7 @@ export function CalendarGrid({
                     cars={cars}
                     dateRange={dateRange}
                     dateToIndex={dateToIndex}
-                    priceOverrideMap={priceOverrideMap}
+                    priceForCell={priceForCell}
                     onPricesUpdated={handlePricesUpdated}
                     blockedDates={allBlockedDates}
                     onBlocksCreated={handleBlocksCreated}

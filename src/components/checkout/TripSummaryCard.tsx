@@ -1,5 +1,5 @@
 import { CalendarDays, MapPin, Tag } from 'lucide-react'
-import type { TripQuote } from '@/lib/pricing.ts'
+import type { DayAdjustment, QuoteDay, TripQuote } from '@/lib/pricing.ts'
 import { timeToMinutes } from '@/lib/pricing.ts'
 import { formatDateKey, formatMinutesOfDay } from '@/lib/dates.ts'
 import type { CheckoutSearch } from '@/lib/checkout-search.ts'
@@ -20,6 +20,16 @@ import { displayTaxLines } from '@/lib/tax.ts'
 const formatMoney = (amount: number): string => `$${amount.toFixed(2)}`
 
 const formatPercent = (percent: number): string => `${Math.round(percent * 100)}%`
+
+// "Includes weekend and busy-period prices", or null when no day was adjusted.
+function adjustedDaysNote(days: QuoteDay[]): string | null {
+    const kinds = new Set(days.flatMap(d => d.adjustments ?? []))
+    if (kinds.size === 0) return null
+    const names = (['weekend', 'busy', 'slow'] as DayAdjustment[])
+        .filter(k => kinds.has(k))
+        .map(k => ({ weekend: 'weekend', busy: 'busy-period', slow: 'slow-period' })[k])
+    return `Includes ${names.join(' and ')} prices`
+}
 
 // "Fri, Sep 4 at 10:00 AM".
 //
@@ -122,6 +132,12 @@ export function TripSummaryCard({
                     label={`${quote.billableDays} ${quote.billableDays === 1 ? 'day' : 'days'}`}
                     value={formatMoney(quote.subtotal)}
                 />
+                {/* Daily prices vary by date (pricing.ts#dailyPrice); say so when
+                    this trip's do, so a higher total than the car page's "/ day"
+                    figure isn't a surprise. */}
+                {adjustedDaysNote(quote.days) && (
+                    <p className="-mt-1.5 text-xs text-muted">{adjustedDaysNote(quote.days)}</p>
+                )}
 
                 {quote.discountAmount > 0 && (
                     <Row

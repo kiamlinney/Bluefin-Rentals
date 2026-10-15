@@ -134,22 +134,38 @@ function billableDaysFromTimes(booking: ReceiptBooking): number {
     return Number.isFinite(minutes) && minutes > 0 ? Math.ceil(minutes / (24 * 60)) : 0
 }
 
+/**
+ * The per-mile rate this trip pays for driving past its allowance.
+ *
+ * Checkouts since 2026-10-14 froze it into the snapshot (`mileageRate`): it's
+ * the rate the car page and checkout showed, and it must not move when the
+ * owners later change the car's price_per_day or distance_fee from the
+ * Vehicles page. Older snapshots don't carry it, so for those it's worked out
+ * the way it always was, from the car's current values:
+ *
+ * With a snapshot the rate is the one this trip's own pricing implies. With
+ * none there's nothing to take a ratio against, so the car's ceiling stands
+ * — the documented "most this car's rate will ever be", and the same value
+ * distanceFeeForTrip itself falls back to for an empty quote.
+ *
+ * Off the car the trip was *priced* on. A swapped trip keeps the per-mile
+ * rate the guest was quoted (decided 2026-10-06), and the rate is a ratio
+ * against that car's own base price, so the new car's would be wrong twice.
+ */
+export function mileageRateFor(booking: ReceiptBooking, car: Car, quote: TripQuote | null = storedQuote(booking)): number {
+    const frozen = Number((booking.price_quote as { mileageRate?: unknown } | null)?.mileageRate)
+    if (quote && Number.isFinite(frozen) && frozen > 0) return frozen
+
+    const ratedCar = booking.pricing_car ?? car
+    return quote
+        ? distanceFeeForTrip(ratedCar, quote, Number(ratedCar.price_per_day))
+        : maxDistanceFee(ratedCar)
+}
+
 export function buildReceipt(booking: ReceiptBooking, car: Car): BookingReceipt {
     const quote = storedQuote(booking)
     const billableDays = billableDaysFor(booking, quote)
-
-    // With a snapshot the rate is the one this trip's own pricing implies. With
-    // none there's nothing to take a ratio against, so the car's ceiling stands
-    // — the documented "most this car's rate will ever be", and the same value
-    // distanceFeeForTrip itself falls back to for an empty quote.
-    //
-    // Off the car the trip was *priced* on. A swapped trip keeps the per-mile
-    // rate the guest was quoted (decided 2026-10-06), and the rate is a ratio
-    // against that car's own base price, so the new car's would be wrong twice.
-    const ratedCar = booking.pricing_car ?? car
-    const perMileFee = quote
-        ? distanceFeeForTrip(ratedCar, quote, Number(ratedCar.price_per_day))
-        : maxDistanceFee(ratedCar)
+    const perMileFee = mileageRateFor(booking, car, quote)
 
     const totalCharged = toMoney(booking.total_price)
     const refundedAmount = toMoney(booking.refunded_amount)

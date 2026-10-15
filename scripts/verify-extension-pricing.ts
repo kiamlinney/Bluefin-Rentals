@@ -11,6 +11,7 @@ import {
     extensionMode,
     EXTENSION_REQUEST_CUTOFF_MINUTES,
 } from '../src/lib/extension.ts'
+import { NO_PRICING_RULES } from '../src/lib/pricing.ts'
 
 const results: boolean[] = []
 const pass = (ok: boolean, name: string, detail = '') => {
@@ -24,6 +25,8 @@ const base = {
     startDate: '2026-10-01',
     startTime: '10:00',
     basePricePerDay: 100,
+    // The busy/slow/weekend rules are checked in tests/pricing-rules.test.ts.
+    pricingRules: NO_PRICING_RULES,
 }
 
 console.log('Price')

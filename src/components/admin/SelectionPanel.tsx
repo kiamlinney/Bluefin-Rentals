@@ -24,7 +24,8 @@ export type SelectionPanelProps = {
     cars: Car[]
     dateRange: Date[]
     dateToIndex: (isoString: string) => number
-    priceOverrideMap: Map<string, number>
+    /** The price a cell shows: a typed calendar price, else the base price with the pricing rules. */
+    priceForCell: (carId: number, dateKey: string) => number
     onPricesUpdated: (updates: { carId: number; date: string; price: number }[]) => void
     blockedDates: CarBlockedDate[]
     onBlocksCreated: (blocks: CarBlockedDate[]) => void
@@ -70,7 +71,7 @@ export function SelectionPanel({
     cars,
     dateRange,
     dateToIndex,
-    priceOverrideMap,
+    priceForCell,
     onPricesUpdated,
     blockedDates,
     onBlocksCreated,
@@ -162,7 +163,7 @@ export function SelectionPanel({
                         selectedCells={selectedCells}
                         cars={cars}
                         dateRange={dateRange}
-                        priceOverrideMap={priceOverrideMap}
+                        priceForCell={priceForCell}
                         selectionInfo={selectionInfo}
                         onPricesUpdated={onPricesUpdated}/>
                 )}
@@ -196,12 +197,12 @@ export function SelectionPanel({
 }
 
 function PricesTab({
-   selectedCells, cars, dateRange, priceOverrideMap, selectionInfo, onPricesUpdated,
+   selectedCells, dateRange, priceForCell, selectionInfo, onPricesUpdated,
 }: {
     selectedCells: Set<string>
     cars: Car[]
     dateRange: Date[]
-    priceOverrideMap: Map<string, number>
+    priceForCell: SelectionPanelProps['priceForCell']
     selectionInfo: SelectionPanelProps['selectionInfo']
     onPricesUpdated: SelectionPanelProps['onPricesUpdated']
 }) {
@@ -212,19 +213,13 @@ function PricesTab({
     const [error, setError] = useState<string | null>(null)
     const [successMsg, setSuccessMsg] = useState<string | null>(null)
 
-    const carsById = useMemo(() => {
-        const map = new Map<number, Car>()
-        for (const car of cars) map.set(car.id, car)
-        return map
-    }, [cars])
-
-    // Resolves the current displayed price for one cell, override (if set) -> car base price
+    // The price the cell shows, so "+$10" adds to what the owner is looking at,
+    // busy and weekend multipliers included. The result is saved as a typed
+    // price, which then wins over the rules for that date.
     const getCurrentPrice = (carId: number, dateIndex: number): number => {
         const date = dateRange[dateIndex]
         if (!date) return 0
-        const dateStr = date.toLocaleDateString('en-CA')
-        const car = carsById.get(carId)
-        return priceOverrideMap.get(`${carId}:${dateStr}`) ?? car?.price_per_day ?? 0
+        return priceForCell(carId, date.toLocaleDateString('en-CA'))
     }
 
     // Builds the updates array from selectedCells using a price computing callback

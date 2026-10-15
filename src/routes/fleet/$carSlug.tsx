@@ -25,11 +25,13 @@ import {
     BUSINESS_OPEN_MINUTES,
     MIN_LEAD_TIME_HOURS,
     SLOT_MINUTES,
+    UNLISTED_CAR_MESSAGE,
     buildAvailabilityMap,
     dayWindow,
     earliestStartMinutesFor,
     earliestStartMinutesToday,
     findTripConflict,
+    isBusinessSlot,
     latestEndMinutesFor,
     toOccupiedSpans,
     type AvailabilityMap,
@@ -52,13 +54,19 @@ import {
 import { carSlug, parseCarIdFromSlug } from "@/lib/slug.ts";
 import { absoluteUrl } from "@/lib/site.ts";
 import { DEFAULT_OG_IMAGE } from "@/lib/business.ts";
+import { getPricingRules } from "@/lib/pricing-rules.ts";
 
 // Optional because most visitors arrive without dates. `.catch(undefined)` so a
 // hand-mangled URL renders an empty picker instead of an error boundary.
 const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/
+// Times are optional in the search bar; only an exact slot within opening
+// hours gets through.
+const slotParam = z.string().refine(isBusinessSlot).optional().catch(undefined)
 const carSearchSchema = z.object({
     start: z.string().regex(DATE_KEY).optional().catch(undefined),
     end: z.string().regex(DATE_KEY).optional().catch(undefined),
+    startTime: slotParam,
+    endTime: slotParam,
 })
 
 export const Route = createFileRoute("/fleet/$carSlug")({
@@ -81,8 +89,13 @@ export const Route = createFileRoute("/fleet/$carSlug")({
             })
         }
 
-        const reviews = await getReviews({ data: { carId: car.id } })
-        return { car, reviews }
+        // pricingRules: the busy, slow and weekend multipliers every quote is
+        // priced with, the same ones checkout and the server use.
+        const [reviews, pricingRules] = await Promise.all([
+            getReviews({ data: { carId: car.id } }),
+            getPricingRules(),
+        ])
+        return { car, reviews, pricingRules }
     },
 
     // Meta tag generation to optimize SEO
@@ -101,7 +114,9 @@ export const Route = createFileRoute("/fleet/$carSlug")({
                         "@type": "Offer",
                         "price": loaderData?.car.price_per_day,
                         "priceCurrency": "USD",
-                        "availability": "https://schema.org/InStock"
+                        "availability": loaderData?.car.is_available === false
+                            ? "https://schema.org/OutOfStock"
+                            : "https://schema.org/InStock"
                     },
                     "vehicleTransmission": loaderData?.car.transmission,
                     "fuelType": loaderData?.car.fuel_type,
@@ -116,6 +131,9 @@ export const Route = createFileRoute("/fleet/$carSlug")({
             { property: "og:description", content: `Rent a ${loaderData?.car.make} ${loaderData?.car.model} ${loaderData?.car.year} in Saint Paul, MN for $${loaderData?.car.price_per_day}/day.` },
             { property: "og:type", content: "website" },
             { property: "og:image", content: loaderData ? carMainImageUrl(loaderData.car.id) : DEFAULT_OG_IMAGE },
+            // An unlisted car's page stays up for old links, but it shouldn't
+            // be found in search while it can't be booked.
+            ...(loaderData?.car.is_available === false ? [{ name: "robots", content: "noindex" }] : []),
         ],
     }),
     component: CarDetails,
@@ -261,7 +279,11 @@ const conflictMessage = (conflict: TripConflict): string => {
 const formatTriggerDate = (d: Date) => d.toLocaleDateString("en-US");
 
 function CarDetails() {
-    const { car, reviews } = Route.useLoaderData()
+    const { car, reviews, pricingRules } = Route.useLoaderData()
+    // The owners can unlist a car from the Vehicles page. Its page stays up for
+    // old links, but the booking widget and the phone bar give way to a notice,
+    // and checkout refuses it anyway (assertCarIsListed).
+    const isListed = car.is_available !== false
     const reviewSummary = useMemo(() => summarizeRatings(reviews.map((r) => r.rating)), [reviews])
     // The rest of the page works in ids; the slug is only ever a URL concern.
     const carId = String(car.id)
@@ -269,9 +291,11 @@ function CarDetails() {
     const navigate = useNavigate()
     const [showGallery, setShowGallery] = useState(false);
     // "" until the customer picks one. These used to default to 10:00 AM and
-    // 10:00 PM, which made it easy to check out on times nobody chose.
-    const [startTime, setStartTime] = useState("");
-    const [endTime, setEndTime] = useState("");
+    // 10:00 PM, which made it easy to check out on times nobody chose. A time
+    // picked in the search bar arrives in the URL and counts as chosen; if this
+    // car can't do it, the clearing effects below empty it once availability loads.
+    const [startTime, setStartTime] = useState(() => search.startTime ?? "");
+    const [endTime, setEndTime] = useState(() => search.endTime ?? "");
     // One selection, replacing the two independent checkboxes and free-text field
     // this widget used to carry. Those three could disagree — both boxes ticked,
     // or a box ticked *and* an address typed — and the conflict was resolved
@@ -520,6 +544,7 @@ function CarDetails() {
         // serializes it — Number() keeps the arithmetic from concatenating.
         basePricePerDay: Number(car.price_per_day),
         overrides: priceOverrides,
+        pricingRules,
         // Feeding the fee through the quote rather than adding it to the total
         // afterwards is what makes it show up everywhere for free: the "$X total"
         // button, the Continue navigation and the price-details modal all read
@@ -527,7 +552,7 @@ function CarDetails() {
         pickupFee: resolvedPickup.fee,
         pickupFeeLabel: resolvedPickup.feeLabel,
         taxJurisdiction: resolvedPickup.taxJurisdiction,
-    }), [tripComplete, startDate, endDate, startTime, endTime, car.price_per_day, priceOverrides, resolvedPickup]);
+    }), [tripComplete, startDate, endDate, startTime, endTime, car.price_per_day, priceOverrides, pricingRules, resolvedPickup]);
 
     const totalDays = quote.billableDays;
     // Before tax: the car page quotes the trip, and tax — which depends on the
@@ -882,6 +907,20 @@ function CarDetails() {
                                 Below lg this is a plain section rather than a
                                 floating card; the phone bar at the bottom of the
                                 page carries the price and the Continue button. */}
+                            {!isListed ? (
+                                <div className="rounded-xl border border-line bg-surface p-6">
+                                    <p className="text-lg font-bold">{UNLISTED_CAR_MESSAGE}</p>
+                                    <p className="mt-2 text-sm text-muted">
+                                        The rest of our fleet is ready to book.
+                                    </p>
+                                    <Link
+                                        to="/fleet"
+                                        className="mt-4 inline-block rounded-lg bg-brand px-5 py-3 font-semibold text-on-brand hover:bg-pine-800"
+                                    >
+                                        See available cars
+                                    </Link>
+                                </div>
+                            ) : (
                             <div className="top-24 z-10 lg:rounded-xl lg:border lg:border-line lg:bg-surface lg:shadow-xl">
                                 <div className="lg:p-6 relative">
                                     {/* scroll-mt clears the sticky navbar when the
@@ -1032,6 +1071,7 @@ function CarDetails() {
                                     </button>
                                 </div>
                             </div>
+                            )}
 
 
                         <div className="mt-4 space-y-4 relative">
@@ -1095,6 +1135,7 @@ function CarDetails() {
                 end of it, so it never covers the site footer. mt-10 is the gap
                 it leaves above itself once settled. The negative margins cancel
                 the container's padding so it runs edge to edge. */}
+            {isListed && (
             <div className="lg:hidden sticky bottom-0 z-40 mt-10 -mx-4 md:-mx-8 border-t border-line bg-surface px-4 md:px-8 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center justify-between gap-4 shadow-[0_-4px_16px_rgba(0,0,0,0.06)]">
                 {totalDays > 0 ? (
                     <button
@@ -1135,6 +1176,7 @@ function CarDetails() {
                     {needsDates ? "Select dates" : needsTimes ? "Select times" : "Continue"}
                 </button>
             </div>
+            )}
 
             {/* Rendered outside the booking card so its backdrop covers the page
                 rather than sitting inside the card's stacking context. */}

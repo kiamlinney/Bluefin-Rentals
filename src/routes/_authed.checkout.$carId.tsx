@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { stripeAppearance, stripePromise } from '@/lib/stripe-client'
 import {
@@ -12,6 +12,8 @@ import {
     calculateTripPrice,
     wallClockToUtcIso,
 } from '@/lib/pricing'
+import { getPricingRules } from '@/lib/pricing-rules'
+import { carSlug } from '@/lib/slug'
 import { resolvePickup, type PickupSelection } from '@/lib/pickup'
 import { checkoutSearchSchema, type Step } from '@/lib/checkout-search'
 import type { BookingRate } from '@/lib/booking-rate'
@@ -41,12 +43,22 @@ export const Route = createFileRoute('/_authed/checkout/$carId')({
         // place of the checkout. getProfile throws without a session, so it's
         // skipped for them; signing in invalidates the router and re-runs this
         // loader with the real profile.
-        const [car, profile, priceOverrides] = await Promise.all([
+        //
+        // pricingRules are the same rules the server prices the charge with
+        // (src/lib/pricing.ts, "Automatic pricing rules"), so the summary shows
+        // what Stripe will take.
+        const [car, profile, priceOverrides, pricingRules] = await Promise.all([
             getCarById({ data: params.carId }),
             context.isLoggedIn ? getProfile() : Promise.resolve(null),
             getCarPriceOverrides({ data: params.carId }),
+            getPricingRules(),
         ])
-        return { car, profile, priceOverrides }
+        // An unlisted car can't be booked (createCheckoutSession refuses it);
+        // its page says so, so that's where a stale checkout link goes.
+        if (car.is_available === false) {
+            throw redirect({ to: '/fleet/$carSlug', params: { carSlug: carSlug(car) } })
+        }
+        return { car, profile, priceOverrides, pricingRules }
     },
     component: CheckoutPage,
 })
@@ -82,7 +94,7 @@ function CheckoutPage() {
 }
 
 function CheckoutFlow() {
-    const { car, profile: initialProfile, priceOverrides } = Route.useLoaderData()
+    const { car, profile: initialProfile, priceOverrides, pricingRules } = Route.useLoaderData()
     const { carId } = Route.useParams()
     const search = Route.useSearch()
     const navigate = useNavigate()
@@ -160,6 +172,7 @@ function CheckoutFlow() {
         // serializes it — Number() keeps the arithmetic from concatenating.
         basePricePerDay: Number(car.price_per_day),
         overrides,
+        pricingRules,
         pickupFee: resolvedPickup.fee,
         pickupFeeLabel: resolvedPickup.feeLabel,
         taxJurisdiction: resolvedPickup.taxJurisdiction,
@@ -168,7 +181,7 @@ function CheckoutFlow() {
         // leaving extras out of one side would make the cheaper rate look
         // cheaper by the price of a child seat.
         extraIds: selectedExtras,
-    }), [search.startDate, search.startTime, search.endDate, search.endTime, car.price_per_day, overrides, resolvedPickup, selectedExtras])
+    }), [search.startDate, search.startTime, search.endDate, search.endTime, car.price_per_day, overrides, pricingRules, resolvedPickup, selectedExtras])
 
     const quote = useMemo(() => quoteFor(search.bookingRate), [quoteFor, search.bookingRate])
 

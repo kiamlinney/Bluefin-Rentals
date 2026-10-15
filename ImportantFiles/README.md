@@ -19,6 +19,7 @@ to review and to hold the code to. The customer-facing pages (`/policies/terms`,
 | [payments-overview.md](payments-overview.md) | How money moves end to end: checkout, card on file, the charge ledger, the Stripe webhook, sandbox vs live |
 | [deposit.md](deposit.md) | The security deposit hold: amount, when it's placed, renewal on long trips, release, capture for damage, what happens on a decline |
 | [extensions.md](extensions.md) | Extending a trip: when it's automatic, when it needs approval, how it's priced |
+| [pricing-rules.md](pricing-rules.md) | What one day costs: base price, busy/slow/weekend multipliers, typed calendar prices; unlisting a car; the frozen per-mile rate |
 | [charges-and-invoicing.md](charges-and-invoicing.md) | Charging a guest after checkout: extras, damage, mileage and other charges, the pay link, receipts |
 | [cancellation-and-refunds.md](cancellation-and-refunds.md) | What a cancellation refunds, for the trip and for everything charged after it |
 | [tax.md](tax.md) | How tax is calculated, every rate with its source, and which parts are placeholders |

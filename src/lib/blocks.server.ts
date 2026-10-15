@@ -13,7 +13,7 @@
 // Server-only (.server.ts), for the same bundling reason as access.server.ts.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getStripe } from './payments.server'
+import { releaseOpenCheckouts } from './open-checkouts.server'
 import { sendAdminAlert } from './charge-email'
 import {
     activeBlocksFor,
@@ -66,51 +66,6 @@ export async function assertNotBlocked(admin: AdminClient, userId: string): Prom
 }
 
 /**
- * Closes every checkout the customer could still pay. Each one's PaymentIntent
- * is cancelled, and a `pending` row is marked `expired`, the way cancelBooking
- * discards a hold: no email.
- *
- * `expired` and `failed` rows are included because their intents stay payable.
- * The webhook revives either to `confirmed` when a late payment lands
- * (checkoutPaymentEffect). A cancel Stripe refuses (already succeeded or
- * already cancelled) is skipped: a payment that already succeeded is a trip,
- * and the owners decide about it like any other confirmed trip.
- */
-export async function releaseOpenCheckouts(admin: AdminClient, userId: string): Promise<number> {
-    const { data: rows } = await admin
-        .from('bookings')
-        .select('id, status, stripe_payment_intent_id')
-        .eq('user_id', userId)
-        .in('status', ['pending', 'expired', 'failed'])
-
-    let released = 0
-    for (const row of rows ?? []) {
-        if (row.stripe_payment_intent_id) {
-            try {
-                await getStripe().paymentIntents.cancel(row.stripe_payment_intent_id)
-                released++
-            } catch (err: any) {
-                console.warn(`[blocks] could not cancel intent for booking ${row.id}:`, err?.message)
-            }
-        }
-        if (row.status === 'pending') {
-            await admin
-                .from('bookings')
-                .update({
-                    status: 'expired',
-                    canceled_at: new Date().toISOString(),
-                    canceled_by: 'admin',
-                    cancellation_reason: 'Account blocked',
-                })
-                .eq('id', row.id)
-                .eq('status', 'pending')
-                .then(undefined, (e: any) => console.error('[blocks] could not expire hold:', e?.message))
-        }
-    }
-    return released
-}
-
-/**
  * Called once a customer's licence number is known (verification, or an owner
  * typing it in). If another account's active block carries the same licence,
  * this account is blocked too, and the owners are emailed: that is the same
@@ -145,7 +100,7 @@ export async function checkLicenseAgainstBlocks(admin: AdminClient, userId: stri
     if (error) throw new Error(`customer_blocks insert failed: ${error.message}`)
     if (!inserted) return true
 
-    await releaseOpenCheckouts(admin, userId)
+    await releaseOpenCheckouts(admin, { userId }, 'Account blocked')
 
     const { data: profile } = await admin.from('profiles').select('full_name, email').eq('id', userId).maybeSingle()
     await sendAdminAlert(admin, {
@@ -203,7 +158,7 @@ export async function blockCustomer(
     if (error?.code === '23505') throw new Error('This customer is already blocked.')
     if (error || !block) throw new Error(error?.message ?? 'Could not block this customer')
 
-    const releasedCheckouts = await releaseOpenCheckouts(admin, input.userId)
+    const releasedCheckouts = await releaseOpenCheckouts(admin, { userId: input.userId }, 'Account blocked')
 
     const { data: upcoming } = await admin
         .from('bookings')

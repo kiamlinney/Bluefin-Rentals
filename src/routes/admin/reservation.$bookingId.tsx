@@ -18,7 +18,7 @@ import {useState} from "react";
 import {displayName, firstName, formatPhone} from "@/lib/profile.ts";
 import {carMainImageUrl} from "@/lib/car-images.ts";
 import {carSlug} from "@/lib/slug.ts";
-import {buildOverrideMap, calculateTripPrice} from "@/lib/pricing.ts";
+import {buildOverrideMap, calculateTripPrice, NO_PRICING_RULES} from "@/lib/pricing.ts";
 import {calculateOverage, distanceFeeForTrip, formatMiles, milesIncluded} from "@/lib/distance.ts";
 import {hasUnlimitedMileage} from "@/lib/extras.ts";
 import {buildReceipt} from "@/lib/receipt.ts";
@@ -121,6 +121,8 @@ function ReservationDetailsPage() {
             endTime: businessWallClockTime(endDate),
             basePricePerDay: Number(pricingCar.price_per_day),
             overrides: buildOverrideMap(priceOverrides),
+            // These rows predate the automatic pricing rules too.
+            pricingRules: NO_PRICING_RULES,
         })
 
     // What the guest was told about cancelling — and, since cancelBooking now

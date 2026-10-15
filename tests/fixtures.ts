@@ -3,7 +3,7 @@
 // a deposit hold has an uncaptured one, and so on).
 
 import { h, reset, ADMIN_EMAIL } from './harness'
-import { calculateTripPrice } from '../src/lib/pricing'
+import { calculateTripPrice, NO_PRICING_RULES } from '../src/lib/pricing'
 import { businessDateKey, businessWallClockTime } from '../src/lib/dates'
 import type { BookingRate } from '../src/lib/booking-rate'
 import type { Row } from './fakes/supabase'
@@ -28,7 +28,21 @@ export function world(now: string) {
             { id: OTHER_GUEST, full_name: 'Otto Other', email: 'otto@test.bluefin', phone: null, num_trips: 0, is_admin: false, stripe_customer_id: 'cus_other' },
             { id: ADMIN, full_name: 'Olive Owner', email: ADMIN_EMAIL, phone: null, num_trips: 0, is_admin: true, stripe_customer_id: null },
         ],
+        // Neutral rules, so every other test prices trips at the base rate as
+        // it always has. tests/pricing-rules.test.ts sets real ones.
+        pricing_settings: [
+            { id: true, busy_multiplier: 1, slow_multiplier: 1, weekend_multiplier: 1, weekend_days: [] },
+        ],
     })
+}
+
+/** Turns on the fleet-wide pricing rules for the rest of the test. */
+export function setPricingRules(rules: { busy?: number; slow?: number; weekend?: number; weekendDays?: number[] }) {
+    const row = h.db.rows('pricing_settings')[0]!
+    if (rules.busy !== undefined) row.busy_multiplier = rules.busy
+    if (rules.slow !== undefined) row.slow_multiplier = rules.slow
+    if (rules.weekend !== undefined) row.weekend_multiplier = rules.weekend
+    if (rules.weekendDays !== undefined) row.weekend_days = rules.weekendDays
 }
 
 /** The quote checkout would have stored for this trip. */
@@ -39,6 +53,7 @@ export function quoteFor(start: string, end: string, rate: BookingRate, extraIds
         endDate: businessDateKey(end),
         endTime: businessWallClockTime(end),
         basePricePerDay: 60,
+        pricingRules: NO_PRICING_RULES,
         bookingRate: rate,
         extraIds,
         today: businessDateKey(new Date(new Date(start).getTime() - 30 * 24 * 3600 * 1000)),

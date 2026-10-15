@@ -43,7 +43,9 @@ payments sweep after that hour.
 
 *(Decided 2026-09-25: added days only, discount tier of the new total length.)*
 - Only the **billable days the extension adds**, at **current** daily prices (including
-  any per-date price overrides) for those dates.
+  any per-date price overrides) for those dates. Since 2026-10-13 that includes the busy,
+  slow and weekend multipliers in force when the extension is priced
+  ([pricing-rules.md](pricing-rules.md)). → `src/lib/payments.server.ts#previewExtension`
 - Discounted at the length-discount tier for the trip's **new total length**
   (<!-- const:DISCOUNT_TIERS -->5% from 3 days, 10% from 7 days, 15% from 14 days, 20% from 21 days<!-- /const -->,
   plus <!-- const:LONG_DURATION_DISCOUNT -->5% from 30 days<!-- /const --> on top). Days

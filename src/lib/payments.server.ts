@@ -65,6 +65,7 @@ import {
 } from './cancellation-policy.ts'
 import { checkoutPaymentEffect, depositHoldBelongs, holdHasLapsed, ownerChargeAllowed } from './booking-status.ts'
 import { assertCarIsAvailable, findCarConflict, PENDING_HOLD_MS } from './availability.server'
+import { loadPricingRules } from './pricing-rules.server'
 import { notifyBookingCanceled } from './cancellation-email'
 import {
     sendAdminAlert,
@@ -1251,6 +1252,8 @@ export async function previewExtension(
         newEndTime,
         basePricePerDay: Number(booking.cars?.price_per_day),
         overrides: buildOverrideMap(overrideRows ?? []),
+        // Current prices, rules included, as for a new booking of those dates.
+        pricingRules: await loadPricingRules(admin),
         bookingRate: (booking.booking_rate ?? DEFAULT_BOOKING_RATE) as BookingRate,
         tripExtraIds: (extraRows ?? []).map((r: any) => r.extra_id as string),
     })
