@@ -1,13 +1,14 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { ArrowDown, MoveUpRight } from "lucide-react"
 import { SearchBar } from '@/components/SearchBar'
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import CarCard from "@/components/CarCard.tsx";
 import { getFeaturedCars } from "@/lib/db.ts";
 import { absoluteUrl } from '@/lib/site'
 import { businessJsonLd, DAILY_HOURS, seoMeta } from '@/lib/business'
 import { DELIVERY_FEE, DELIVERY_RADIUS_MILES, LISTED_PICKUP_FEE } from '@/lib/pickup'
 import { cn } from '@/lib/utils'
+import { NAV_HEIGHT } from '@/lib/layout'
 
 export const Route = createFileRoute('/')({
     head: () => ({
@@ -46,6 +47,30 @@ function Home() {
     const { featuredCars } = Route.useLoaderData()
     const [showBar, setShowBar] = useState(false)
     const videoRef = useRef<HTMLVideoElement>(null)
+
+    // The hero centres its copy, which leaves the search bar mid-screen, and
+    // the two-month calendar under it needs ~440px — more than a laptop has
+    // left below. So while the calendar is open, the headline fades and the bar
+    // slides up to just under the navbar; it slides back when the calendar
+    // closes. Phones skip this: their calendar is a bottom sheet.
+    const [lift, setLift] = useState(0)
+    const liftRef = useRef<HTMLDivElement>(null)
+    const barWrapRef = useRef<HTMLDivElement>(null)
+    const liftForCalendar = useCallback((open: boolean) => {
+        if (!open) {
+            setLift(0)
+            return
+        }
+        const bar = barWrapRef.current
+        const lifted = liftRef.current
+        if (!bar || !lifted || !window.matchMedia('(min-width: 640px)').matches) return
+        // Where the bar rests, even if it's still sliding back from a moment
+        // ago: the current offset is read off the transform and added back.
+        const transform = getComputedStyle(lifted).transform
+        const offset = transform && transform !== 'none' ? new DOMMatrixReadOnly(transform).m42 : 0
+        const restingTop = bar.getBoundingClientRect().top - offset
+        setLift(Math.max(0, Math.round(restingTop - NAV_HEIGHT - 24)))
+    }, [])
 
     // CSS can't pause a video, so prefers-reduced-motion has to be read here.
     // The poster stays painted underneath, so pausing leaves a still image
@@ -155,18 +180,27 @@ function Home() {
                         goes back to left-aligned, matching the left-weighted
                         scrim. */}
                     <div ref={copyRef} className="w-full px-6 pt-8 sm:pt-0 sm:px-12 lg:px-20 pb-42 text-center sm:text-left will-change-[opacity]">
+                        {/* Slides up while the search calendar is open (see
+                            liftForCalendar). Its own element, not copyRef: the
+                            scroll fade measures copyRef's box, and a transform
+                            there would move the box it measures. */}
+                        <div
+                            ref={liftRef}
+                            style={lift ? { transform: `translateY(-${lift}px)` } : undefined}
+                            className="transition-transform duration-300 ease-out motion-reduce:transition-none"
+                        >
                         {/* One h1 per page; the line break is presentation, not structure. */}
                         {/* Preflight resets h1 to font-size:inherit, so the base size
                             has to be stated or mobile renders this at body size. */}
-                        <h1 className="text-white text-4xl sm:text-4xl md:text-5xl font-semibold mb-4 tracking-tight">
+                        <h1 className={cn('text-white text-4xl sm:text-4xl md:text-5xl font-semibold mb-4 tracking-tight transition-opacity duration-300', lift > 0 && 'opacity-0')}>
                             <span className="block mb-4">Less Hassle,</span>
                             <span className="block">More Driving</span>
                         </h1>
-                        <p className="text-base md:text-xl text-white">
+                        <p className={cn('text-base md:text-xl text-white transition-opacity duration-300', lift > 0 && 'opacity-0')}>
                             Rent from trusted locals in <span className="whitespace-nowrap">Minneapolis-St.Paul</span>
                         </p>
 
-                        
+
                         <div
                             className={cn(
                                 'mt-6 sm:mt-8 mx-auto sm:mx-0 flex flex-col items-center gap-4 sm:flex-row sm:flex-wrap sm:gap-x-8',
@@ -174,8 +208,9 @@ function Home() {
                             )}
                         >
                         <div
+                            ref={barWrapRef}
                             className={`w-full transition-[max-width] duration-500 ease-out ${
-                                showBar ? 'max-w-5xl' : 'max-w-[240px]'
+                                showBar ? 'max-w-3xl' : 'max-w-[240px]'
                             }`}
                         >
                             {!showBar ? (
@@ -186,7 +221,7 @@ function Home() {
                                     Book Now <MoveUpRight size={14}/>
                                 </button>
                             ) : (
-                                <SearchBar />
+                                <SearchBar onCalendarOpenChange={liftForCalendar} />
                             )}
                         </div>
 
@@ -210,6 +245,7 @@ function Home() {
                                 />
                             </a>
                         )}
+                        </div>
                         </div>
                     </div>
                 </div>

@@ -916,8 +916,27 @@ Schema for both: `supabase/migrations/20261012120000_turo_swaps_and_overlap_aler
   - **Chrome that depends on the page reads the rendered route (`useMatches`), not `useLocation()`.** TanStack updates the location the moment a navigation starts but swaps the page in only once its loader finishes, so `useLocation` made the navbar change colour (and, in `__root.tsx`, vanish on the way to checkout) over the *old* page for as long as the loader took (~600ms to the homepage).
   - The `<nav>` is keyed on hero/non-hero so a route change remounts it and the colour switch is instant; `transition-colors` then only animates the scroll-past-hero change. Without the key the bar faded for 300ms while the page swapped instantly.
 - **Check phone layouts against a real iPhone, or a short viewport like 390×664.** Devtools' default phone heights leave out Safari's toolbars, and the cramped homepage calendar only ever showed up on the real device.
-- **The search bar has no location field.** Every car serves the same Twin Cities pickup spots, and the real pickup choice is `PickupLocationPicker` on the car page. `/fleet`'s search params are just `start`/`end`.
-- **`TripCalendar` is a bottom sheet on phones** (below Tailwind's `sm`, 639px, checked with `matchMedia` when it opens) and an anchored popover from `sm` up. The sheet is portalled to `<body>`, locks page scroll while open and closes on a backdrop tap. The larger day cells in `tripCalendarClassNames` switch at the same `sm` breakpoint, so they only ever appear inside the sheet. Every caller gets this for free, including the car page's start/end calendars.
+- **The search bar has no location field.** Every car serves the same Twin Cities pickup spots, and the real pickup choice is `PickupLocationPicker` on the car page.
+- **The search bar is From [date][time] | Until [date][time]** (homepage and `/fleet`, rebuilt
+  2026-10-13), opening a **two-month** `TripCalendar` as wide as the bar. Only this bar uses two
+  months; the car page's calendars stay single-month. **Dates are required, times optional**
+  (Liam's call). `/fleet`'s params are `start`/`end` plus optional `startTime`/`endTime` ('H:mm'
+  slots, kept only if `isBusinessSlot`). `/fleet` filters with `searchRangeIsBookable` (a missing
+  time stands in as that day's most forgiving slot, then it's `findTripConflict`), and `CarCard`
+  carries the times on to the car page, which seeds its time state from them. The bar's time lists
+  apply the car page's lead-time and 24-hour rules and clear a stranded time, never snap it.
+  Range clicks follow `nextRange` (`src/lib/date-range.ts`): the field the calendar was opened
+  from decides which end the click sets.
+  - **On the desktop homepage the bar lifts while the calendar is open** (`liftForCalendar` in
+    `routes/index.tsx`: the headline fades, the bar slides up under the navbar), because the
+    centred hero leaves ~320px below the bar on a laptop and the panel needs ~440. `TripCalendar`
+    re-measures its room on any `transitionend` of the trigger or an ancestor; without that it
+    clamped itself to the pre-slide space and scrolled.
+- **`TripCalendar`'s arrows sit on the month-name row.** `nav` is absolutely positioned over the
+  caption row inside `months` (which is `relative`), with `pointer-events-none` on the strip and
+  `-auto` on the buttons. It used to be its own `h-5` row above the caption: a blank strip that
+  pushed every month down. Don't give the nav its own row back.
+- **`TripCalendar` is a bottom sheet on phones** (below Tailwind's `sm`, 639px, checked with `matchMedia` when it opens) and an anchored popover from `sm` up. The sheet is portalled to `<body>`, locks page scroll while open and closes on a backdrop tap. The larger day cells in `tripCalendarClassNames` switch at the same `sm` breakpoint, so they only ever appear inside the sheet, apart from the two-month variant, which keeps them on desktop. The sheet always shows one month, whatever `numberOfMonths` says. Every caller gets this for free, including the car page's start/end calendars.
 - **Car page below `lg`** (Turo-style):
   - **Order:** the photo comes first and runs edge to edge, then the title and spec chips, then "Your trip" (`order-first` on the widget column), then features and reviews. Desktop keeps its original layout.
   - **Main photo:** takes `aspect-[5/3]`, because every main photo is 5:3 (1242×745, or 1240×744 for the Cherokee). A fixed height on a narrow screen cropped the sides off each car.

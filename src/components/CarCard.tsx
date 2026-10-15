@@ -5,17 +5,22 @@ import { carMainImageUrl } from "../lib/car-images";
 
 // Dates come in as a prop rather than via useSearch so the card stays usable
 // outside the fleet route, and so the hand-off is visible at the call site.
-type CarCardSearch = { start?: string; end?: string }
+type CarCardSearch = { start?: string; end?: string; startTime?: string; endTime?: string }
 
 const CarCard = ({ car, search } : { car : Car; search?: CarCardSearch }) => {
     return (
         <Link
             to="/fleet/$carSlug"
             params={{ carSlug: carSlug(car) }}
-            // Carries the search bar's dates into the booking widget so the
-            // customer doesn't re-pick dates they already picked. TanStack drops
+            // Carries the search bar's dates (and times, if chosen) into the
+            // booking widget so the customer doesn't re-pick them. TanStack drops
             // undefined values, so a dateless fleet page still links to /fleet/3.
-            search={{ start: search?.start, end: search?.end }}
+            search={{
+                start: search?.start,
+                end: search?.end,
+                startTime: search?.startTime,
+                endTime: search?.endTime,
+            }}
             className="group flex flex-col bg-surface border border-line rounded-2xl overflow-hidden hover:shadow-md transition-shadow"
         >
             <div className="relative aspect-[16/10] w-full overflow-hidden bg-subtle">

@@ -6,11 +6,20 @@ import { describe, expect, it } from 'vitest'
 import { h, signIn } from './harness'
 import { world, paidTrip, unpaidCheckout, CAR, GUEST, OTHER_GUEST } from './fixtures'
 import { getAvailableCars } from '../src/lib/db'
-import { buildAvailabilityMap, dateRangeIsBookable, toOccupiedSpans } from '../src/lib/availability'
+import {
+    buildAvailabilityMap,
+    businessTimeSlots,
+    dateRangeIsBookable,
+    findTripConflict,
+    isBusinessSlot,
+    searchRangeIsBookable,
+    toOccupiedSpans,
+} from '../src/lib/availability'
+import { addDays } from '../src/lib/pricing'
 
-const NOW = '2026-10-10T17:00:00Z'
-const listed = async (start: string, end: string) =>
-    ((await getAvailableCars({ data: { start, end } })) as { id: number }[]).map(c => c.id).sort()
+const NOW = '2026-10-10T17:00:00Z' // noon Central
+const listed = async (start: string, end: string, times: { startTime?: string; endTime?: string } = {}) =>
+    ((await getAvailableCars({ data: { start, end, ...times } })) as { id: number }[]).map(c => c.id).sort()
 
 describe('the /fleet date search', () => {
     it('hides a car that is booked, on a Turo trip, or blocked, for anyone searching', async () => {
@@ -49,6 +58,96 @@ describe('the /fleet date search', () => {
     it('rejects malformed dates instead of guessing', async () => {
         world(NOW)
         await expect(getAvailableCars({ data: { start: '2026-10-15T00:00:00Z', end: '2026-10-16' } })).rejects.toThrow('valid dates')
+    })
+
+    it('narrows by the search bar’s optional times', async () => {
+        world(NOW)
+        // Returns 10am Central on the 16th, so with the turnaround the car can
+        // go out again from 1pm that day.
+        paidTrip({ start: '2026-10-14T15:00:00Z', end: '2026-10-16T15:00:00Z', bookedAt: NOW, userId: OTHER_GUEST })
+        signIn(null)
+
+        expect(await listed('2026-10-16', '2026-10-18')).toEqual([CAR, 7])
+        expect(await listed('2026-10-16', '2026-10-18', { startTime: '10:00' })).toEqual([7])
+        expect(await listed('2026-10-16', '2026-10-18', { startTime: '13:00' })).toEqual([CAR, 7])
+        expect(await listed('2026-10-16', '2026-10-18', { startTime: '13:00', endTime: '15:00' })).toEqual([CAR, 7])
+    })
+
+    it('rejects a time that isn’t one of our slots', async () => {
+        world(NOW)
+        await expect(listed('2026-10-15', '2026-10-16', { startTime: '10:15' })).rejects.toThrow('valid times')
+        await expect(listed('2026-10-15', '2026-10-16', { endTime: '3:00' })).rejects.toThrow('valid times')
+    })
+})
+
+describe('searchRangeIsBookable', () => {
+    const map = (rows: Parameters<typeof toOccupiedSpans>[0]) => buildAvailabilityMap(toOccupiedSpans(rows))
+    const now = new Date(NOW)
+    // Back from a trip at 10am Central on the 16th; out on the next at 3pm on the 20th.
+    const m = map([
+        { kind: 'booking', start_time: '2026-10-14T15:00:00Z', end_time: '2026-10-16T15:00:00Z' },
+        { kind: 'booking', start_time: '2026-10-20T20:00:00Z', end_time: '2026-10-22T20:00:00Z' },
+    ])
+
+    it('without times, answers exactly what dateRangeIsBookable does', () => {
+        for (let s = 0; s < 16; s++) {
+            for (let len = -1; len < 8; len++) {
+                const start = addDays('2026-10-09', s)
+                const end = addDays(start, len)
+                expect(searchRangeIsBookable(start, undefined, end, undefined, m, now), `${start} → ${end}`)
+                    .toBe(dateRangeIsBookable(start, end, m, now))
+            }
+        }
+    })
+
+    it('holds a start time to the turnaround after the previous trip', () => {
+        expect(searchRangeIsBookable('2026-10-16', '12:30', '2026-10-18', undefined, m, now)).toBe(false)
+        expect(searchRangeIsBookable('2026-10-16', '13:00', '2026-10-18', undefined, m, now)).toBe(true)
+    })
+
+    it('holds an end time to the turnaround before the next trip', () => {
+        expect(searchRangeIsBookable('2026-10-18', undefined, '2026-10-20', '12:30', m, now)).toBe(false)
+        expect(searchRangeIsBookable('2026-10-18', undefined, '2026-10-20', '12:00', m, now)).toBe(true)
+    })
+
+    it('holds a start time today to the lead time', () => {
+        // Noon now, so 3pm is the earliest start today.
+        expect(searchRangeIsBookable('2026-10-10', '14:30', '2026-10-12', undefined, m, now)).toBe(false)
+        expect(searchRangeIsBookable('2026-10-10', '15:00', '2026-10-12', undefined, m, now)).toBe(true)
+    })
+
+    it('with both times, is the car page’s own check', () => {
+        for (const [start, startTime, end, endTime] of [
+            ['2026-10-16', '13:00', '2026-10-20', '12:00'],
+            ['2026-10-16', '12:00', '2026-10-20', '12:00'],
+            ['2026-10-16', '13:00', '2026-10-20', '13:00'],
+            ['2026-10-17', '10:00', '2026-10-23', '10:00'],
+        ]) {
+            expect(searchRangeIsBookable(start, startTime, end, endTime, m, now))
+                .toBe(findTripConflict(start, startTime, end, endTime, m, now) === null)
+        }
+    })
+
+    it('needs a same-day trip to end after it starts', () => {
+        const free = map([])
+        expect(searchRangeIsBookable('2026-10-15', '22:30', '2026-10-15', undefined, free, now)).toBe(true)
+        expect(searchRangeIsBookable('2026-10-15', '23:00', '2026-10-15', undefined, free, now)).toBe(false)
+    })
+})
+
+describe('the search bar’s time slots', () => {
+    it('runs from opening to closing, spelled the way the car page spells them', () => {
+        const slots = businessTimeSlots()
+        expect(slots[0]).toEqual({ value: '10:00', label: '10:00 AM', minutes: 600 })
+        expect(slots.at(-1)).toEqual({ value: '23:00', label: '11:00 PM', minutes: 1380 })
+        expect(slots.every(s => isBusinessSlot(s.value))).toBe(true)
+    })
+
+    it('accepts only those slots from a URL', () => {
+        // '10:60' is 11:00 by arithmetic, but not a spelling the dropdown emits.
+        for (const bad of ['9:30', '23:30', '10:15', '10:60', '010:00', '10:0', '', 'noon', 600, undefined]) {
+            expect(isBusinessSlot(bad), String(bad)).toBe(false)
+        }
     })
 })
 

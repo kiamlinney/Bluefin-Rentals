@@ -5,10 +5,15 @@ import { SearchBar } from "@/components/SearchBar";
 import { Car } from "@/types.ts";
 import { absoluteUrl } from '@/lib/site'
 import { seoMeta } from '@/lib/business'
+import { isBusinessSlot } from '@/lib/availability'
 
 type FleetSearch = {
     start?: string
     end?: string
+    // Optional 'H:mm' slots from the search bar. They narrow the list and
+    // carry on to the car page.
+    startTime?: string
+    endTime?: string
 }
 
 const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/
@@ -33,23 +38,30 @@ export const Route = createFileRoute('/fleet/')({
         return {
             start: asDateKey(search?.start),
             end: asDateKey(search?.end),
+            startTime: isBusinessSlot(search?.startTime) ? search.startTime : undefined,
+            endTime: isBusinessSlot(search?.endTime) ? search.endTime : undefined,
         }
     },
     // Without this the loader's `deps` is {} and the date filter never runs, so
     // /fleet has always listed every car regardless of the search bar.
-    loaderDeps: ({ search }) => ({ start: search.start, end: search.end }),
+    loaderDeps: ({ search }) => ({
+        start: search.start,
+        end: search.end,
+        startTime: search.startTime,
+        endTime: search.endTime,
+    }),
     loader: async ({ deps }) => {
-        const { start, end } = deps
+        const { start, end, startTime, endTime } = deps
 
         if (!start || !end) {
             const cars = await getCars()
             return { cars }
         }
 
-        // Date keys, both inclusive. The server judges them with the car page
-        // calendar's own rules (dateRangeIsBookable), so /fleet can't list a
-        // car the car page then refuses for these dates.
-        const cars = await getAvailableCars({ data: { start, end } })
+        // Date keys, both inclusive, plus any times chosen. The server judges
+        // them with the car page's own rules (searchRangeIsBookable), so /fleet
+        // can't list a car the car page then refuses for these dates and times.
+        const cars = await getAvailableCars({ data: { start, end, startTime, endTime } })
         return { cars }
     },
     component: Fleet,
@@ -69,16 +81,16 @@ function Fleet() {
     return (
         <div className="max-w-7xl mx-auto px-4 py-8">
             <div className="flex items-center gap-3 flex-wrap">
+                {/* Keyed on the URL so Clear (or Back) resets the fields, which
+                    the bar otherwise only reads once, on mount. */}
                 <SearchBar
-                    className="max-w-[880px]"
-                    initial={{
-                        start: search.start,
-                        end: search.end,
-                    }}
+                    key={`${search.start}|${search.end}|${search.startTime}|${search.endTime}`}
+                    className="sm:mx-0"
+                    initial={search}
                 />
                 <button
                     onClick={clearAll}
-                    className="h-10 px-4 rounded-lg border border-line bg-surface text-sm hover:bg-subtle cursor-pointer"
+                    className="h-10 sm:h-16 px-5 rounded-full border border-line bg-surface text-sm font-medium hover:bg-subtle cursor-pointer"
                 >
                     Clear
                 </button>

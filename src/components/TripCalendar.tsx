@@ -20,6 +20,7 @@
 // scrolled the page up over it instead.
 
 import {
+    useCallback,
     useEffect,
     useLayoutEffect,
     useMemo,
@@ -33,6 +34,7 @@ import { X } from 'lucide-react'
 import { DayPicker, type ClassNames, type Matcher } from 'react-day-picker'
 import 'react-day-picker/style.css'
 import type { DateSpan } from '@/lib/availability.ts'
+import { nextRange, type PickedRange, type RangeFocus } from '@/lib/date-range.ts'
 import { daysBetween, toDateKey } from '@/lib/pricing.ts'
 import { cn } from '@/lib/utils.ts'
 import { NAV_HEIGHT } from '@/lib/layout.ts'
@@ -64,7 +66,12 @@ type TripCalendarBase = {
 // catches a mode/handler mismatch instead of the handler silently never firing.
 export type TripCalendarProps = TripCalendarBase &
     (
-        | { mode: 'range'; onSelectRange: (range: { start?: Date; end?: Date }) => void }
+        | {
+              mode: 'range'
+              /** Which end the next click sets. See src/lib/date-range.ts. */
+              focus?: RangeFocus
+              onSelectRange: (range: PickedRange, nextFocus: RangeFocus) => void
+          }
         | { mode: 'start'; onSelectStart: (date: Date) => void }
         | { mode: 'end'; onSelectEnd: (date: Date) => void }
     )
@@ -86,15 +93,21 @@ function todayLocalMidnight(): Date {
 
 export const tripCalendarClassNames: Partial<ClassNames> = {
     root: 'p-0 font-sans',
-    months: 'flex flex-col',
-    month: 'space-y-3',
+    // The nav is laid over the caption row rather than given a row of its own,
+    // so the arrows sit level with the month name and one month's name is
+    // centred between them. As its own row it pushed every month down by a
+    // blank strip. DayPicker renders the nav inside `months`, hence the
+    // `relative` there; pointer-events-none on the full-width strip keeps it
+    // from swallowing clicks meant for the caption beneath.
+    months: 'relative flex flex-col sm:flex-row gap-8',
+    month: 'space-y-2',
     month_caption: 'flex justify-center items-center h-9 relative',
     caption_label: 'text-sm font-semibold text-ink tracking-wide',
-    nav: 'w-full flex items-center justify-center relative h-5',
+    nav: 'absolute inset-x-0 top-0 h-9 flex items-center justify-between pointer-events-none z-10',
     button_previous:
-        'absolute left-2 top-0 w-7 h-7 rounded-md border border-line inline-flex items-center justify-center bg-transparent hover:bg-subtle transition-colors cursor-pointer',
+        'pointer-events-auto w-7 h-7 rounded-md border border-line inline-flex items-center justify-center bg-transparent hover:bg-subtle transition-colors cursor-pointer',
     button_next:
-        'absolute right-2 top-0 w-7 h-7 rounded-md border border-line inline-flex items-center justify-center bg-transparent hover:bg-subtle transition-colors cursor-pointer',
+        'pointer-events-auto w-7 h-7 rounded-md border border-line inline-flex items-center justify-center bg-transparent hover:bg-subtle transition-colors cursor-pointer',
     month_grid: 'w-full border-collapse',
     weekdays: 'flex',
     // Phones get 44px cells (the sheet is wide enough, and it's a comfortable
@@ -151,6 +164,17 @@ export const tripCalendarClassNames: Partial<ClassNames> = {
     disabled: 'cursor-default [&>button]:pointer-events-none [&>button]:opacity-40',
     outside: '[&>button]:text-ink-400 [&>button]:opacity-50',
     hidden: 'invisible',
+}
+
+// Two months side by side (the search bar's panel, which spans the whole bar).
+// The cells keep their phone size on desktop too, so the pair fills the width.
+// Only ever used from sm up: the phone sheet always shows one month.
+const twoMonthClassNames: Partial<ClassNames> = {
+    ...tripCalendarClassNames,
+    months: cn(tripCalendarClassNames.months, 'sm:gap-12'),
+    weekday: cn(tripCalendarClassNames.weekday, 'sm:w-11'),
+    day: cn(tripCalendarClassNames.day, 'sm:w-11 sm:h-11'),
+    day_button: cn(tripCalendarClassNames.day_button, 'sm:w-11 sm:h-11'),
 }
 
 // useLayoutEffect warns during SSR ("does nothing on the server"); this
@@ -300,13 +324,13 @@ export function TripCalendar(props: TripCalendarProps) {
     // always mounts anchored below first (both to measure its natural height
     // and because that's the common case), and this only touches state when
     // the trigger doesn't have room for it there.
-    useIsomorphicLayoutEffect(() => {
-        if (!open) {
-            setPlacement({ anchor: 'below' })
-            return
-        }
-        // The sheet is pinned to the bottom of the screen; nothing to place.
-        if (isSheet) return
+    //
+    // It runs again whenever something around the trigger finishes moving (a
+    // CSS transition ending on the trigger or an ancestor). The homepage slides
+    // its search bar up when this calendar opens, so the room measured at open
+    // is the room *before* that slide; without the second pass the panel
+    // stayed clamped and scrolling with plenty of space below it.
+    const place = useCallback(() => {
         const trigger = triggerRef?.current
         const panelEl = panelRef.current
         if (!trigger || !panelEl) return
@@ -314,6 +338,11 @@ export function TripCalendar(props: TripCalendarProps) {
         const GAP = 8 // matches the mt-2 / mb-2 offset from the trigger
         const EDGE_MARGIN = 16 // "slightly before the end of the page", not flush with it
 
+        // An earlier pass may have clamped the panel; measure it unclamped.
+        // The result is written back below as well as into state: React only
+        // touches `style` when the prop changes, so a pass that arrives at the
+        // same clamp as the last one would otherwise leave it cleared.
+        panelEl.style.maxHeight = ''
         const triggerRect = trigger.getBoundingClientRect()
         const naturalHeight = panelEl.getBoundingClientRect().height
         const spaceBelow = window.innerHeight - triggerRect.bottom - GAP - EDGE_MARGIN
@@ -337,11 +366,30 @@ export function TripCalendar(props: TripCalendarProps) {
         // page's hero). Clamping height and scrolling internally beats
         // silently overflowing into whatever ancestor happens to clip it —
         // that's what made Reset/Save unreachable before this existed.
-        setPlacement({
-            anchor,
-            maxHeight: naturalHeight > available ? Math.max(available, 200) : undefined,
-        })
-    }, [open, isSheet, mode, triggerRef])
+        const maxHeight = naturalHeight > available ? Math.max(available, 200) : undefined
+        panelEl.style.maxHeight = maxHeight ? `${maxHeight}px` : ''
+        setPlacement({ anchor, maxHeight })
+    }, [triggerRef])
+
+    useIsomorphicLayoutEffect(() => {
+        if (!open) {
+            setPlacement({ anchor: 'below' })
+            return
+        }
+        // The sheet is pinned to the bottom of the screen; nothing to place.
+        if (isSheet) return
+        place()
+    }, [open, isSheet, mode, place])
+
+    useEffect(() => {
+        if (!open || isSheet) return
+        function onTransitionEnd(e: TransitionEvent) {
+            const trigger = triggerRef?.current
+            if (trigger && e.target instanceof Node && e.target.contains(trigger)) place()
+        }
+        document.addEventListener('transitionend', onTransitionEnd)
+        return () => document.removeEventListener('transitionend', onTransitionEnd)
+    }, [open, isSheet, place, triggerRef])
 
     // With the page behind the sheet unable to scroll, there's nothing for a
     // missed swipe to chain into. The previous value is restored rather than
@@ -383,15 +431,19 @@ export function TripCalendar(props: TripCalendarProps) {
 
     if (!open) return null
 
+    // The phone sheet shows one month whatever the caller asked for: it was
+    // sized on a real iPhone, and a second month stacked below doubles it.
+    const months = isSheet ? 1 : numberOfMonths
+
     // Only PropsBase keys, so this spreads cleanly into either branch of
     // DayPicker's mode-discriminated props union.
     const shared = {
-        numberOfMonths,
+        numberOfMonths: months,
         disabled: disabledMatchers,
         defaultMonth: resolvedDefaultMonth,
         modifiers,
         modifiersClassNames: tripCalendarModifierClassNames,
-        classNames: tripCalendarClassNames,
+        classNames: months > 1 ? twoMonthClassNames : tripCalendarClassNames,
     }
 
     // The footer (Reset/Save) is a flex sibling outside the scrollable area,
@@ -414,7 +466,8 @@ export function TripCalendar(props: TripCalendarProps) {
                         className,
                     )}
                 >
-                    <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+                    {/* Centred for a panel stretched wider than its months (the search bar's). */}
+                    <div className="min-h-0 flex-1 overflow-y-auto flex justify-center">{children}</div>
                     {footer && <div className="flex justify-end gap-2 pt-3 flex-shrink-0">{footer}</div>}
                 </div>
             )
@@ -459,11 +512,18 @@ export function TripCalendar(props: TripCalendarProps) {
     }
 
     if (props.mode === 'range') {
+        // DayPicker's computed range is ignored; only the clicked day is used,
+        // and nextRange decides what it means. Without a focus from the caller,
+        // a half-picked range is waiting on its end and anything else starts over.
+        const focus = props.focus ?? (startDate && !endDate ? 'end' : 'start')
         return panel(
             <DayPicker
                 mode="range"
                 selected={{ from: startDate, to: endDate }}
-                onSelect={range => props.onSelectRange({ start: range?.from, end: range?.to })}
+                onSelect={(_, clicked) => {
+                    const next = nextRange({ start: startDate, end: endDate }, clicked, focus)
+                    props.onSelectRange(next.range, next.focus)
+                }}
                 {...shared}
             />,
         )
