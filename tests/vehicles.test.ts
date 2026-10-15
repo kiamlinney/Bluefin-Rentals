@@ -182,7 +182,8 @@ describe('lockbox code', () => {
         expect(h.db.rows('car_secrets')[0].lockbox_code).toBeNull()
         const log = h.db.rows('admin_changes')
         expect(log.map(c => c.new_value)).toEqual(['set', 'changed', 'removed'])
-        expect(JSON.stringify(log)).not.toMatch(/4821|9075/)
+        // Only the text columns: ids and timestamps are random and can contain these digits by chance.
+        expect(JSON.stringify(log.map(c => [c.field, c.old_value, c.new_value]))).not.toMatch(/4821|9075/)
         expect((await getVehicle({ data: CAR })).lockboxCode).toBeNull()
     })
 })
