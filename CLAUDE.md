@@ -854,6 +854,15 @@ Fuel taxability is the likeliest placeholder to be wrong (fuel is generally sale
   "Sales tax (9.875%)" line plus the rental tax. Five lines read to guests as five taxes
   stacked on each other. Render any new tax display through it too.
 - `/admin/business/tax-information` reports collected/refunded/net by month (`tax-report.ts`).
+  `buildTaxReport` makes the per-rate rows and **is the CSV** (its format is pinned by
+  `tests/tax-report.test.ts`, waiting on the accountant); `buildTaxMonths` regroups those same
+  rows for the page ("You owe", sales tax vs rental tax per place), so the page can't disagree
+  with the CSV. Plain wording for Liam, who is new to tax: "Tax charged / Given back / You owe".
+- **The accountant's open questions are on that page, read from `ImportantFiles/tax-todo.md`**
+  (a Vite `?raw` import parsed by `src/lib/tax-questions.ts`), so there's one copy. Keep the
+  file's shape: the Summary table's numbered rows, `## N. Topic` headings, and a tick box
+  (`- [ ]`, or `| [ ] |` in item 4's table) on every question; tick `[x]` when answered.
+  `tests/tax-questions.test.ts` fails if a question would drop off the page.
 
 `sendTestBookingEmail` (admin-only, in `db.ts`) re-sends the email for any existing booking ignoring the claim, so the template can be checked without paying for a trip.
 

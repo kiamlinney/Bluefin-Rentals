@@ -334,6 +334,8 @@ export const getTaxSales = createServerFn({ method: 'GET' })
                 month,
                 source: 'checkout',
                 reference: b.id as string,
+                bookingId: b.id as string,
+                date: b.created_at as string,
                 jurisdiction: quote.taxJurisdiction,
                 total: Number(b.total_price),
                 refunded: Number(b.refunded_amount) || 0,
@@ -341,12 +343,15 @@ export const getTaxSales = createServerFn({ method: 'GET' })
             })
         }
         for (const c of charges ?? []) {
-            const month = businessDateKey((c.settled_at ?? c.created_at) as string).slice(0, 7)
+            const paidAt = (c.settled_at ?? c.created_at) as string
+            const month = businessDateKey(paidAt).slice(0, 7)
             if (!inYear(month)) continue
             sales.push({
                 month,
                 source: 'charge',
                 reference: c.id as string,
+                bookingId: c.booking_id as string,
+                date: paidAt,
                 jurisdiction: taxContextFromQuote(storedQuote((c as any).bookings)).jurisdiction,
                 total: Number(c.amount_captured),
                 refunded: Number(c.amount_refunded) || 0,

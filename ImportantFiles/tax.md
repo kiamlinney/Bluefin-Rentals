@@ -235,9 +235,21 @@ $28.52", and pays **$369.13**.
 ## 9. Records and the tax report
 
 The admin page **Business → Tax information** (`/admin/business/tax-information`) totals the
-tax collected for a chosen year and downloads it as a CSV. It has one row per month,
+tax collected for a chosen year and downloads it as a CSV. The CSV has one row per month,
 jurisdiction and tax, with these columns:
 **Month · Jurisdiction · Tax · Taxable amount · Collected · Refunded · Net**.
+
+The page shows the same figures in plainer terms (rebuilt 2026-10-14; the numbers and the CSV
+did not change):
+- each month leads with **You owe** (tax charged minus tax given back), which is the sum of
+  that month's Net;
+- under it, per pickup place, the **rental price taxed** (once, before refunds) and two lines,
+  the way a receipt shows tax: **Sales tax** (the state and local rates combined, e.g. 9.875%)
+  and the **rental vehicle tax**, each with tax charged, given back and owed;
+- **Breakdown for the tax form** folds out the per-rate rows (the CSV's rows, with each rate);
+- **Bookings and charges this month** lists each sale with its own tax and links to its trip;
+- **Open questions for your accountant** lists every question in
+  [tax-todo.md](tax-todo.md), read from that file.
 
 **Reporting conventions** (**Unconfirmed**, tax-todo.md item 7):
 - **When a sale counts:** a checkout counts in the month the booking was made, in Central

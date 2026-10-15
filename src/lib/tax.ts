@@ -331,19 +331,29 @@ const SEPARATELY_SHOWN: Record<string, string> = {
     [MN_RENTAL_VEHICLE_FEE.id]: MN_RENTAL_VEHICLE_FEE.label,
 }
 
+/** Which displayed tax a stored line belongs to: the sales tax, or the rental tax or fee. */
+export function taxDisplayGroup(id: string): { id: string; label: string } {
+    const separate = SEPARATELY_SHOWN[id]
+    return separate ? { id, label: separate } : { id: 'sales-tax', label: 'Sales tax' }
+}
+
+/** Rates summed in floating point; 0.06875 + 0.01 + 0.015 + 0.005 must come out as 0.09875. */
+export function sumTaxRates(rates: number[]): number {
+    return Math.round(rates.reduce((sum, rate) => sum + rate, 0) * 1e6) / 1e6
+}
+
 /** Groups stored tax lines for display: sales tax first, then the rental tax and fee. */
 export function displayTaxLines(lines: Pick<TaxLine, 'id' | 'rate' | 'amount'>[]): DisplayTaxLine[] {
-    const groups = new Map<string, { label: string; rate: number; amount: number }>()
+    const groups = new Map<string, { label: string; rates: number[]; amount: number }>()
     for (const line of lines) {
-        const id = line.id in SEPARATELY_SHOWN ? line.id : 'sales-tax'
-        const group = groups.get(id) ?? { label: SEPARATELY_SHOWN[line.id] ?? 'Sales tax', rate: 0, amount: 0 }
-        group.rate += line.rate
+        const { id, label } = taxDisplayGroup(line.id)
+        const group = groups.get(id) ?? { label, rates: [], amount: 0 }
+        group.rates.push(line.rate)
         group.amount += line.amount
         groups.set(id, group)
     }
     return [...groups.entries()].map(([id, group]) => {
-        // Summed in floating point; 0.06875 + 0.01 + 0.015 + 0.005 must print as 9.875%.
-        const rate = Math.round(group.rate * 1e6) / 1e6
+        const rate = sumTaxRates(group.rates)
         return { id, label: `${group.label} (${formatTaxRate(rate)})`, rate, amount: roundMoney(group.amount) }
     })
 }

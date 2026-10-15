@@ -12,6 +12,12 @@ meeting.
 Online bookings are paused, so **no tax has yet been collected from a real customer.**
 Every assumption can still be changed without correcting a past return.
 
+**These questions also appear in the admin site**, under **Business → Tax information**, which
+reads them straight from this file. To keep them showing there, keep the shape: the Summary
+table's numbered rows, the `## N. Topic` headings, and a tick box (`- [ ]`, or `| [ ] |` in a
+table) on every question. Tick a box (`[x]`) once it's answered. `tests/tax-questions.test.ts`
+fails if a question would drop off the page.
+
 *This document records our own reading of public guidance. It is not tax advice.*
 
 ---
@@ -131,8 +137,10 @@ For each charge below: is it part of the taxable sales price, for sales tax **an
 | [ ] | Security deposit captured for damage | No | — |
 | [ ] | **Cancellation fee kept on a late cancellation** | Yes: we keep the tax on the part of the rental price we keep | Is a cancellation fee a sale? If not, the tax on it should be refunded. |
 
-**Also:** for a charge we can't categorise ("Other"), we charge tax so as not to
-under-collect. Is that the right default?
+Also:
+
+- [ ] For a charge we can't categorise ("Other"), we charge tax so as not to under-collect.
+  Is that the right default?
 
 *Code: `TAXABILITY` in `src/lib/tax.ts` (`taxable`, `confirmed`). Cancellation fee tax:
 `refundForCancellation` in `src/lib/cancellation-policy.ts`.*
@@ -180,8 +188,10 @@ refunded, net. tax.md section 9 describes it. These conventions are our assumpti
 - a refund reduces the **month of the original sale**, not the month of the refund.
 
 **Questions:**
-- [ ] Are those two conventions right for Bluefin's returns? Should a refund be reported in
-  the month it is issued instead?
+- [ ] Are those two conventions (sales counted in the month paid, refunds in the month of the
+  sale) right for Bluefin's returns? Should a refund be reported in the month it is issued
+  instead? As it stands, a trip booked in one month and refunded in the next lowers the
+  **first** month's figures, which may already have been filed.
 - [ ] The return asks for **gross sales** and **exempt sales**. The report covers taxed
   sales only. What should be included as gross sales: damage, tolls, captured deposits? And
   should "taxable amount" be reduced by refunds?
